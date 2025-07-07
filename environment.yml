@@ -1,0 +1,24 @@
+name: gcamp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python==3.9       # or 3.9/3.10 if you’ve patched Cascade2p’s python_required
+  - seaborn
+  - scipy
+  - pandas
+  - scikit-learn
+  - h5py
+  - tifffile
+  - openpyxl
+  - pip
+  - joblib
+  - matplotlib
+  - ruamel.yaml
+  - numpy
+  - pip:
+    - tensorflow
+    - elephant
+    - quantities
+    - networkx
+

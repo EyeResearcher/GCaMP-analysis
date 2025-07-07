@@ -1,0 +1,7 @@
+# Ignore all __pycache__ folders
+**/__pycache__/
+**/*.py[cod]
+# Ignore any changes to downloaded pretrained models
+**/Pretrained_models
+# ignore changes to model run
+**/model_runs
