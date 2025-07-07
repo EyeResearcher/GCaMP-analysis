@@ -8,7 +8,8 @@ from scipy.optimize import curve_fit
 
 def find_spikes(spike_prob, raw_fluorescence, sigma=4, window_size=10):
     """
-    Find spikes with refined indices and store extra info.
+    Find spikes using the spike probability trace.
+    Returns indices and values of peaks in both smoothed spike probability and raw fluorescence.
 
     Returns:
         tuple: (smoothed_peak_indices, 
@@ -16,24 +17,32 @@ def find_spikes(spike_prob, raw_fluorescence, sigma=4, window_size=10):
                 refined_peak_indices, 
                 refined_peak_values)
     """
+    # Step 1: Smooth the spike probability signal and find peaks
     smoothed_prob = gaussian_filter1d(spike_prob, sigma=sigma)
     smoothed_peak_indices, _ = find_peaks(smoothed_prob)
 
+    # Step 2: Get spike probability values at smoothed peak indices
     values_at_smoothed_peaks = spike_prob[smoothed_peak_indices]
 
     refined_indices = []
     refined_values = []
 
     n_frames = len(raw_fluorescence)
+
+    #Step 3: Find real peak indices and values in the raw fluorescence trace
     for peak_idx in smoothed_peak_indices:
+        
+        #Create a window around the smoothed peak index
         start = max(0, peak_idx - window_size)
         end = min(n_frames, peak_idx + window_size + 1)
         window = raw_fluorescence[start:end]
 
+        # Find the local maximum in the window 
         local_max_idx = np.argmax(window)
         refined_peak_idx = start + local_max_idx
         refined_peak_value = window[local_max_idx]
 
+        # Add the refined peak index and value to the lists
         refined_indices.append(refined_peak_idx)
         refined_values.append(refined_peak_value)
 
