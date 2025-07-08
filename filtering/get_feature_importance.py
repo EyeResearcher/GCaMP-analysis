@@ -16,7 +16,7 @@ def export_feature_importance(model_path="roi_classifier_model.pkl",
     # Extract feature columns
     feature_columns = df.columns.difference(["label", "source_file"])
     importances = model.feature_importances_
-
+    print(f"Feature importances: {importances}")
     # Rank and save
     ranked_features = sorted(zip(feature_columns, importances), key=lambda x: x[1], reverse=True)
     ranked_df = pd.DataFrame(ranked_features, columns=["Feature", "Importance"])
