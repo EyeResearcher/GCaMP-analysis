@@ -31,6 +31,7 @@ class Video:
         # Instantiate and filter ROIs
         n_rois = self.summary_files.raw_fluorescence.shape[0]
         self.rois = [ROI(i, self.summary_files, roi_model) for i in range(n_rois)]
+        self.good_rois = []
 
         # Placeholders
         self.filtered_summary = {}
@@ -51,24 +52,23 @@ class Video:
 
     def _process_neurons(self):
         # 1) Filter ROIs
-        good_indices = []
         for roi in self.rois:
             roi._filter_roi()
             if roi.is_good_cell:
-                good_indices.append(roi.row_index)
-        self.good_indices = good_indices
+                self.good_rois.append((roi.row_index, roi.features))
+        self.good_indices = [self.good_rois[i][0] for i in range(len(self.good_rois))]
         # 2) Filter summary files
         keys = ['raw_fluorescence', 'Fneu', 'spike_prob', 'spks', 'iscell', 'stat', 'ops']
         for key in keys:
             arr = getattr(self.summary_files, key)
             try:
-                self.filtered_summary[key] = arr[good_indices]
+                self.filtered_summary[key] = arr[self.good_indices]
             except Exception:
                 self.filtered_summary[key] = arr
 
         # 3) Instantiate Neurons for good ROIs
-        self.neurons = [Neuron(idx, self.summary_files, fs=self.fs)
-                        for idx in good_indices]
+        self.neurons = [Neuron(idx, features, self.summary_files, fs=self.fs)
+                        for idx, features in self.good_rois]
     
         # 4) Compute per-neuron stats
         for neuron in self.neurons:

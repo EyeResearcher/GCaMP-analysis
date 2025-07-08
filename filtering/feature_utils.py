@@ -5,6 +5,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks, peak_prominences
 from scipy.stats import skew
+from data_classes.spike import Spike
 
 def four_primary_roi_features(
     raw_trace: np.ndarray,
@@ -70,3 +71,33 @@ def four_primary_roi_features(
        "spike_peak_mean":   spike_peak_mean,
         "spike_prom_mean":   spike_prom_mean
     }
+
+def compute_spike_features(raw_trace, spike_prob_trace, spike_idx_prob, neuron_prom_skew):
+    """
+    Compute features for a single spike:
+      1. Left-base prominence at spike index in spike_prob_trace.
+      2. Value in spike_prob_trace at spike index.
+      3. Change in skewness of prominence distribution when this spike is removed.
+    """
+    # 1. Find all peaks and prominences in spike_prob_trace
+    peaks, _ = find_peaks(spike_prob_trace)
+    proms, left_bases, _ = peak_prominences(spike_prob_trace, peaks)
+    # Find the index of this spike in the peaks array
+    try:
+        peak_idx = np.where(peaks == spike_idx_prob)[0][0]
+        left_base_prom = spike_prob_trace[peaks[peak_idx]] - spike_prob_trace[left_bases[peak_idx]]
+    except IndexError:
+        left_base_prom = np.nan
+
+    # 2. Value in spike_prob_trace at spike index
+    spike_prob_value = spike_prob_trace[spike_idx_prob]
+
+    # 3. Change in skewness of prominence distribution if this spike is removed
+    if proms.size > 1 and 'peak_idx' in locals():
+        proms_wo = np.delete(proms, peak_idx)
+        new_skew = skew(proms_wo) if proms_wo.size > 1 else 0.0
+        delta_skew = neuron_prom_skew - new_skew
+    else:
+        delta_skew = 0.0
+
+    return left_base_prom, spike_prob_value, delta_skew

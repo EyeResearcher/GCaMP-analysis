@@ -33,9 +33,9 @@ def find_spikes(spike_prob, raw_fluorescence, sigma=4, window_size=10):
     for peak_idx in smoothed_peak_indices:
         
         #Create a window around the smoothed peak index
-        start = max(0, peak_idx - window_size)
-        end = min(n_frames, peak_idx + window_size + 1)
-        window = raw_fluorescence[start:end]
+        start = max(0, peak_idx - window_size/2)
+        end = min(n_frames, peak_idx + window_size*3/2 + 1)
+        window = raw_fluorescence[int(start):int(end)]
 
         # Find the local maximum in the window 
         local_max_idx = np.argmax(window)
