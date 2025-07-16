@@ -1,135 +1,301 @@
 suite2p_path,roi_index,spike_prob_index,raw_f_index,feature,label
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,162,555,556.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,365,146,155.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1586,78,74.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,546,826,829.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,739,466,477.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,823,702,713.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1186,565,565.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,129,143,139.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,2195,203,215.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,454,642,654.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,474,415,424.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1332,734,735.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,373,632,638.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,22,548,562.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,385,238,246.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,873,207,216.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,674,777,784.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,231,682,677.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-M\suite2p\plane0,76,1170,1173.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,531,308,313.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,727,824,829.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,255,807,814.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1688,465,472.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,287,441,452.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,713,96,108.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1326,327,337.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,430,313,321.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-L\suite2p\plane0,23,112,114.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,678,351,363.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,260,489,497.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,671,50,59.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,228,719,728.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,561,276,290.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,396,63,73.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,181,849,859.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,694,575,585.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,383,216,225.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,288,823,818.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,135,540,551.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,277,660,669.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,935,592,601.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,86,409,419.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,171,760,765.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,169,408,419.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,409,642,644.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,140,204,210.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,292,332,339.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,678,500,507.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,33,271,278.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,577,539,544.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,231,181,191.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,484,844,847.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,278,199,206.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1517,325,333.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,43,260,274.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,3,260,264.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,254,221,227.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,681,671,684.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-M\suite2p\plane0,103,230,240.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,350,737,744.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1594,94,89.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,772,75,78.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,117,421,422.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,195,655,666.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1431,783,790.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,485,185,194.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,406,237,232.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,329,228,240.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,257,324,329.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,509,726,737.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,133,572,583.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1682,613,628.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,243,164,164.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,640,138,142.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1201,93,89.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,402,135,150.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,482,251,256.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,848,293,308.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,170,153,165.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1102,215,223.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,859,666,679.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,211,242,253.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,144,524,536.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,358,607,608.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,810,434,443.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,88,197,204.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1446,754,765.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,648,550,550.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1059,655,659.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,521,671,675.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,1029,657,669.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,29,76,71.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,496,380,382.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,505,130,140.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,800,382,386.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,879,595,590.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,366,625,634.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,280,152,159.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,497,374,383.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,625,508,520.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,296,579,592.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,119,325,334.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1429,644,647.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,81,832,832.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,603,715,724.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,144,481,493.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,689,536,548.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,323,654,651.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,340,297,312.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-M\suite2p\plane0,27,320,328.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1231,449,460.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,259,555,568.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-L\suite2p\plane0,44,783,789.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,621,381,390.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,112,72,78.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,996,304,306.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,17,719,720.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,904,231,245.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,329,65,74.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-R\suite2p\plane0,155,565,578.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,590,697,700.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,150,307,302.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1601,121,133.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,673,87,100.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,917,374,385.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,1114,203,217.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1326,107,122.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,436,213,222.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,347,546,552.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1612,572,576.0,,
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,913,484,490.0,,0
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,25,377,384.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,869,368,380.0,,1
-C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,37,391,393.0,,0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,280,402,407.0,"[nan, -0.682118434190981, -1.4591343066156963]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,887,694,705.0,"[nan, -0.26753112806583657, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,503,244,252.0,"[nan, -0.1038421642481793, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1023,192,198.0,"[nan, -0.30601135361287085, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,148,571,580.0,"[nan, -0.38431609288141316, -0.6640583042589733]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,278,185,182.0,"[nan, 0.8430483331197455, -2.091830988471794]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,176,533,538.0,"[nan, -0.8437187935256261, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,957,449,448.0,"[nan, -0.8764474164385794, -1.4680683346575882]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,221,183,195.0,"[nan, 3.4914538990069195, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,633,204,209.0,"[nan, -0.03498591388261553, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1092,473,478.0,"[nan, 0.024399235331719418, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,458,53,67.0,"[nan, 0.511202341407652, -1.6446059044622852]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,106,337,351.0,"[nan, 0.7849141368031223, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,38,724,726.0,"[nan, -0.6086294684542481, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,166,359,362.0,"[nan, 1.6940822729185911, -1.0978430989630183]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,205,780,786.0,"[nan, -0.48721477136581337, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,60,503,513.0,"[nan, -0.576097910044359, -1.5179301508453693]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,264,324,336.0,"[nan, -0.5529630568552097, -0.5368961931066643]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,69,53,67.0,"[nan, -0.3195750780682855, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1254,193,189.0,"[nan, -0.667109392553089, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,66,201,196.0,"[nan, 0.046179531953223836, -0.931255414628539]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,337,406,417.0,"[nan, -0.3408798942328725, -1.175211606330028]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,33,84,95.0,"[nan, -0.3925400864878236, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,5,480,493.0,"[nan, 2.764289352897164, -0.875416543376826]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,279,132,144.0,"[nan, -0.20467554030148366, -1.846962434935696]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,14,211,219.0,"[nan, 3.0838209332551205, -0.8003907680001675]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,84,544,557.0,"[nan, -0.22228176837891783, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,288,87,98.0,"[nan, -0.6881155146538551, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1533,808,817.0,"[nan, -0.3699402819327123, -1.1885339765217602]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,415,256,267.0,"[nan, -0.40825883928366713, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,604,460,474.0,"[nan, -0.42780184847755043, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,332,417,422.0,"[nan, -0.4517092878237328, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,557,456,462.0,"[nan, -0.4943727066861409, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,492,347,357.0,"[nan, -0.05727965436631467, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,351,677,682.0,"[nan, -0.33854273654638883, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,32,450,457.0,"[nan, -0.5002645073771914, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,133,253,259.0,"[nan, 0.3692720240578359, -1.3564776973073425]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,486,165,180.0,"[nan, -0.3380820203082915, -1.5692662669114694]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,238,72,71.0,"[nan, -0.8842186724981465, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1697,665,679.0,"[nan, -0.23365122737220748, -1.190330089830889]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,362,772,768.0,"[nan, -0.7610623022726056, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,430,769,769.0,"[nan, -0.6906871541541112, -1.7441239324597262]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,211,688,699.0,"[nan, -0.06106163608616329, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,336,356,361.0,"[nan, -0.28182346066911074, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,305,387,396.0,"[nan, -0.3623043247735392, -1.1116776802187063]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,235,606,613.0,"[nan, 3.093718284664775, -1.221811776680416]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,138,796,804.0,"[nan, 1.20418009680324, 0.34450359409965914]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,547,834,842.0,"[nan, -0.729520757345512, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,533,823,831.0,"[nan, -0.727842284822047, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,96,610,611.0,"[nan, -0.4561788827805779, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,990,296,311.0,"[nan, -0.4582375897204794, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,409,803,817.0,"[nan, 1.1398429378330242, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,372,603,614.0,"[nan, -0.6949750009721907, -0.9174210526865266]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,721,185,182.0,"[nan, 0.02719975350368756, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,485,329,331.0,"[nan, -0.03250038770971833, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,40,369,376.0,"[nan, -0.0783008765113699, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,211,597,606.0,"[nan, 1.7384561325822099, -0.8934242585602105]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,308,504,514.0,"[nan, -0.06047437718077782, -0.9374439321120863]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,184,121,129.0,"[nan, -0.009908876114965477, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1184,724,728.0,"[nan, -0.22063379111495293, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1456,658,669.0,"[nan, -0.5584232159276016, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,42,510,508.0,"[nan, -0.5284370300204694, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,543,475,475.0,"[nan, -0.4805628372891769, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,303,348,355.0,"[nan, -0.29246990860569194, -1.256646837786598]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1455,353,354.0,"[nan, -0.42240014118950353, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,493,422,422.0,"[nan, -0.17443345841238062, -1.077225860901879]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,202,551,560.0,"[nan, -0.05790134899682538, -0.8414043031939233]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,330,784,796.0,"[nan, -0.6769260912028935, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,980,403,418.0,"[nan, -0.739273655207104, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,408,656,652.0,"[nan, 0.3952496307662335, -0.6534160229914713]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1143,357,364.0,"[nan, -0.1605333154987872, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,255,226,236.0,"[nan, -0.05596381151670705, -0.9331891354391967]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,211,478,486.0,"[nan, -0.3407245613388852, -0.9957075611449386]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,84,139,148.0,"[nan, -0.5127841761656562, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,93,353,359.0,"[nan, 1.345249551279479, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,879,179,184.0,"[nan, -0.5630869210310193, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,7,184,195.0,"[nan, -0.4216564299719003, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,881,441,448.0,"[nan, -0.4105067823626579, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1291,260,275.0,"[nan, -0.6823012382134286, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,47,379,389.0,"[nan, 0.7766645145701493, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,26,225,235.0,"[nan, 0.5222095566616464, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,415,182,186.0,"[nan, -0.2814527880130875, -0.892693537121283]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,383,418,426.0,"[nan, -0.1809362315225692, -1.5336975348639321]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,321,812,820.0,"[nan, -0.092087812961888, -1.480424294650172]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,230,269,274.0,"[nan, 1.8604068857810898, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,24,616,624.0,"[nan, 1.7158230813056616, -0.8760863173624229]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,225,275,290.0,"[nan, -0.5199658144106448, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,907,400,396.0,"[nan, -0.5417414518319478, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,282,632,641.0,"[nan, -0.4500393034024529, -2.0179333555571812]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,84,233,245.0,"[nan, -0.46530941454981195, -2.899639744811897]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,707,825,823.0,"[nan, -0.7233010956948344, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,119,593,589.0,"[nan, 0.18934681854923813, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,45,278,287.0,"[nan, -0.4549820915724802, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,378,211,226.0,"[nan, 1.3174448180339182, -2.2306551591866435]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,370,816,830.0,"[nan, -0.5309860693742938, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,90,371,377.0,"[nan, 3.441897532297457, -0.19128098063902108]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,337,136,150.0,"[nan, -0.35551600320009813, -1.1665863743022176]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-3_1x\suite2p\plane0,897,564,575.0,"[nan, 0.09645654986474754, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,244,680,687.0,"[nan, -0.3889670033370051, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,333,162,170.0,"[nan, 0.03854537796503791, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,673,687,699.0,"[nan, -0.4585302601040399, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,45,464,464.0,"[nan, -0.33639360481712394, -1.0807964596847615]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,29,334,338.0,"[nan, -0.6660073071527215, -1.0698677313598397]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,163,796,805.0,"[nan, -0.5871014554218311, -1.4022254515189023]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1247,162,170.0,"[nan, -0.3083139848105893, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,233,266,275.0,"[nan, -0.2692099589165898, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,375,562,567.0,"[nan, 0.9934958439141011, -0.8934998708856186]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,106,256,264.0,"[nan, 2.897037155115499, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,226,841,848.0,"[nan, -0.7024853109986597, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1576,553,562.0,"[nan, 0.05647602554740472, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,375,823,838.0,"[nan, 1.076606626852214, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,244,175,181.0,"[nan, -0.3657107810080639, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,437,266,276.0,"[nan, -0.4168348657198406, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,689,667,677.0,"[nan, -0.3637664302040149, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,165,453,461.0,"[nan, -0.7423880871817324, -2.512030436058592]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1292,666,662.0,"[nan, -0.6060210694905849, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,554,602,617.0,"[nan, -0.3662095635168978, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,69,767,780.0,"[nan, -0.504676533982457, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,395,535,545.0,"[nan, -0.4568859012838677, -0.8455600184655597]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,131,252,262.0,"[nan, 4.563918476450351, -0.2921495411501574]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,164,392,389.0,"[nan, -0.21532622387461173, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,377,849,856.0,"[nan, -0.4520107683313105, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,581,370,366.0,"[nan, -0.8532455796828983, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,139,404,415.0,"[nan, 0.4876413831819016, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,216,679,679.0,"[nan, -0.5685446688160342, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,177,198,201.0,"[nan, -0.8238851213373601, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,385,87,89.0,"[nan, -0.659106741210792, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,290,156,168.0,"[nan, -0.3170677627599009, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,30,296,309.0,"[nan, 1.104486022268275, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,369,261,271.0,"[nan, 0.5049564536031134, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1607,295,292.0,"[nan, -0.9402599766952088, -1.4936187770329625]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,698,706,709.0,"[nan, -0.323974621647557, -1.7231623461561432]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,296,165,172.0,"[nan, -0.14939625378099794, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,204,194,200.0,"[nan, 0.7433678731308239, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1607,640,644.0,"[nan, -0.8630969175196547, -1.4773808467237894]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,755,100,99.0,"[nan, -0.7377359952860896, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,369,655,661.0,"[nan, -0.12427023995304884, -0.7548668840851673]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1090,719,732.0,"[nan, -0.2249906939360175, -1.0334559798787246]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,235,254,267.0,"[nan, -0.5387895066279794, -0.7654534075241186]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,999,753,760.0,"[nan, -0.3661445646486335, -0.34445816766398624]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,136,685,691.0,"[nan, 0.7632430469936113, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,1003,848,853.0,"[nan, -0.47353377423623827, -1.4692113775848927]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,563,821,836.0,"[nan, -0.02140853252479226, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,727,554,565.0,"[nan, -0.4116427679826727, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,154,619,626.0,"[nan, 3.378784012420136, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1891,478,486.0,"[nan, -0.4510336372345263, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1456,511,510.0,"[nan, -0.5495571633552547, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,293,58,64.0,"[nan, -0.6085676221097565, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,774,530,527.0,"[nan, -0.6757027866118314, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,471,814,809.0,"[nan, -0.23895915766710982, -0.954572500839287]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1137,399,408.0,"[nan, -0.4946285542608369, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,497,593,590.0,"[nan, -0.2691166296907372, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,82,675,689.0,"[nan, -0.7299680237357552, -0.031803576142418286]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,45,637,642.0,"[nan, 1.0978116574706691, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,371,60,67.0,"[nan, -0.6065083038389194, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,432,639,647.0,"[nan, -0.05498201516881197, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,471,345,350.0,"[nan, -0.6344474884793835, -1.1132303523428682]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,55,237,247.0,"[nan, -0.5408008803294712, -1.224785810795542]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,484,351,358.0,"[nan, -0.1603097222963945, -0.9209817476689146]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,963,336,339.0,"[nan, -0.5842636878518893, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-2_1x\suite2p\plane0,540,600,600.0,"[nan, -0.7258527913978646, -1.0243922989456762]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,164,312,321.0,"[nan, -0.7321704974455079, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,527,634,640.0,"[nan, -0.5305303935436871, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,101,558,566.0,"[nan, -0.6026829614917419, -0.9024019783757938]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,989,155,169.0,"[nan, -0.5834917430912475, -1.2972023653753773]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,293,180,187.0,"[nan, 0.11123665837274338, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,578,380,382.0,"[nan, -0.7770051489835907, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1073,710,719.0,"[nan, -0.13886031360192078, -3.321245308158435]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,559,789,796.0,"[nan, 0.055996363912124904, -1.200924668534343]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,48,65,72.0,"[nan, -0.4799568750229828, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1128,795,806.0,"[nan, -0.4925408785924104, -1.413911966009901]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,690,498,493.0,"[nan, -0.4424547426673198, -0.9619857942237338]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,187,779,784.0,"[nan, 1.080598847417514, -0.7729445597945832]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,828,506,517.0,"[nan, -0.36486062824404136, -1.2683496122310463]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,597,335,343.0,"[nan, -0.40261054533768825, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1102,644,652.0,"[nan, -0.42381802052352197, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,392,452,451.0,"[nan, -0.81842571919591, -0.6800131523712857]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,538,665,672.0,"[nan, -0.40588693122477226, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,613,516,524.0,"[nan, -0.7591344144801773, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,285,260,272.0,"[nan, 1.8983948335468444, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,577,811,823.0,"[nan, -0.4288374979186824, -1.8213229630476577]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,263,307,311.0,"[nan, -0.48768357766971493, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,81,638,640.0,"[nan, -0.31937556748511575, -1.668895695886224]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,401,518,530.0,"[nan, -0.3100563320568154, -1.4861464321662836]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,387,170,180.0,"[nan, -0.7364308096005788, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,273,559,567.0,"[nan, -0.5947403518102222, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,842,105,117.0,"[nan, -0.26326435959048644, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,31,824,839.0,"[nan, -0.6551270218242139, -0.5799748235144631]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,230,81,86.0,"[nan, 1.801348292042689, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,208,728,742.0,"[nan, 1.5669343210659596, -1.5590268673739263]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1018,355,365.0,"[nan, -0.390938595334959, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,82,836,850.0,"[nan, -0.37837949730842624, -0.8741889484658764]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,458,218,223.0,"[nan, 0.6007148593715858, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,96,719,730.0,"[nan, -0.495647475963064, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,310,633,634.0,"[nan, 0.8594612492619595, -0.8980838295175454]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,550,550,546.0,"[nan, -0.9783253558679467, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,36,494,492.0,"[nan, -0.9696012937453742, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,172,83,87.0,"[nan, -0.8537453757190487, -0.8905767785480254]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,17,150,145.0,"[nan, -0.16465866817166058, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,121,713,718.0,"[nan, -0.5693270453443997, -2.1841354033585283]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,281,300,308.0,"[nan, -0.21264623981694497, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,348,276,286.0,"[nan, -0.17053836099309683, -1.5331430474498466]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,351,636,650.0,"[nan, 0.007209606312293867, -0.8259136722420541]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,448,601,609.0,"[nan, 2.019456968350948, -0.27924821070834466]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,341,346,351.0,"[nan, -0.4076162085067971, -1.6689646380510545]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,62,323,321.0,"[nan, -0.6692503404274547, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,452,271,278.0,"[nan, -0.7790395827006248, -1.4753011587363754]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,85,476,486.0,"[nan, -0.5146913516953711, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,117,211,222.0,"[nan, -0.09935507611239612, -1.2229804710798493]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,333,784,789.0,"[nan, -0.8779340598192067, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,232,582,597.0,"[nan, -0.041387594450252266, -1.5463800710185005]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,212,612,619.0,"[nan, 0.465598392381769, -1.4953727993484667]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1247,189,195.0,"[nan, -0.4840952734564202, -0.984105324198023]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,312,314,310.0,"[nan, -0.6454741316905814, -1.123270029577663]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,486,303,310.0,"[nan, -0.226537808591986, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,20,790,789.0,"[nan, 0.16516743620948207, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,211,345,350.0,"[nan, 2.9699962003638705, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,597,707,720.0,"[nan, -0.563201461719607, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,481,650,661.0,"[nan, -0.4602720325138775, -1.0732866896222677]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,230,512,507.0,"[nan, 0.2266664433770117, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,208,648,659.0,"[nan, -0.6179142772337877, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,371,163,173.0,"[nan, -0.535362422843472, -0.7972943575075475]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,168,799,813.0,"[nan, 0.5114552149604011, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,87,482,489.0,"[nan, 0.006893083244065961, -1.072748176381226]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,701,759,771.0,"[nan, -0.266292863925037, -1.630095821736492]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1592,224,233.0,"[nan, -0.4972339941407359, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,59,664,674.0,"[nan, -0.06693870886384998, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,513,530,540.0,"[nan, 1.4867565712146336, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,91,441,448.0,"[nan, 0.01113467993650983, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,182,729,724.0,"[nan, -0.795510924721728, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,102,240,246.0,"[nan, -0.6464743727229102, -0.7563366676776435]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,228,753,752.0,"[nan, -0.30295033471691474, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,673,312,321.0,"[nan, -0.7048130776738283, -2.0209451381643837]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,139,527,539.0,"[nan, 0.33949011382498845, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1374,658,665.0,"[nan, -0.5920955401758939, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,138,540,552.0,"[nan, 1.285032892152837, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,390,90,96.0,"[nan, -0.2489925274680985, -0.9744758160805111]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,178,143,153.0,"[nan, 1.2470997111676316, -0.3868432568810077]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,335,180,187.0,"[nan, 1.1020803259315557, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,228,371,380.0,"[nan, -0.18379560083889937, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,513,623,628.0,"[nan, 1.3617929613327888, -3.7791765487047098]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,352,666,675.0,"[nan, -0.6094211694339258, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,519,603,600.0,"[nan, 0.655217880782152, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,571,491,498.0,"[nan, -0.29738324699990065, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,693,116,121.0,"[nan, -0.48975825598485234, -0.931717367093848]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,302,617,624.0,"[nan, 1.7234359300420172, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,452,182,192.0,"[nan, -0.7110770395446028, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,140,364,379.0,"[nan, -0.4378841640842913, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,555,195,201.0,"[nan, -0.07711372440187074, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,13,240,248.0,"[nan, 0.29273337580381886, -3.298134790705584]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,292,376,387.0,"[nan, -0.4648744509819188, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1526,522,530.0,"[nan, -0.5099583425016847, -2.100932691748121]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,396,668,675.0,"[nan, -0.9347795576655774, -1.4938897381786154]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1614,678,690.0,"[nan, -0.27851545878066003, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,865,369,366.0,"[nan, -0.8857769278236876, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,966,178,186.0,"[nan, -0.7581979621342424, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,279,163,171.0,"[nan, 1.4802484612023963, -1.3093888744666355]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,772,190,195.0,"[nan, -0.26468880416115226, -0.677963017824863]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1458,234,248.0,"[nan, -0.8482070101560034, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,486,87,95.0,"[nan, -0.45636395589403267, -0.9035675483881099]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,503,456,463.0,"[nan, -0.2536479882075235, -0.6056952636509665]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,601,549,557.0,"[nan, -0.806218195075484, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,147,231,241.0,"[nan, -0.3737197646269983, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,143,709,712.0,"[nan, -0.3633764188417012, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,426,757,768.0,"[nan, -0.7133926225246993, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,259,642,650.0,"[nan, 1.9480661433303668, -0.8102281389131079]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,269,121,130.0,"[nan, 0.6435806569481968, -0.9467410536960136]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,190,212,218.0,"[nan, -0.6014269137283553, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,97,67,71.0,"[nan, 3.089405172274694, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,165,722,725.0,"[nan, -0.8221004071365753, -2.5120499577655457]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,1026,74,86.0,"[nan, 0.1188457313416633, -0.6103712136503561]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,335,490,501.0,"[nan, -0.5629665170112691, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,125,284,279.0,"[nan, -0.233773417922944, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,546,540,550.0,"[nan, -0.7731875334585653, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,542,491,488.0,"[nan, -0.6530931720199323, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,193,110,117.0,"[nan, 4.660211776554673, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,457,467,473.0,"[nan, -0.7528495542812267, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,533,402,411.0,"[nan, 0.02989809602032974, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,281,635,645.0,"[nan, -0.43894215348275256, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,878,138,143.0,"[nan, -0.6988960870471433, -1.712607204412062]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,406,591,596.0,"[nan, -0.677212199564352, -1.3332572331202006]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,293,846,855.0,"[nan, 3.045541476880401, -0.4840613569721889]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,514,379,375.0,"[nan, -0.6463810313952388, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-1 glass\suite2p\plane0,403,289,284.0,"[nan, -0.2732548768514408, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,1567,475,489.0,"[nan, -0.5513452131198202, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\1-1_1x\suite2p\plane0,919,228,231.0,"[nan, -0.7797603473572361, -1.8300561927191885]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,502,515,529.0,"[nan, -0.4101642827405799, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-4 glass\suite2p\plane0,286,380,390.0,"[nan, 0.7905246912274698, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,681,715,723.0,"[nan, -0.6183180271857861, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,772,443,456.0,"[nan, -0.19481264882059163, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-4\suite2p\plane0,380,584,595.0,"[nan, -0.7537814593687832, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-1\suite2p\plane0,596,137,142.0,"[nan, 0.017651648480039295, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-2\suite2p\plane0,244,478,488.0,"[nan, -0.7494480945850996, 0.7583878192940736]",0
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-3 glass\suite2p\plane0,221,652,656.0,"[nan, 2.8230612303468074, -0.46999858062880623]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1353,123,127.0,"[nan, 0.45552569166998913, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_3\2-2\suite2p\plane0,721,432,446.0,"[nan, 0.23654064400748367, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-3\suite2p\plane0,1247,262,267.0,"[nan, -0.2742302289808754, -1.0845831562994752]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,322,478,485.0,"[nan, -0.20915087152039494, 0.7583878192940736]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training\2-2 glass\suite2p\plane0,118,466,474.0,"[nan, 1.4232341974432756, -0.08092742076882668]",1
+C:\Users\mzinn1\Desktop\Datasets\roi_classifier_training_2\2-1\suite2p\plane0,205,454,461.0,"[nan, -0.41517418154623537, 0.7583878192940736]",1

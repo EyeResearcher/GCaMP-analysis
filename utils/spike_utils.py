@@ -6,7 +6,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
 
-def find_spikes(spike_prob, raw_fluorescence, sigma=4, window_size=10):
+def find_spikes(spike_prob, raw_fluorescence, smooth = True, sigma=4, window_size=10, edge = 32):
     """
     Find spikes using the spike probability trace.
     Returns indices and values of peaks in both smoothed spike probability and raw fluorescence.
@@ -17,20 +17,23 @@ def find_spikes(spike_prob, raw_fluorescence, sigma=4, window_size=10):
                 refined_peak_indices, 
                 refined_peak_values)
     """
+    # Step 0: Trim the spike probability trace to avoid edge effects 
+    spike_prob_trimmed = spike_prob[edge:-edge]
     # Step 1: Smooth the spike probability signal and find peaks
-    smoothed_prob = gaussian_filter1d(spike_prob, sigma=sigma)
-    smoothed_peak_indices, _ = find_peaks(smoothed_prob)
+    prob_input = gaussian_filter1d(spike_prob_trimmed, sigma=sigma) if smooth == True else spike_prob_trimmed
+    prob_peak_indices, _ = find_peaks(prob_input)
 
-    # Step 2: Get spike probability values at smoothed peak indices
-    values_at_smoothed_peaks = spike_prob[smoothed_peak_indices]
+    # Step 2: Get spike probability values at smoothed peak indices frpm trimmed spike probability trace
+    prob_peak_indices += edge  # Adjust indices back to original trace
+    prob_peak_values = spike_prob[prob_peak_indices] 
 
-    refined_indices = []
-    refined_values = []
+    fluorescence_peak_indices = []
+    fluorescence_peak_values = []
 
     n_frames = len(raw_fluorescence)
 
     #Step 3: Find real peak indices and values in the raw fluorescence trace
-    for peak_idx in smoothed_peak_indices:
+    for peak_idx in prob_peak_indices:
         
         #Create a window around the smoothed peak index
         start = max(0, peak_idx - window_size/2)
@@ -39,18 +42,18 @@ def find_spikes(spike_prob, raw_fluorescence, sigma=4, window_size=10):
 
         # Find the local maximum in the window 
         local_max_idx = np.argmax(window)
-        refined_peak_idx = start + local_max_idx
-        refined_peak_value = window[local_max_idx]
+        fluorescence_peak_index = start + local_max_idx
+        fluorescence_peak_value = window[local_max_idx]
 
         # Add the refined peak index and value to the lists
-        refined_indices.append(refined_peak_idx)
-        refined_values.append(refined_peak_value)
+        fluorescence_peak_indices.append(fluorescence_peak_index)
+        fluorescence_peak_values.append(fluorescence_peak_value)
 
     return (
-        np.array(smoothed_peak_indices),
-        np.array(values_at_smoothed_peaks),
-        np.array(refined_indices),
-        np.array(refined_values)
+        np.array(prob_peak_indices),
+        np.array(prob_peak_values),
+        np.array(fluorescence_peak_indices),
+        np.array(fluorescence_peak_values)
     )
 
 # --- Windowing ---

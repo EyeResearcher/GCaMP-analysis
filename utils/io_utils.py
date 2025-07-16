@@ -20,6 +20,7 @@ class SummaryFiles:
         self.iscell           = self._load_npy('iscell.npy')
         self.stat             = self._load_npy('stat.npy', allow_pickle=True)
         self.ops              = self._load_npy('ops.npy', allow_pickle=True, as_dict=True)
+        self.sampling_rate    = self.ops.get('fs', 30)  # Default to 30Hz if not specified
         self.spike_prob       = None
         self._create_spike_prob()
         

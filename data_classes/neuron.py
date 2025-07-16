@@ -3,6 +3,7 @@ import sys
 
 from utils.io_utils import SummaryFiles
 from utils.spike_utils import find_spikes, compute_spike_constants, compute_area_under_curve
+from filtering.feature_utils import four_primary_roi_features
 import numpy as np
 import neo
 from data_classes.spike import Spike
@@ -29,6 +30,7 @@ class Neuron:
         self.area_under_curve = None
         self.area_per_spike = None
         self.binary_spike_train = None
+        self.spikes = []
 
     def _find_spikes(self, sigma=4, window_size=10):
         if self.spike_prob is None or self.raw_fluorescence is None:
@@ -57,7 +59,15 @@ class Neuron:
                 self.spike_prob,
                 self.features.get("spike_prom_skew", 0.0)
             )
-
+    def _get_features(self):
+        self.features = four_primary_roi_features(
+            self.raw_fluorescence,
+            self.spike_prob,
+            sigma_fluo=4.0,
+            sigma_spike=2.0,
+            prominence=0.05,
+            distance=10
+        )
     def _average_amplitudes(self):
         if self.spike_prob_peak_values is not None and len(self.spike_prob_peak_values):
             self.spike_prob_average_amplitude = float(np.mean(self.spike_prob_peak_values))
