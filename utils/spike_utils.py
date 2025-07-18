@@ -3,7 +3,7 @@ import sys
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, peak_prominences
 from scipy.optimize import curve_fit
 
 def find_spikes(spike_prob, raw_fluorescence, smooth = True, sigma=4, window_size=10, edge = 32):
@@ -22,17 +22,21 @@ def find_spikes(spike_prob, raw_fluorescence, smooth = True, sigma=4, window_siz
     # Step 1: Smooth the spike probability signal and find peaks
     prob_input = gaussian_filter1d(spike_prob_trimmed, sigma=sigma) if smooth == True else spike_prob_trimmed
     prob_peak_indices, _ = find_peaks(prob_input)
+    _ , left_bases, _ = peak_prominences(prob_input, prob_peak_indices)
+    left_base_prominences = prob_input[prob_peak_indices] - prob_input[left_bases]
 
     # Step 2: Get spike probability values at smoothed peak indices frpm trimmed spike probability trace
-    prob_peak_indices += edge  # Adjust indices back to original trace
+    prob_peak_indices += int(edge)  # Adjust indices back to original trace
     prob_peak_values = spike_prob[prob_peak_indices] 
+    
 
+    # Step 3: Refine peak indices in the raw fluorescence trace
     fluorescence_peak_indices = []
     fluorescence_peak_values = []
 
     n_frames = len(raw_fluorescence)
 
-    #Step 3: Find real peak indices and values in the raw fluorescence trace
+    
     for peak_idx in prob_peak_indices:
         
         #Create a window around the smoothed peak index
@@ -52,6 +56,7 @@ def find_spikes(spike_prob, raw_fluorescence, smooth = True, sigma=4, window_siz
     return (
         np.array(prob_peak_indices),
         np.array(prob_peak_values),
+        left_base_prominences,
         np.array(fluorescence_peak_indices),
         np.array(fluorescence_peak_values)
     )

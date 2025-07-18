@@ -101,7 +101,7 @@ def compute_spike_features(i, raw_trace, spike_prob_trace, all_left_base_proms, 
                          {peak_idx} is out of bounds for left_bases array of length {len(left_bases)}.
                          {peaks} or {left_bases} contain unexpected values.) """
         
-
+    
     # 2. Value in spike_prob_trace at spike index
     spike_prob_value = spike_prob_trace[spike_idx_prob]
 

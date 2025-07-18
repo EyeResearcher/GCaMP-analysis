@@ -11,31 +11,53 @@ from Cascade.cascade2p.cascade_wrapper import CascadePredictor
 from typing import Dict
 class SummaryFiles:
     """Loads Suite2p summary files and provides ROI data."""
-    def __init__(self, folder, cascade_model: CascadePredictor):
+    def __init__(self, folder, cascade_model: CascadePredictor = None, new_model = False):
         self.cascade_model = cascade_model
-        self.folder = Path(folder) / 'suite2p' / 'plane0'
-        self.raw_fluorescence = self._load_npy('F.npy')
-        self.Fneu             = self._load_npy('Fneu.npy')
-        self.spks             = self._load_npy('spks.npy')
-        self.iscell           = self._load_npy('iscell.npy')
-        self.stat             = self._load_npy('stat.npy', allow_pickle=True)
-        self.ops              = self._load_npy('ops.npy', allow_pickle=True, as_dict=True)
-        self.sampling_rate    = self.ops.get('fs', 30)  # Default to 30Hz if not specified
-        self.spike_prob       = None
-        self._create_spike_prob()
+        self.folder = Path(folder) if Path(folder).parts[-1] == "plane0" else Path(folder) / 'suite2p' / 'plane0'
+        self.raw_fluorescence : np.ndarray = np.array([])
+        self.Fneu             : np.ndarray = np.array([])   
+        self.spks             : np.ndarray = np.array([])
+        self.iscell           = np.array([])
+        self.stat             = np.array([])
+        self.ops              = {}
+        self.sampling_rate    = 15  # Default sampling rate if not specified in ops
+        self.spike_prob       = np.array([])
         
-    def _create_spike_prob(self):
+        
+    def _create_spike_prob(self, new_model = False):
         spike_prob_path = self.folder / 'cascade_spike_prob.npy'
         if spike_prob_path.exists():
+
+            #Compute new probvabilities as indicated by new model flag
+            if new_model == True:
+                print(f"Removing existing spike probabilities at {spike_prob_path}")
+                spike_prob_path.unlink()
+                print("Recomputing spike probabilities...")
+                cascade_spike_prob = self.cascade_model.predict(self.raw_fluorescence)
+                print(f"spike prob save to {save_cascade_predictions(self.folder, cascade_spike_prob)}")
+            
+            #Load existing probabilities
             print(f"Loading existing spike probabilities from {spike_prob_path}")
             self.spike_prob = self._load_npy('cascade_spike_prob.npy')
             return
         cascade_spike_prob = self.cascade_model.predict(self.raw_fluorescence)
         print(f"spike prob save to {save_cascade_predictions(self.folder, cascade_spike_prob)}")
         self.spike_prob = self._load_npy('cascade_spike_prob.npy')
+        
+    def load_files(self):
+        """
+        Load all necessary files from the Suite2p folder.
+        """
+        self.raw_fluorescence = self._load_npy('F.npy')
+        self.Fneu = self._load_npy('Fneu.npy')
+        self.spks = self._load_npy('spks.npy')
+        self.iscell = self._load_npy('iscell.npy')
+        self.stat = self._load_npy('stat.npy', allow_pickle=True)
+        self.ops = self._load_npy('ops.npy', allow_pickle=True, as_dict=True)
+        self.sampling_rate = self.ops.get('fs', 15)
 
     def _load_npy(self, filename, allow_pickle=False, as_dict=False):
-        path = self.folder / filename
+        path : Path = self.folder / filename
         if not path.exists():
             raise FileNotFoundError(f"Missing file: {path}")
         arr = np.load(path, allow_pickle=allow_pickle)

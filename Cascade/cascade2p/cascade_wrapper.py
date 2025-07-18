@@ -3,14 +3,14 @@ import numpy as np
 import tensorflow as tf
 print(tf.__version__)  # Ensure TensorFlow is imported correctly
 from Cascade.cascade2p import config, utils
-from Cascade.cascade2p.cascade import get_model_paths  # or adjust if your import path differs
+from Cascade.cascade2p.cascade import get_model_paths, download_model  # or adjust if your import path differs
 from scipy.ndimage import gaussian_filter, binary_dilation
 class CascadePredictor:
     """
     Load all Keras models for a given Cascade2p model_name + model_folder,
     then predict on new traces without reloading from disk each time.
     """
-    def __init__(self, model_name: str = "Global_EXC_30Hz_smoothing100ms_high_noise", model_folder: str = "Pretrained_models"):
+    def __init__(self, model_name: str = "Global_EXC_15Hz_smoothing100ms_high_noise", model_folder: str = "Pretrained_models"):
         self.model_name   = model_name
         self.model_folder = model_folder
         self._load_config()
@@ -20,6 +20,9 @@ class CascadePredictor:
         # read in the YAML config for this model
         model_path = os.path.join(self.model_folder, self.model_name)
         cfg_file = os.path.join(model_path, "config.yaml")
+        if not os.path.exists(cfg_file):
+            print(f"Downloading new pretrained model: {self.model_name}")
+            download_model(self.model_name, self.model_folder)
         self.cfg = config.read_config(cfg_file)
 
         # pull out the key parameters we’ll need

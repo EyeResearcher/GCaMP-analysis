@@ -27,7 +27,7 @@ class Video:
         self.fs = fs
         self.dimensions = self._get_tiff_dimensions()
         self.summary_files = SummaryFiles(self.path, cascade_model)
-
+        self.summary_files._create_spike_prob(new_model=False)  # Ensure spike probabilities are created
         # Instantiate and filter ROIs
         n_rois = self.summary_files.raw_fluorescence.shape[0]
         self.rois = [ROI(i, self.summary_files, roi_model) for i in range(n_rois)]

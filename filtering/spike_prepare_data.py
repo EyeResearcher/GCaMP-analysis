@@ -6,36 +6,54 @@ from utils.io_utils import save_cascade_predictions, SummaryFiles
 from data_classes.neuron import Neuron
 from Cascade.cascade2p.cascade_wrapper import CascadePredictor
 from utils.spike_utils import find_spikes
-from .feature_utils import compute_spike_features, zscore_features  # <-- Import your feature function
 from scipy.signal import peak_prominences
 from scipy.stats import skew, zscore    
 from .spike_annotation import main_annotate
-from .dataset_utils import load_good_rois, spike_dataset_feature_computation
-
+from .dataset_utils import load_good_rois, spike_dataset_feature_computation, features_only
+import argparse
 # ---- USER INPUTS ----
-DATASET_ROOT = Path(input("Enter path to dataset folder: "))
-CASCADE_MODEL_NAME = input("Enter Cascade model name: ")
-N_ANNOTATE = int(input("How many spikes do you want to annotate? "))
-MODEL_VERSION_FOLDER = Path(input("Enter path to the umbrella folder for this model and information: "))
-ROI_LABELS_PATH = Path(input("Enter path to roi_labels.csv: "))
 
-# ---- CREATE FOLDERS FOR THIS RUN ----
-SPIKE_FILTERING_FOLDER = MODEL_VERSION_FOLDER / 'spike_filtering'
-SPIKE_FILTERING_FOLDER.mkdir(parents=True, exist_ok=True)
-FEATURES_CSV_PATH = SPIKE_FILTERING_FOLDER / 'spike_features.csv'
-ANNOTATION_PATH = SPIKE_FILTERING_FOLDER / 'spike_annotations.csv'
+def parse_arguments():
+    """
+    Parse command line arguments for dataset root, model name, and ROI labels path.
+    """
+    parser = argparse.ArgumentParser(description="Process GCaMP dataset for spike filtering and feature computation.")
+    parser.add_argument('-d', '--dataset_root', type=Path, default=r"C:\Users\mzinn1\Desktop\Datasets", help="Path to the dataset root folder.")
+    parser.add_argument('-c','--cascade_model_name', type=str, default="Global_EXC_15Hz_smoothing100ms_high_noise", help="Name of the Cascade model to use.")
+    parser.add_argument('-m', '--model_version_folder', type=Path, default=r"C:\Users\mzinn1\Desktop\Scripts\GCaMP-analysis\model_runs\GCaMP8s_Olympus_Glass", help="Path to the model version folder.")
+    parser.add_argument('--new_spikes', action='store_true', help="Flag to indicate if new spikes should be found.")
+    parser.add_argument('--new_model', action='store_true', help="Flag to indicate if a new model should be used for spike probability.")
+    parser.add_argument('--features_only', action='store_true', help="Flag to indicate if only features should be computed without finding new spikes.")
+    parser.add_argument('--annotate', action='store_true', help="Flag to indicate if spikes should be annotated.")
+    parser.add_argument('-n', '--n_annotations', type=int, default=400, help="Number of annotations to perform.")
+    parser.add_argument('--merge', action = 'store_true', help='Merge annotation and feature files' )
+    parser.add_argument('--visualize', action='store_true', help = 'Visualize and classifications')
+    args : argparse.Namespace = parser.parse_args()
+    return args 
 
-# ---- LOAD GOOD ROIS ----
-good_rois = load_good_rois(ROI_LABELS_PATH)
+def main():
+    args = parse_arguments()
+    dataset_root : Path = args.dataset_root
+    model_version_folder : Path = args.model_version_folder
+    roi_labels_path : Path = model_version_folder / 'roi_filtering' / 'roi_labels.csv'
+    model_name : str = args.cascade_model_name
+    if args.new_spikes:
+        new_model = args.new_model
+        features_df = spike_dataset_feature_computation(dataset_root, load_good_rois(roi_labels_path), model_name=model_name, new_model=new_model)
+        features_df.to_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv', index=False)
+        print(f"Computed features for {len(features_df)} spikes.")
+    elif args.features_only:
+        features_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
+        features_df_new = features_only(features_df)
+        features_df_new.to_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv', index=False)
+        print(f"Computed features for {len(features_df_new)} spikes.")
+    if args.annotate:
+        features_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
+        annotated_df : pd.DataFrame = main_annotate(features_df, n_annotations=args.n_annotations)
+        annotated_df.to_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv', index=False)
+        print(f"Annotation complete and saved to {model_version_folder / 'spike_filtering' / 'spike_annotations.csv'}")
+    if args.merge:
+        annotations = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv')
+        annotations.to_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
 
-# ---- FIND SUITE2P FOLDERS ----
-
-features_df, features_df_spk_instance = spike_dataset_feature_computation(DATASET_ROOT, good_rois)
-print(f"Computed features for {len(features_df)} spikes.")
-annotate_yn = input("Do you want to annotate spikes? (y/n): ").strip().lower()
-if annotate_yn == 'y':
-    # ---- ANNOTATE SPIKES ----
-    features_df = pd.read_csv(FEATURES_CSV_PATH) if features_df_spk_instance is None else features_df_spk_instance
-    annotated_df = main_annotate(features_df)
-    annotated_df.to_csv(FEATURES_CSV_PATH, index=False)
-    print(f"Annotation complete and saved to {FEATURES_CSV_PATH}")
+main()

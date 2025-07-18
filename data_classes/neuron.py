@@ -3,7 +3,7 @@ import sys
 
 from utils.io_utils import SummaryFiles
 from utils.spike_utils import find_spikes, compute_spike_constants, compute_area_under_curve
-from filtering.feature_utils import four_primary_roi_features
+from filtering.feature_utils import four_primary_roi_features, zscore_features
 import numpy as np
 import neo
 from data_classes.spike import Spike
@@ -19,6 +19,7 @@ class Neuron:
         self.sampling_rate    = fs
         self.spike_prob_peak_indices = []
         self.spike_prob_peak_values  = None
+        self.left_base_prominences = []
         self.f_peak_indices = []
         self.f_peak_values  = None
         self.spike_prob_average_amplitude = None
@@ -31,12 +32,19 @@ class Neuron:
         self.area_per_spike = None
         self.binary_spike_train = None
         self.spikes = []
-
+        
+    def _reinstantiate_spks(self, spk_instances : Spike):
+        """
+        Reinstantiate Spike objects from their attribute dictionaries.
+        """
+        self.spikes = [spike for spike in spk_instances if isinstance(spike, Spike)]
+            
     def _find_spikes(self, sigma=4, window_size=10):
         if self.spike_prob is None or self.raw_fluorescence is None:
             raise ValueError("spike_prob and raw_fluorescence must be set before calling find_spikes")
         (self.spike_prob_peak_indices,
          self.spike_prob_peak_values,
+         self.left_base_prominences,
          self.f_peak_indices,
          self.f_peak_values) = find_spikes(
             self.spike_prob,
@@ -52,13 +60,20 @@ class Neuron:
                 self.f_peak_indices,
                 self.f_peak_values
             )]
-        
-        for spike in self.spikes:
-            spike.compute_features(
+    def _compute_spike_features(self):
+    
+        for i, spike in enumerate(self.spikes):
+            spike.compute_features(i,
                 self.raw_fluorescence,
                 self.spike_prob,
+                self.left_base_prominences,
                 self.features.get("spike_prom_skew", 0.0)
             )
+    def _zscore_spike_features(self):
+        all_spike_features = np.array([list(spike.features.values()) for spike in self.spikes])
+        zscore = zscore_features(all_spike_features)
+        for i, spike in enumerate(self.spikes):
+            spike.z_features = zscore[i,]
     def _get_features(self):
         self.features = four_primary_roi_features(
             self.raw_fluorescence,
@@ -94,6 +109,7 @@ class Neuron:
 
     def _compute_all_spike_stats(self):
         self._find_spikes()
+        self._compute_spike_features()
         self._average_amplitudes()
         self._model_rise_and_decay()
         self._compute_area_under_curve()
