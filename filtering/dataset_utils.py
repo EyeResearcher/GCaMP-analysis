@@ -190,7 +190,6 @@ def spike_dataset_feature_computation(dataset_root: Path, good_rois: set,
                     z_features,
                     None,      # Placeholder for z scored features
                     None,
-                    None,  # Placeholder for label
     
                 ])
                 spk_instances.append(spike)
@@ -198,7 +197,7 @@ def spike_dataset_feature_computation(dataset_root: Path, good_rois: set,
     # Create a DataFrame from the collected rows
     features_df = pd.DataFrame(rows, columns=["spike_key", "suite2p_path", "roi_index", "spk_instance",
                                               "spike_prob_index", "raw_f_index", "neuron_features", "left_based_prominences",
-                                              "feature_names", "raw_features","raw_z_features", "z_scored_raw_features", "z_scored_z_features","label"])
+                                              "feature_names", "raw_features","raw_z_features", "z_scored_raw_features", "z_scored_z_features"])
     #Add z scores
     features_zscore = zscore_features(feature_list) 
     features_df['z_scored_raw_features'] = features_zscore

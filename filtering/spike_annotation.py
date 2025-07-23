@@ -51,8 +51,7 @@ def main_annotate(features_df: pd.DataFrame, n_annotations : int):
     sampled = features_df.sample(n=min(n_annotations, len(features_df)), random_state=42).reset_index(drop=True)
     labels = label_spikes(sampled)
     sampled['label'] = labels
-    annotated_df = merge_annotations(features_df, sampled)
-    return annotated_df
+    return sampled
 
 
     

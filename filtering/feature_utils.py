@@ -4,7 +4,7 @@ import sys
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks, peak_prominences
-from scipy.stats import skew, zscore
+from scipy.stats import skew, zscore, kurtosis
 
 def zscore_features(features):
     """
@@ -80,6 +80,42 @@ def four_primary_roi_features(
        "spike_peak_mean":   spike_peak_mean,
         "spike_prom_mean":   spike_prom_mean
     }
+def get_windowed_trace(raw_trace, trace, i_peak, edge = 32):
+    """
+    Get a windowed trace around a peak and its previous local minimum.
+    Args:
+        trace (np.ndarray): The trace from which to extract the window.
+        i_peak (int): The index of the peak in the trace.
+    Returns:
+        window (np.ndarray): The windowed trace.
+    """
+    start = max(find_local_minimum(trace, i_peak, left = True), edge)
+    end = min(find_local_minimum(trace, i_peak, right=True), len(trace) - edge)
+    left_window = trace[start:i_peak]
+    window = trace[start:end]
+    right_window = trace[i_peak:end]
+    left_window_raw, window_raw, right_window_raw = raw_trace[start:i_peak], raw_trace[start:end], raw_trace[i_peak:end]
+    return (left_window, window, right_window), (left_window_raw, window_raw, right_window_raw)
+    
+def find_local_minimum(trace, i_peak, left = False, right = False):
+    """ Find the previous local minimum in a trace before a given peak index.
+    Args:
+        trace (np.ndarray): The trace in which to find the local minimum.
+        i_peak (int): The index of the peak in the trace.
+    Returns:
+        j (int): The index of the previous local minimum, or None if not found."""
+    start, end, step = (i_peak - 1, 0, -1) if left else (i_peak + 1, len(trace), 1)
+    for j in range(start, end, step):
+        if trace[j] < trace[j-1] and trace[j] < trace[j+1]:
+            return j
+    return 0  # no local minimum found, default to start of trace
+
+def find_max_second_derivative(window):
+    d1 = np.diff(window) if len(window) > 1 else np.array([0])
+    d2 = np.diff(d1) if len(d1) > 1 else np.array([0])
+   
+    max_second_derivative = np.max(d2)
+    return max_second_derivative
 
 def compute_spike_features(i, raw_trace, spike_prob_trace, all_left_base_proms, spike_idx_prob, neuron_prom_skew, edge = 32):
     """
@@ -100,12 +136,19 @@ def compute_spike_features(i, raw_trace, spike_prob_trace, all_left_base_proms, 
                          {peak_idx} is out of bounds for peaks array of length {len(peaks)}. 
                          {peak_idx} is out of bounds for left_bases array of length {len(left_bases)}.
                          {peaks} or {left_bases} contain unexpected values.) """
-        
-    
-    # 2. Value in spike_prob_trace at spike index
+    #Step 0: Find window around the spike
+    left_window, window, right_window = get_windowed_trace(raw_trace, spike_prob_trace, spike_idx_prob)[0]
+    left_window_raw, window_raw, right_window_raw = get_windowed_trace(raw_trace, spike_prob_trace, spike_idx_prob)[1]
+
+    #Step 1: Find derivative and integral features
+    max_d2 = find_max_second_derivative(left_window)
+    max_d2_raw = find_max_second_derivative(left_window_raw)
+    auc = np.trapz(window)
+
+    #Step 2: Value in spike_prob_trace at spike index
     spike_prob_value = spike_prob_trace[spike_idx_prob]
 
-    # 3. Change in skewness of prominence distribution if this spike is removed
+    #Step 3: Change in skewness of prominence distribution if this spike is removed
     if all_left_base_proms.size > 1:
         proms_wo = np.delete(all_left_base_proms, i)
         new_skew = skew(proms_wo) if proms_wo.size > 1 else 0.0
@@ -113,7 +156,18 @@ def compute_spike_features(i, raw_trace, spike_prob_trace, all_left_base_proms, 
         
     else:
         delta_skew = 0.0
+    
+    #Step 4: Compute window features
+    (window_skew, window_kurtosis) = (skew(window), kurtosis(window)) if (len(window) > 4 and np.nanvar(window) > 0) else (0.0, 0.0)
+    (window_raw_skew, window_raw_kurtosis) = (skew(window_raw), kurtosis(window_raw)) if (len(window_raw) > 4 and np.nanvar(window_raw) > 0) else (0.0, 0.0)
 
     return {"left_based_prom" : all_left_base_proms[i], 
             "spike_prob_value" : spike_prob_value, 
-            "skew_contribution" : delta_skew}
+            "skew_contribution" : delta_skew,
+            "auc" : auc,
+            "max_second_derivative" : max_d2,
+            "max_second_derivative_raw" : max_d2_raw,
+            "window_kurtosis" : window_kurtosis,
+            "window_skew" : window_skew,
+            "window_raw_kurtosis" : window_raw_kurtosis,
+            "window_raw_skew" : window_raw_skew}

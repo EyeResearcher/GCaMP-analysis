@@ -11,6 +11,7 @@ from scipy.stats import skew, zscore
 from .spike_annotation import main_annotate
 from .dataset_utils import load_good_rois, spike_dataset_feature_computation, features_only
 import argparse
+
 # ---- USER INPUTS ----
 
 def parse_arguments():
@@ -55,5 +56,9 @@ def main():
     if args.merge:
         annotations = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv')
         annotations.to_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
-
+    if args.visualize:
+        from .spike_visualize import main_plot
+        features_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
+        annotations_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv')
+        main_plot(features_df, annotations_df)
 main()
