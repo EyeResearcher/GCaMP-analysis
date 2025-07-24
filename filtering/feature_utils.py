@@ -116,6 +116,8 @@ def find_max_second_derivative(window):
     max_second_derivative = np.max(d2)
     return max_second_derivative
 
+
+
 def compute_spike_features(i, raw_trace, spike_prob_trace, all_left_base_proms, spike_idx_prob, neuron_prom_skew, edge = 32):
     """
     Compute features for a single spike:

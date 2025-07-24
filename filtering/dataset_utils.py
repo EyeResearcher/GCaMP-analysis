@@ -103,7 +103,8 @@ def features_only(features_df: pd.DataFrame):
     features_df["raw_features"] = features_new
     features_df["feature_names"] = feature_names_new
     return features_df
-def _process_one_suite2p(suite2p_folder, good_rois, model_name, edge, new_model):
+def _process_one_suite2p(suite2p_folder, roi_labels_path, model_name, edge, new_model):
+    good_rois = load_good_rois(roi_labels_path)
     summary = SummaryFiles(suite2p_folder.parent, CascadePredictor(model_name=model_name), new_model = new_model)
     summary.load_files()  # Load the summary files for this instance
     summary._create_spike_prob(new_model=new_model)  # Ensure spike probabilities are created
