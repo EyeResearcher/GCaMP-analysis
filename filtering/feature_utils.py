@@ -10,12 +10,11 @@ def zscore_features(features):
     """
     Z-score the features for each spike.
     """
-    if isinstance(features, np.ndarray):
-        return zscore(features, axis=0)
-    elif isinstance(features, list):
-        return [zscore(np.array(f)) for f in features]
-    else:
+    if not isinstance(features, np.ndarray) and not isinstance(features, list):
         raise ValueError("Features must be a numpy array or a list of arrays.")
+    features = np.array(features) if isinstance(features, list) else features
+    return zscore(features, axis=0) if features.ndim > 1 else zscore(features)
+
 def four_primary_roi_features(
     raw_trace: np.ndarray,
     spike_prob_trace: np.ndarray,

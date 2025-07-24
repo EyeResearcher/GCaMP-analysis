@@ -2,67 +2,21 @@ import matplotlib.pyplot as plt
 from pandas.plotting import scatter_matrix
 import pandas as pd
 import numpy as np
-# 1) Expand your 4×3 columns into a flat DataFrame:
-#    e.g. df[['feat1_raw','feat2_raw','feat3_raw',
-#              'feat1_zroi', … , 'feat3_zroi_global']]
-#    and your df['label'] is already “real”/“not real”.
-def unpack_rep(df : pd.DataFrame, rep_col, name_col, prefix):
-    """
-    Unpack a list-valued column (`rep_col`) with corresponding feature names (`name_col`)
-    into a wide DataFrame with one column per feature, prefixed by `prefix`.
-    """
-    # Select only the relevant columns and explode both name and value
-    tmp = df[['spike_key', 'label', name_col, rep_col]].copy()
-    tmp = tmp.explode([name_col, rep_col])
-    tmp = tmp.rename(columns={name_col: 'feature', rep_col: 'value'})
+from sklearn.feature_selection import f_classif, mutual_info_classif
 
-    # Pivot to wide form
-    wide = tmp.pivot(index=['spike_key', 'label'], columns='feature', values='value')
-
-    # Flatten column index and add prefix
-    wide.columns = [f"{prefix}__{feat}" for feat in wide.columns]
-    return wide.reset_index()
-def expand_feature_representations(features_df):
-    """
-    Given a DataFrame with list-valued feature representation columns,
-    returns a new DataFrame where each representation is expanded to wide form.
-    """
-    # Expand each representation
-    raw_wide   = unpack_rep(features_df, 'raw_features',     'feature_names', 'raw')
-    zroi_wide  = unpack_rep(features_df, 'raw_z_features',    'feature_names', 'zroi')
-    zglob_wide = unpack_rep(features_df, 'z_scored_raw_features', 'feature_names', 'zglob')
-    zz_wide    = unpack_rep(features_df, 'z_scored_z_features',      'feature_names', 'zz')
-
-    # Merge all representations on spike_key and label
-    df_merged = raw_wide.merge(zroi_wide,  on=['spike_key', 'label'])
-    df_merged = df_merged.merge(zglob_wide, on=['spike_key', 'label'])
-    df_merged = df_merged.merge(zz_wide,    on=['spike_key', 'label'])
-    return df_merged
-
-def visualize_pairwise(wide_df : pd.DataFrame, label_col='label'):
-    """
-    Create a pairwise scatter plot of all feature columns in `wide_df`, colored by `label_col`.
-    """
-    # select feature columns (exclude identifiers)
-    exclude = {'spike_key', label_col}
-    feature_cols = [c for c in wide_df.columns if c not in exclude]
-    print(f"feature columns: {feature_cols}")
-    # map labels to colors
-    color_map = {'real': 'C0', 'not real': 'C1'}
-    colors = wide_df[label_col].map(color_map)
-
-    # draw scatter matrix
-    scatter_matrix(
-        wide_df[feature_cols],
-        figsize=(12, 12),
-        diagonal='hist',
-        color=colors,
-        marker='o',
-        alpha=0.6,
-        hist_kwds={'bins': 20}
-    )
-    plt.suptitle("Pairwise feature scatter by spike label", y=0.92)
+def plot_scatter(X, y, feature_names, idx1, idx2, rep_name):
+    plt.figure(figsize=(7,6))
+    colors = np.where(y==1, 'red', 'blue')
+    plt.scatter(X[:, idx1], X[:, idx2], c=colors, alpha=0.6)
+    plt.xlabel(f"{feature_names[idx1]} ({rep_name})")
+    plt.ylabel(f"{feature_names[idx2]} ({rep_name})")
+    plt.title(f"Scatter: {feature_names[idx1]} vs {feature_names[idx2]}")
     plt.show()
+def variance_explained(X, y):
+    # Returns F-value and mutual information for each feature
+    f_vals, _ = f_classif(X, y)
+    mi_vals = mutual_info_classif(X, y)
+    return f_vals, mi_vals
 
 
 def get_feature_matrix(df : pd.DataFrame, rep_col : str):
@@ -90,16 +44,31 @@ def main_plot(features_df : pd.DataFrame, annotations_df : pd.DataFrame):
     ]
 
     for rep_col, rep_name in zip(rep_cols, rep_names):
-        X = get_feature_matrix(df, rep_col)
+        X = get_feature_matrix(merged_df, rep_col)
         f_vals, mi_vals = variance_explained(X, y)
         print(f"\n{rep_name}:")
         for i, fname in enumerate(feature_names):
             print(f"  {fname:25s}  F={f_vals[i]:.3f}  MI={mi_vals[i]:.3f}")
-    trimmed_df = trimmed_df[trimmed_df['label'].astype(str).str.strip() != '']
-    if trimmed_df.empty:
-        print("No labeled spikes to plot. Check your 'label' column.")
+    rep_idx = input(f"Choose representation [0:Raw, 1:ROI Z, 2:Dataset Z, 3:ROI Z then Dataset Z]: ")
+    try:
+        rep_idx = int(rep_idx)
+        rep_col = rep_cols[rep_idx]
+        rep_name = rep_names[rep_idx]
+    except:
+        print("Invalid input.")
         return
-    print(trimmed_df.head)
-    expanded_features_df = expand_feature_representations(trimmed_df)
-    visualize_pairwise(expanded_features_df)
-   
+
+    X = get_feature_matrix(merged_df, rep_col)
+    n_features = X.shape[1]
+
+    print(f"\nCycling through all pairwise feature scatter plots for {rep_name}. Press Enter for next plot, or type 'q' to quit.")
+
+    for i in range(n_features):
+        for j in range(i+1, n_features):
+            plot_scatter(X, y, feature_names, i, j, rep_name)
+            user_input = input(f"Plotted {feature_names[i]} vs {feature_names[j]}. Press Enter for next, or 'q' to quit: ")
+            if user_input.lower() == 'q':
+                break
+        else:
+            continue
+        break

@@ -61,4 +61,5 @@ def main():
         features_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
         annotations_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv')
         main_plot(features_df, annotations_df)
-main()
+if __name__ == "__main__":
+    main()

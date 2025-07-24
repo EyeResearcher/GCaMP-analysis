@@ -11,6 +11,7 @@ from typing import Type, TypeVar, Dict, Any
 import ast
 from joblib import parallel, delayed
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 def load_good_rois(roi_labels_path: Path):
     """
     Load good ROIs from a CSV file.
@@ -102,8 +103,130 @@ def features_only(features_df: pd.DataFrame):
     features_df["raw_features"] = features_new
     features_df["feature_names"] = feature_names_new
     return features_df
+def _process_one_suite2p(suite2p_folder, good_rois, model_name, edge, new_model):
+    summary = SummaryFiles(suite2p_folder.parent, CascadePredictor(model_name=model_name), new_model = new_model)
+    summary.load_files()  # Load the summary files for this instance
+    summary._create_spike_prob(new_model=new_model)  # Ensure spike probabilities are created
+    feature_list = []
+    z_features_list = []
+    rows = []
+    skipped = 0
+    # 2. For each GOOD ROI, find spikes and compute features
+    for roi_idx in range(summary.raw_fluorescence.shape[0]):
+        roi_key = (os.path.normpath(str(suite2p_folder / "plane0" / "F.npy")), roi_idx)
+        if roi_key not in good_rois:
+            skipped += 1
 
-def spike_dataset_feature_computation(dataset_root: Path, good_rois: set,
+            continue  # Skip ROIs not labeled as good
+        #Create instance of Neuron
+        roi = Neuron(roi_idx, {}, summary, fs=summary.sampling_rate)
+
+        #Get roi features
+        roi._get_features()
+        
+        #Get roi spikes
+        roi._find_spikes()
+
+        #Get all spike features
+        roi._compute_spike_features()
+        
+        #Get spike features z scored within the roi 
+        roi._zscore_spike_features()
+
+        # 3. Compute features for each spike
+        for spike in roi.spikes:
+            #Set the ROI index for the spike
+            spike._set_roi_index(roi_idx)  
+
+            #Get the raw features and feature names
+            raw_features = list(spike.features.values())
+            z_features = list(spike.z_features) #this is stored as an array whose order matches order of storage for regular features
+            feature_names = list(spike.features.keys())
+
+            #Add the raw features to the feature list for zscoring later
+            feature_list.append(raw_features)
+            z_features_list.append(z_features)
+
+            #Create a unique spike key
+            spike_key = f"{suite2p_folder.parts[-3].split('_')[1]}_{suite2p_folder.parts[-2][:3]}_{roi_idx}_{spike.idx_prob}"
+
+            # Create a dictionary representation of the spike instance
+            spike_dict = {k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                    for k, v in spike.__dict__.items()}
+            for key, value in spike_dict.items():
+                spike_dict[key] = list(value) if isinstance(value,np.ndarray) else value
+
+            # Append the spike data to the rows list
+            rows.append([
+                spike_key,  # Unique identifier for the spike
+                str(suite2p_folder / "plane0"),  # suite2p path
+                roi_idx,      # ROI index
+                spike_dict,  # Spike instance attributes
+                spike.idx_prob,     # Spike index in spike_prob trace
+                spike.idx_raw,        # Spike index in raw fluorescence trac
+                roi.features,       #Neuron level information
+                list(roi.left_base_prominences),  # Left base prominences
+                feature_names,  # Feature names
+                raw_features,      # Raw features list
+                z_features,
+                None,      # Placeholder for z scored features
+                None,
+
+            ])
+    return rows, feature_list, z_features_list, skipped
+
+def spike_dataset_feature_computation(dataset_root: Path,
+                                      good_rois: set,
+                                      model_name="Global_EXC_15Hz_smoothing100ms_high_noise",
+                                      edge=32,
+                                      new_model=False,
+                                      n_jobs=4):
+    # 1. find all suite2p folders
+    suite2p_folders = [
+        p for p in dataset_root.rglob('suite2p')
+        if (p / 'plane0' / 'F.npy').exists()
+    ]
+    print(f"Found {len(suite2p_folders)} suite2p folders in {dataset_root}")
+
+    all_rows        = []
+    all_raw_feats   = []
+    all_z_feats     = []
+    total_skipped   = 0
+
+    # 2. parallel map
+    with ProcessPoolExecutor(max_workers=n_jobs) as exe:
+        futures = {
+            exe.submit(
+                _process_one_suite2p,
+                folder, good_rois, model_name, edge, new_model
+            ): folder
+            for folder in suite2p_folders
+        }
+        for fut in as_completed(futures):
+            rows, rawf, zf, skipped = fut.result()
+            all_rows      .extend(rows)
+            all_raw_feats .extend(rawf)
+            all_z_feats   .extend(zf)
+            total_skipped += skipped
+
+    print(f"Skipped {total_skipped} ROIs not labeled as good.")
+
+    # 3. assemble DataFrame
+    cols = [
+        "spike_key", "suite2p_path", "roi_index", "spk_instance",
+        "spike_prob_index", "raw_f_index", "neuron_features",
+        "left_based_prominences", "feature_names",
+        "raw_features","raw_z_features",
+        "z_scored_raw_features", "z_scored_z_features"
+    ]
+    df = pd.DataFrame(all_rows, columns=cols)
+
+    # 4. compute z-scores
+    df['z_scored_raw_features'] = [list(row) for row in  (zscore_features(all_raw_feats))]
+    df['z_scored_z_features']   =[list(row) for row in  (zscore_features(all_z_feats))]
+
+    return df
+def spike_dataset_feature_computation_old(dataset_root: Path, good_rois: set,
                                       model_name = "Global_EXC_15Hz_smoothing100ms_high_noise", 
                                       edge=32, new_model = False):
     """
