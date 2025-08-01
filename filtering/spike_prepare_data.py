@@ -23,6 +23,7 @@ def parse_arguments():
     parser.add_argument('--pca', action='store_true', help='Run PCA on the features')
     parser.add_argument('--pairwise', action= 'store_true' , help = 'Plot pairwise scatter plots of features')
     parser.add_argument('--compare' , action = 'store_true', help = 'Compare models')
+    parser.add_argument('--errors', action='store_true', help='Visualize errors in spike detection')
     args : argparse.Namespace = parser.parse_args()
     return args 
 
@@ -64,5 +65,11 @@ def main():
         annotations_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv')
         merged_df = pd.merge(annotations_df, features_df, on='spike_key', how='left')
         compare_models(merged_df)
+    if args.errors:
+        from .spike_error_visualize import train_and_visualize_rf
+        features_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_features.csv')
+        annotations_df = pd.read_csv(model_version_folder / 'spike_filtering' / 'spike_annotations.csv')
+        merged_df = pd.merge(annotations_df, features_df, on='spike_key', how='left')
+        train_and_visualize_rf(merged_df)
 if __name__ == "__main__":
     main()
