@@ -1,4 +1,4 @@
-from filtering.feature_utils import compute_spike_features, zscore_features
+from spike_filtering.feature_utils import compute_spike_features, zscore_features
 import numpy as np
 class Spike:
     def __init__(self, idx_prob, val_prob, idx_raw, val_raw):
