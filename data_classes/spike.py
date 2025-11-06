@@ -1,30 +1,40 @@
-from spike_filtering.feature_utils import compute_spike_features, zscore_features
+"""Spike class for detected events."""
 import numpy as np
-class Spike:
-    def __init__(self, idx_prob, val_prob, idx_raw, val_raw):
-        self.roi_index = None
-        self.idx_prob = idx_prob
-        self.val_prob = val_prob
-        self.idx_raw = idx_raw
-        self.val_raw = val_raw
-        # Placeholders for computed features
-        self.features = {}
-        self.z_features = {}
-        self.i = None  # Index in the spike list
-        
+from typing import Optional
 
-    def compute_features(self, i, raw_trace, spike_prob_trace, left_base_prominences, neuron_prom_skew):
-        """
-        Compute spike features using the provided traces and neuron-level prominence skew.
-        """
-        self.i = i
-        self.features = compute_spike_features(
-            i, raw_trace, spike_prob_trace, left_base_prominences, self.idx_prob, neuron_prom_skew
-        )
-       
+class Spike:
+    """Represents a detected spike event."""
     
-    def _set_roi_index(self, roi_index):
+    def __init__(self,
+                 frame_index: int,
+                 cascade_peak_idx: int,
+                 prob_height: float,
+                 f_value: float):
         """
-        Set the ROI index for this spike.
+        Initialize Spike.
+        
+        Parameters:
+            frame_index: Frame index of F peak
+            cascade_peak_idx: Frame index of cascade peak
+            prob_height: Cascade probability at peak
+            f_value: Fluorescence value at peak
         """
-        self.roi_index = roi_index
+        self.frame_index = frame_index
+        self.cascade_peak_idx = cascade_peak_idx
+        self.prob_height = prob_height
+        self.f_value = f_value
+        self.fluorescence_peak = f_value  # Alias for compatibility
+        
+        # Features for classification (populated later)
+        self.prominence = 0.0
+        self.baseline_delta = 0.0
+        self.window_width = 0.0
+        self.window_auc = 0.0
+        self.rise_slope = 0.0
+        self.decay_tau = 5.0
+        
+        # Classification result
+        self.is_valid = None
+        
+    def __repr__(self):
+        return f"Spike(frame={self.frame_index}, prob={self.prob_height:.3f}, F={self.f_value:.2f})"

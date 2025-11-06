@@ -102,6 +102,12 @@ def mean_pairwise_distance(coords):
     Returns:
         float: The mean pairwise distance.
     """
+    coords = np.asarray(coords)
+    if coords.size == 0:
+        return np.nan
+    coords = np.atleast_2d(coords)
+    if coords.shape[0] < 2:
+        return 0.0
     pairwise_distances = np.linalg.norm(coords[:, np.newaxis, :] - coords[np.newaxis, :, :], axis=-1)
     return np.mean(pairwise_distances)
 
@@ -129,14 +135,21 @@ def compute_group_dispersion(stat, new_groups):
     # Compute MPD for each group
     mpd_groups = []
     for group in new_groups:
+        if len(group) < 2:
+            mpd_groups.append(0.0)
+            continue
         group_coords = extract_coordinates(stat, group)
         mpd_groups.append(mean_pairwise_distance(group_coords))
-    
-    # Calculate the mean MPD of groups
-    mpd_groups_mean = np.mean(mpd_groups)
 
-    # Calculate the relative dispersion ratio
-    relative_dispersion_ratio = mpd_all_cells / mpd_groups_mean
+    if mpd_groups:
+        mpd_groups_mean = float(np.mean(mpd_groups))
+        if np.isfinite(mpd_groups_mean) and mpd_groups_mean > 0:
+            relative_dispersion_ratio = mpd_all_cells / mpd_groups_mean
+        else:
+            relative_dispersion_ratio = np.nan
+    else:
+        mpd_groups_mean = np.nan
+        relative_dispersion_ratio = np.nan
 
     return {
         "MPD_All_Cells": mpd_all_cells,

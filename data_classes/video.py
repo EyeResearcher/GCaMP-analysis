@@ -1,137 +1,106 @@
+"""Video class for managing individual recording sessions."""
+from __future__ import annotations
 from pathlib import Path
-from data_classes.roi import ROI
-from data_classes.neuron import Neuron
-from data_classes.neuron_group import NeuronGroup
-import pandas as pd  
-import os 
-import tifffile as tiff
-from analysis.grouping import main_grouping
-from analysis.correlation import compute_sttc_matrix
-from utils.io_utils import SummaryFiles, save_video_metrics
-from Cascade.cascade2p.cascade_wrapper import CascadePredictor
+from typing import List, Optional, TYPE_CHECKING
+import pandas as pd
+
+if TYPE_CHECKING:
+    from .timepoint import Timepoint
 
 class Video:
-
-    NEURON_SUMMARY_COLUMNS = [
-        'num_spikes', 'spike_indices', 'fluorescence_values',
-        'spike_prob_values','average_spike_amplitude', 'spike_frequency', 'tau_constants', 'rise_constants',
-        'auc', 'auc_per_spike'
-    ]
-
-    def __init__(self, folder: Path, roi_model, cascade_model: CascadePredictor, fs=30):
-        self.path = folder
-        self.video_id = self.path.name
-        self.timepoint = folder.parts[-2]
-        self.experiment = folder.parts [-3]
-        self.region, self.treatment = self._parse_region_and_treatment()
-        self.fs = fs
-        self.dimensions = self._get_tiff_dimensions()
-        self.summary_files = SummaryFiles(self.path, cascade_model)
-        self.summary_files._create_spike_prob(new_model=False)  # Ensure spike probabilities are created
-        # Instantiate and filter ROIs
-        n_rois = self.summary_files.raw_fluorescence.shape[0]
-        self.rois = [ROI(i, self.summary_files, roi_model) for i in range(n_rois)]
-        self.good_rois = []
-
-        # Placeholders
-        self.filtered_summary = {}
+    """Represents a single video recording session."""
+    
+    def __init__(self, path: Path, timepoint: Optional[Timepoint] = None):
+        """
+        Initialize Video.
+        
+        Parameters:
+            path: Directory containing Suite2p output
+            timepoint: Parent timepoint object
+        """
+        self.path = Path(path)
+        self.video_id = path.name
+        self.timepoint = timepoint
+        
+        # Parse metadata from folder name if possible
+        self._parse_metadata()
+        
+        # Will be populated by pipeline
         self.neurons = []
-        self.spike_train_list = []
-        self.sttc_matrix = None
-        self.neuron_groups = []
-        self.group_distances = {}
-        self.avg_group_sttc = []
-        self.summary_df = pd.DataFrame()
-        self.good_indices = []
-
-    def _parse_region_and_treatment(self):
-        parts = self.video_id.split('_', 1)
-        region = parts[0]
-        treatment = parts[1] if len(parts) > 1 else 'Baseline'
-        return region, treatment
-
-    def _process_neurons(self):
-        # 1) Filter ROIs
-        for roi in self.rois:
-            roi._filter_roi()
-            if roi.is_good_cell:
-                self.good_rois.append((roi.row_index, roi.features))
-        self.good_indices = [self.good_rois[i][0] for i in range(len(self.good_rois))]
-        # 2) Filter summary files
-        keys = ['raw_fluorescence', 'Fneu', 'spike_prob', 'spks', 'iscell', 'stat', 'ops']
-        for key in keys:
-            arr = getattr(self.summary_files, key)
+        self.sttc_groups = []
+        self.dtw_groups = []
+        self.summary_df = None
+        
+    def _parse_metadata(self):
+        """
+        Parse metadata from directory structure.
+        Expected: ex337/treatment/timepoint/video/suite2p/plane0/
+        """
+        # Get parent directories
+        parts = self.path.parts
+        
+        # video is current folder name
+        self.video_id = self.path.name
+        
+        # Go up: video -> timepoint -> treatment -> experiment
+        if len(parts) >= 4:
+            # parts[-1] = plane0, parts[-2] = suite2p, parts[-3] = video
+            # parts[-4] = timepoint, parts[-5] = treatment, parts[-6] = experiment
             try:
-                self.filtered_summary[key] = arr[self.good_indices]
-            except Exception:
-                self.filtered_summary[key] = arr
-
-        # 3) Instantiate Neurons for good ROIs
-        self.neurons = [Neuron(idx, features, self.summary_files, fs=self.fs)
-                        for idx, features in self.good_rois]
-    
-        # 4) Compute per-neuron stats
-        for neuron in self.neurons:
-            neuron._compute_all_spike_stats()
-            self.spike_train_list.append(neuron.binary_spike_train)
-
-    def _process_whole_video(self):
-        # 5) Compute STTC matrix
-        self.sttc_matrix = compute_sttc_matrix(
-            self.spike_train_list,
-            self.filtered_summary["ops"]
-        )
-
-        # 6) Make neuron groups (indices refer to positions in filtered neuron list)
-        idx_groups, self.group_distances, self.avg_group_sttc = \
-            main_grouping(
-                self.sttc_matrix,
-                self.filtered_summary['stat'])
-        # assign filtered_index to each Neuron instance
-        for filt_idx, neuron in enumerate(self.neurons):
-            neuron.filtered_index = filt_idx
-        # map index groups (relative positions) to actual Neuron objects
-        self.neuron_groups = [
-            [self.neurons[i] for i in group] for group in idx_groups
-        ]
-    def _build_summary_dataframe(self):
-        # 7) Build summary DataFrame
-        records = []
-        for neuron in self.neurons:
-            records.append({
-                'num_spikes':               neuron.num_spikes,
-                'spike_indices':            neuron.f_peak_indices,
-                'fluorescence_values':      neuron.f_peak_values,
-                'spike_prob_values':        neuron.spike_prob_peak_values,
-                'average_spike_amplitude':  neuron.f_average_amplitude,
-                'spike_frequency':          neuron.spike_frequency,
-                'tau_constants':            neuron.tau_stats,
-                'rise_constants':           neuron.rise_constants_stats,
-                'auc':                      neuron.area_under_curve,
-                'auc_per_spike':            neuron.area_per_spike,
-            })
-        self.summary_df = pd.DataFrame.from_records(
-            records,
-            columns=self.NEURON_SUMMARY_COLUMNS,
-            index=self.good_indices
-        )
-        return self.summary_df
-    
-    def _get_tiff_dimensions(self):
-        for file in os.listdir(self.path):
-            if file.lower().endswith(('.tif', '.tiff')):
-                img = tiff.imread(str(self.path / file))
-                if img.ndim == 3:
-                    _, y, x = img.shape
-                elif img.ndim == 2:
-                    y, x = img.shape
+                # If path includes suite2p/plane0, adjust indices
+                if 'suite2p' in parts:
+                    suite2p_idx = parts.index('suite2p')
+                    # suite2p-1 = video, suite2p-2 = timepoint, suite2p-3 = treatment
+                    if suite2p_idx >= 3:
+                        self.timepoint_name = parts[suite2p_idx - 2]
+                        self.treatment = parts[suite2p_idx - 3]
+                        if suite2p_idx >= 4:
+                            self.experiment_name = parts[suite2p_idx - 4]
+                        else:
+                            self.experiment_name = 'unknown'
+                    else:
+                        self.timepoint_name = 'unknown'
+                        self.treatment = 'unknown'
+                        self.experiment_name = 'unknown'
                 else:
-                    raise ValueError(f"Unexpected TIFF shape: {img.shape}")
-                return x, y
-        raise FileNotFoundError("No .tif or .tiff file found in folder.")
-    def video_main(self):
-        self._parse_region_and_treatment()
-        self._process_neurons()
-        self._process_whole_video()
-        self._build_summary_dataframe()
-        save_video_metrics(self.path, self.filtered_summary, self.summary_df, self.experiment, self.timepoint, self.sttc_matrix)
+                    # Direct video path without suite2p
+                    self.timepoint_name = parts[-2] if len(parts) >= 2 else 'unknown'
+                    self.treatment = parts[-3] if len(parts) >= 3 else 'unknown'
+                    self.experiment_name = parts[-4] if len(parts) >= 4 else 'unknown'
+            except (IndexError, ValueError):
+                self.timepoint_name = 'unknown'
+                self.treatment = 'unknown'
+                self.experiment_name = 'unknown'
+        else:
+            self.timepoint_name = 'unknown'
+            self.treatment = 'unknown'
+            self.experiment_name = 'unknown'
+        
+    def get_group_summary(self) -> pd.DataFrame:
+        """Summarize grouping results."""
+        rows = []
+        
+        # STTC groups
+        for i, group in enumerate(self.sttc_groups):
+            for neuron in group:
+                rows.append({
+                    'neuron_id': neuron.row_index,
+                    'group_method': 'sttc',
+                    'group_id': i,
+                    'group_size': len(group)
+                })
+        
+        # DTW groups
+        for i, group in enumerate(self.dtw_groups):
+            for neuron in group:
+                rows.append({
+                    'neuron_id': neuron.row_index,
+                    'group_method': 'dtw',
+                    'group_id': i,
+                    'group_size': len(group)
+                })
+        
+        return pd.DataFrame(rows)
+    
+    def __repr__(self):
+        return f"Video(id={self.video_id}, neurons={len(self.neurons)})"

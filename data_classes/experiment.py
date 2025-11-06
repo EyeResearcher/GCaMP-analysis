@@ -1,31 +1,53 @@
+"""Experiment class for managing full experimental datasets."""
+from __future__ import annotations
 from pathlib import Path
-from data_classes.timepoint import Timepoint
+from typing import List, Optional, TYPE_CHECKING
 import pandas as pd
 
-class Experiment:
-    def __init__(self, experiment_path: str, roi_model, cascade_model, fs = 30):
-        """Initialize Experiment with timepoints."""
-        self.path = Path(experiment_path)
-        self.roi_model = roi_model
-        self.name = self.path.name
-        self.timepoint_paths = [p for p in self.path.iterdir() if p.is_dir()]
-        self.timepoints = [Timepoint(folder, roi_model, cascade_model, fs) for folder in self.timepoint_paths]
-        self.summary_df = pd.DataFrame()
-    
-    def process_all_timepoints(self):
-        for tp in self.timepoints:
-            tp._timepoint_main()
+if TYPE_CHECKING:
+    from .timepoint import Timepoint
 
-    def aggregate_summary(self):
+class Experiment:
+    """Represents a complete experiment with multiple timepoints."""
+    
+    def __init__(self, base_path: Path, name: Optional[str] = None, treatment: Optional[str] = None):
         """
-        Aggregate summaries across all timepoints into a single DataFrame.
+        Initialize Experiment.
+        
+        Parameters:
+            base_path: Root directory of experiment (e.g., ex337)
+            name: Experiment name (default: uses base_path name)
+            treatment: Treatment condition (e.g., 'GCaMP6s_EX_Plastic_CoCl')
         """
-        records = []
+        self.base_path = Path(base_path)
+        self.treatment = treatment
+        
+        # Create experiment name with treatment if provided
+        if name:
+            self.name = name
+        elif treatment:
+            self.name = f"{base_path.name}_{treatment}"
+        else:
+            self.name = base_path.name
+            
+        self.timepoints = []
+        
+    def add_timepoint(self, timepoint: Timepoint):
+        """Add a timepoint to the experiment."""
+        self.timepoints.append(timepoint)
+        
+    def get_summary(self) -> pd.DataFrame:
+        """Get summary DataFrame across all timepoints."""
+        summaries = []
         for tp in self.timepoints:
-            # Use the Timepoint summary DataFrame
-            tp_df = tp.video_summary_neurons
-            for video_id, row in tp_df.iterrows():
-                rec = {'timepoint': tp.name, 'video_id': video_id}
-                rec.update(row.to_dict())
-                records.append(rec)
-        return pd.DataFrame(records)
+            if tp.summary_df is not None:
+                summary = tp.summary_df.copy()
+                summary['timepoint'] = tp.name
+                summaries.append(summary)
+        
+        if summaries:
+            return pd.concat(summaries, ignore_index=True)
+        return pd.DataFrame()
+    
+    def __repr__(self):
+        return f"Experiment(name={self.name}, timepoints={len(self.timepoints)})"

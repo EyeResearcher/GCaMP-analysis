@@ -1,0 +1,23 @@
+analysis:
+  temporal:
+    window_size: 300        # frames
+    window_overlap: 150     # frames
+    burst_threshold: 3      # spikes
+    burst_window: 30        # frames
+  
+  group:
+    min_group_coherence: 0.3
+    stability_window: 1000  # frames
+    
+  statistics:
+    n_bootstrap: 1000
+    n_permutations: 10000
+    alpha: 0.05
+    
+  visualization:
+    figure_dpi: 150
+    save_formats: ['png', 'pdf']
+    color_schemes:
+      sttc: 'coolwarm'
+      dtw: 'viridis'
+      groups: 'Set3'

@@ -53,19 +53,16 @@ def sttc_binary(spikes_a, spikes_b, fs, dt_ms=150):
     sttc = 0.5 * ((pa - ta) / (1 - pa * ta) + (pb - tb) / (1 - pb * tb))
     return sttc
 
-def compute_sttc_matrix(spike_trains, ops):
+def compute_sttc_matrix(spike_trains):
     """
     Compute the Spike Time Tiling Coefficient (STTC) matrix for a list of spike index arrays.
 
     Args:
         all_spike_idx (list of array-like): Each element is an array of spike frame indices for one neuron.
-        ops (dict): Suite2p ops dictionary containing 'fs' (sampling rate) and 'nframes'.
 
     Returns:
         np.ndarray: Symmetric STTC matrix of shape (n_neurons, n_neurons).
     """
-    fs = ops['fs']
-    nframes = ops['nframes']
     n = len(spike_trains)
     sttc_matrix = np.zeros((n, n))
 

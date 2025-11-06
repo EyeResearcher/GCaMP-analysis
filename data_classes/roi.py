@@ -1,29 +1,37 @@
-from filtering.feature_utils import four_primary_roi_features
-import pandas as pd
-from utils.io_utils import SummaryFiles
+"""ROI class for calcium imaging data."""
+import numpy as np
+from typing import Optional, Dict
+
 class ROI:
-    def __init__(self, row_index, summary_files: SummaryFiles, model):
-        self.row_index = row_index
-        self.summary_files = summary_files 
-        self.model = model
-        self.features = None
-        self.is_good_cell = None
-
-    def _extract_features(self):
-        # extract_features should return a dict of feature_name->value
-        data_dict = self.summary_files.get_roi_data(self.row_index)
-        try:
-            feat_dict = four_primary_roi_features(data_dict["F"], data_dict["spike_prob"])
-        except Exception:
-            print(data_dict["spike_prob"])
-            raise ValueError
-        # wrap into a single‐row DataFrame for scikit-learn
-        self.features = pd.DataFrame([feat_dict])
-    def predict_status(self):
-        if self.features is None:
-            self._extract_features()
-        self.is_good_cell = bool(self.model.predict(self.features)[0])
-
-    def _filter_roi(self):
-        self._extract_features()
-        self.predict_status()
+    """Represents a Region of Interest from Suite2p."""
+    
+    def __init__(self, 
+                 index: int,
+                 f_trace: np.ndarray,
+                 cascade_prob: np.ndarray,
+                 spatial_footprint: Optional[Dict] = None,
+                 fneu: Optional[np.ndarray] = None):
+        """
+        Initialize ROI.
+        
+        Parameters:
+            index: Original row index in Suite2p arrays
+            f_trace: Fluorescence trace
+            cascade_prob: Cascade spike probability
+            spatial_footprint: Suite2p stat dict
+            fneu: Neuropil fluorescence
+        """
+        self.index = index
+        self.f_trace = f_trace
+        self.cascade_prob = cascade_prob
+        self.spatial_footprint = spatial_footprint
+        self.fneu = fneu
+        
+        # Features for classification
+        self.features = {}
+        
+        # Classification result
+        self.is_good = None
+        
+    def __repr__(self):
+        return f"ROI(index={self.index}, frames={len(self.f_trace)}, is_good={self.is_good})"

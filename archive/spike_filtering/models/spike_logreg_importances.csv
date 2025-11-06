@@ -1,0 +1,17 @@
+,abs_coef
+skew_contribution,2.8453887468558254
+spike_prob_value,1.614336958927851
+max_second_derivative_raw,0.9172504612913697
+next_auc_preonly_raw,0.8523083627014657
+auc,0.6918955099000891
+next_sharpness_preonly,0.6486411311210913
+window_raw_skew,0.4796596265395815
+max_second_derivative,0.3740864501055558
+next_depth_preonly_raw,0.2963696699895917
+next_auc_preonly,0.28825032755527036
+window_raw_kurtosis,0.27729033937389913
+next_depth_preonly,0.2640994098824422
+window_skew,0.14110914472904165
+next_sharpness_preonly_raw,0.07211550448047654
+left_based_prom,0.011296428385478436
+window_kurtosis,0.0

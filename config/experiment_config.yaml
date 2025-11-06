@@ -1,0 +1,16 @@
+experiment:
+  name: "ex337"
+  
+  structure:
+    timepoints: ['Week1', 'Week2', 'Week3']
+    treatments: ['saline', 'muscimol']
+    regions: ['CA1', 'DG']
+    
+  patterns:
+    suite2p: "suite2p/plane0"
+    cascade: "cascade_spike_prob.npy"
+    
+  qc:
+    min_neurons_per_video: 5
+    min_spikes_per_neuron: 10
+    max_spike_frequency: 10.0
