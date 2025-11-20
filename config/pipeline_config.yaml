@@ -6,6 +6,9 @@ models:
 
 cascade_batch_size: 64
 
+roi_filtering:
+  normalization: "minmax"  # Normalization strategy: "minmax" or "deltaf"
+
 spike_detection:
   prob_sigma: 2.0          # Gaussian smoothing
   window_size: 5           # +/- frames for F peak search

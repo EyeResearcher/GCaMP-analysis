@@ -4,8 +4,6 @@ import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report, confusion_matrix
 from joblib import dump
 import argparse
@@ -14,7 +12,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 def train_spike_classifier(features_path: Path, output_path: Path, test_size: float = 0.2):
-    """Train spike classifier on all available features."""
+    """
+    Train spike classifier on all available features.
+    
+    Note: Features are expected to be computed from MinMax normalized traces [0,1].
+    No additional scaling is needed since normalization is applied consistently
+    during both training and inference at the per-video level.
+    """
     
     # Load features
     df = pd.read_csv(features_path)
@@ -34,17 +38,18 @@ def train_spike_classifier(features_path: Path, output_path: Path, test_size: fl
         X, y, test_size=test_size, random_state=42, stratify=y
     )
     
-    # Create pipeline
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('classifier', LogisticRegression(random_state=42, max_iter=1000))
-    ])
+    # Create classifier (no scaling needed - features already normalized)
+    classifier = LogisticRegression(
+        random_state=42,
+        max_iter=1000,
+        class_weight='balanced'
+    )
     
     # Train
-    pipeline.fit(X_train, y_train)
+    classifier.fit(X_train, y_train)
     
     # Evaluate
-    y_pred = pipeline.predict(X_test)
+    y_pred = classifier.predict(X_test)
     
     print("\nClassification Report:")
     print(classification_report(y_test, y_pred))
@@ -53,7 +58,7 @@ def train_spike_classifier(features_path: Path, output_path: Path, test_size: fl
     print(confusion_matrix(y_test, y_pred))
     
     # Extract feature importances (using absolute coefficients for logistic regression)
-    coefficients = np.abs(pipeline.named_steps['classifier'].coef_[0])
+    coefficients = np.abs(classifier.coef_[0])
     feature_importance = pd.DataFrame({
         'feature': feature_cols,
         'importance': coefficients
@@ -65,7 +70,7 @@ def train_spike_classifier(features_path: Path, output_path: Path, test_size: fl
     
     # Save model
     model_dict = {
-        'pipeline': pipeline,
+        'classifier': classifier,
         'feature_names': feature_cols,
         'feature_importances': feature_importance.to_dict('records'),
         'performance': {
@@ -77,7 +82,7 @@ def train_spike_classifier(features_path: Path, output_path: Path, test_size: fl
     dump(model_dict, output_path)
     logger.info(f"Saved model to {output_path}")
     
-    return pipeline, feature_importance
+    return classifier, feature_importance
 
 def evaluate_spike_model(model_path: Path, test_features_path: Path):
     """Evaluate trained model on new data."""
@@ -104,7 +109,9 @@ def evaluate_spike_model(model_path: Path, test_features_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(description='Train Spike Classifier')
-    parser.add_argument('--features', type=Path, required=True, help='Path to features CSV')
+    parser.add_argument('--features', type=Path, 
+                       default=Path('training_data/spike_filtering/spike_training_data.csv'),
+                       help='Path to labeled training data CSV')
     parser.add_argument('--output', type=Path, default=Path('spike_classifier/models/spike_classifier.pkl'))
     parser.add_argument('--test_size', type=float, default=0.2)
     args = parser.parse_args()

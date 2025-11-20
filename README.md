@@ -183,9 +183,11 @@ filtered_suite2p/
 ```
 
 ## ROI Classification Features
+1. **derivative_skew**: Skewness of the derivative of fluorescence trace
 
-1. **derivative_skew**: Skewness of the derivative of Cascade probability
-2. **spike_prom_mean**: Mean prominence of detected spikes
+2. **spike_prom_mean**: Mean prominence of detected spikes from the cascade spike probability trace
+
+Prior to computation, the fluorescence and spike probability traces are MinMax scaled according to the entire video and smoothed with a gaussian kernel of $\sigma = 4$. For the latter feature, spikes are found using the standard scipy.find_peaks with default keyword arguments. 
 
 ## Spike Classification Features
 

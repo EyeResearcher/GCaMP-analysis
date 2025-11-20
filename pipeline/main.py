@@ -119,7 +119,9 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     
     # Step 4: Extract features and filter ROIs
     logger.info("  Step 4: Filtering ROIs (derivative_skew, spike_prom_mean)...")
-    roi_features = extract_roi_features(all_rois)
+    normalization = config.get('roi_filtering', {}).get('normalization', 'minmax')
+    logger.info(f"    Using {normalization} normalization")
+    roi_features = extract_roi_features(all_rois, normalization=normalization)
     good_roi_mask = filter_rois(roi_features, models['roi_classifier'])
     good_rois = [roi for roi, keep in zip(all_rois, good_roi_mask) if keep]
     bad_rois = [roi for roi, keep in zip(all_rois, good_roi_mask) if not keep]
@@ -154,17 +156,26 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         logger.warning("    No good ROIs found")
         return results
     
-    # Step 5: Create neurons
-    logger.info("  Step 5: Creating Neuron objects...")
+    # Step 5: Create neurons with per-video MinMax normalization
+    logger.info("  Step 5: Creating Neuron objects with normalized traces...")
     neurons = []
     for roi in good_rois:
+        # MinMax normalize F and cascade_prob at per-video level
+        # This ensures consistency between training and inference for both ROI and spike features
+        f_min, f_max = roi.f_trace.min(), roi.f_trace.max()
+        f_normalized = (roi.f_trace - f_min) / (f_max - f_min + 1e-10) if f_max > f_min else roi.f_trace
+        
+        prob_min, prob_max = roi.cascade_prob.min(), roi.cascade_prob.max()
+        prob_normalized = (roi.cascade_prob - prob_min) / (prob_max - prob_min + 1e-10) if prob_max > prob_min else roi.cascade_prob
+        
         neuron = Neuron(
             row_index=roi.index,
-            f_trace=roi.f_trace,
-            cascade_prob=roi.cascade_prob,
+            f_trace=f_normalized,  # Store normalized trace
+            cascade_prob=prob_normalized,  # Store normalized prob
             fs=suite2p_data.get('fs', 30.0)
         )
         neurons.append(neuron)
+    logger.info(f"    Normalized {len(neurons)} neuron traces to [0,1] range")
     results['neurons'] = neurons
     
     # Step 6: Detect spikes
@@ -191,7 +202,8 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
                     neuron.raw_fluorescence,
                     neuron.cascade_prob
                 )
-                valid_mask = filter_spikes(spike_features, models['spike_classifier'])
+                # Apply per-video scaling before classification (features are per-neuron subset of video)
+                valid_mask = filter_spikes(spike_features, models['spike_classifier'], per_video_scale=True)
                 neuron.spikes = [s for s, keep in zip(neuron.spikes, valid_mask) if keep]
                 valid_count += len(neuron.spikes)
         logger.info(f"    {valid_count}/{total_spikes} spikes passed filtering")
@@ -248,7 +260,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='GCaMP Analysis Pipeline')
-    parser.add_argument('--config', type=Path, required=True, help='Config file path')
+    parser.add_argument('--config', type=Path, default = "C:\\Users\\mzinn1\\Desktop\\Scripts\\GCaMP-analysis\\config\\pipeline_config.yaml", help='Config file path')
     parser.add_argument('--video', type=Path, help='Process single video')
     parser.add_argument('--timepoint', type=Path, help='Process timepoint folder')
     parser.add_argument('--experiment', type=Path, help='Process full experiment')
@@ -326,6 +338,11 @@ def main():
                         video.sttc_groups = results.get('sttc_groups', [])
                         video.dtw_groups = results.get('dtw_groups', [])
                         video.summary_df = results.get('summary')  # Add summary DataFrame
+                
+                # Save timepoint summary with videos as rows
+                from pipeline.io_handlers import save_timepoint_summary_by_video
+                tp_output_path = treatment_dir / f'{timepoint.name}_video_summary.xlsx'
+                save_timepoint_summary_by_video(timepoint, tp_output_path)
             
             # Save experiment summary
             if experiment.timepoints:

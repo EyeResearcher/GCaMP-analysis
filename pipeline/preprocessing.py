@@ -63,24 +63,7 @@ def compute_cascade_probabilities(f_traces: np.ndarray,
     Returns:
         (n_rois, n_frames) spike probabilities
     """
-    n_rois, n_frames = f_traces.shape
-    probabilities = np.zeros_like(f_traces)
-    
-    # Process in batches
-    for i in range(0, n_rois, batch_size):
-        batch_end = min(i + batch_size, n_rois)
-        batch = f_traces[i:batch_end]
-        
-        if cascade_model is not None:
-            # Use actual model
-            batch_prob = cascade_model.predict(batch)
-        else:
-            # Mock for testing
-            batch_prob = np.random.random(batch.shape) * 0.1
-            
-        probabilities[i:batch_end] = batch_prob
-        
-    return probabilities
+    return cascade_model.predict(f_traces)
 
 def smooth_cascade_prob(prob: np.ndarray, sigma: float = 2.0) -> np.ndarray:
     """

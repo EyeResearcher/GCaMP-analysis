@@ -1,9 +1,10 @@
 """Spike feature extraction and filtering with top 3 features."""
 from __future__ import annotations
 import numpy as np
-from typing import List, Dict, TYPE_CHECKING
+from typing import List, Dict, TYPE_CHECKING, Tuple
 from scipy.signal import find_peaks, peak_prominences
 from scipy.stats import skew
+from scipy.ndimage import gaussian_filter1d
 import logging
 import warnings
 
@@ -19,53 +20,75 @@ def extract_spike_features(spikes: List[Spike],
     """
     Extract top 3 features for each spike for classification.
     
-    Top 3 Features (97% accuracy):
-    1. skew_contribution: Change in prominence distribution skewness when spike removed
+    Top 3 Features:
+    1. skew_contribution: Contribution to derivative skewness (aligned with ROI classifier)
     2. spike_prob_value: Cascade probability at spike
-    3. max_second_derivative_raw: Maximum 2nd derivative in pre-spike window (raw F)
+    3. max_second_derivative_raw: Maximum 2nd derivative in pre-spike window
+    
+    Note: Expects f_trace and cascade_prob to be MinMax normalized [0,1] per-video.
+    This normalization happens in the pipeline before feature extraction to ensure
+    consistency between training and inference.
     
     Parameters:
         spikes: List of Spike objects
-        f_trace: Fluorescence trace
-        cascade_prob: Cascade probability trace
+        f_trace: MinMax normalized fluorescence trace [0,1]
+        cascade_prob: MinMax normalized cascade probability [0,1]
         window_size: Window around spike for features
         
     Returns:
         Feature array (n_spikes x 3)
     """
+
     if len(spikes) == 0:
         return np.array([])
     
     features = np.zeros((len(spikes), 3))
     
-    # Compute all prominences for skewness calculation
-    # Suppress PeakPropertyWarning about zero prominences
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', message='.*prominence.*')
-        spike_indices = [s.cascade_peak_idx for s in spikes]
-        all_prominences = peak_prominences(cascade_prob, spike_indices)[0]
-    neuron_prom_skew = skew(all_prominences) if len(all_prominences) > 1 else 0.0
+    # Compute derivative skewness (matching ROI classifier approach)
+    # Smooth fluorescence and compute first derivative
+    f_smooth = gaussian_filter1d(f_trace, sigma=4.0)
+    derivative = np.diff(f_smooth)
+    neuron_deriv_skew = skew(derivative) if len(derivative) > 0 else 0.0
     
     for i, spike in enumerate(spikes):
         idx = spike.frame_index
         
-        # Feature 1: skew_contribution (as proportion of total skew)
-        # Proportion of total skewness contributed by this spike (0-1)
-        if len(all_prominences) == 1:
-            # Only one spike - it contributes 100% of the skew
+        # Feature 1: skew_contribution to derivative skewness
+        # How much does removing this spike change the derivative skewness?
+        # This aligns with ROI classifier which uses derivative_skew as key feature
+        if len(spikes) == 1:
+            # Only one spike - it contributes 100% of the derivative skew
             features[i, 0] = 1.0
-        elif len(all_prominences) == 2:
+        elif len(spikes) == 2:
             # Two spikes - each contributes roughly 50%
             features[i, 0] = 0.5
         else:
-            # Multiple spikes - calculate actual contribution
-            proms_without = np.delete(all_prominences, i)
-            new_skew = skew(proms_without)
-            skew_change = abs(neuron_prom_skew - new_skew)
-            # Normalize to [0, 1] by dividing by absolute skew
-            # Add small epsilon to avoid division by zero
-            total_skew = abs(neuron_prom_skew) + 1e-10
-            features[i, 0] = min(skew_change / total_skew, 1.0)
+            # Multiple spikes - remove this spike and recalculate derivative skew
+            # Simply remove the spike window and concatenate the trace
+            spike_window = 5  # Remove +/- 5 frames around spike
+            spike_start = max(0, idx - spike_window)
+            spike_end = min(len(f_trace), idx + spike_window + 1)
+            
+            # Concatenate trace without this spike region
+            f_without_spike = np.concatenate([
+                f_trace[:spike_start],
+                f_trace[spike_end:]
+            ])
+            
+            # Recompute derivative skewness without this spike
+            if len(f_without_spike) > 10:  # Need minimum length for meaningful skew
+                f_smooth_modified = gaussian_filter1d(f_without_spike, sigma=4.0)
+                derivative_modified = np.diff(f_smooth_modified)
+                new_skew = skew(derivative_modified) if len(derivative_modified) > 0 else 0.0
+                
+                # Calculate contribution as change in skewness
+                skew_change = abs(neuron_deriv_skew - new_skew)
+                # Normalize to [0, 1] by dividing by absolute skew
+                total_skew = abs(neuron_deriv_skew) + 1e-10
+                features[i, 0] = min(skew_change / total_skew, 1.0)
+            else:
+                # Trace too short after removal, assign moderate contribution
+                features[i, 0] = 0.5
         
         # Feature 2: spike_prob_value
         # Cascade probability value at spike
@@ -91,13 +114,26 @@ def extract_spike_features(spikes: List[Spike],
     
     return features
 
-def filter_spikes(features: np.ndarray, classifier_model) -> np.ndarray:
+def _minmax_scale_array(arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Column-wise MinMax scale array to [0,1]; returns scaled, mins, maxs."""
+    if arr.size == 0:
+        return arr, np.array([]), np.array([])
+    mins = np.nanmin(arr, axis=0)
+    maxs = np.nanmax(arr, axis=0)
+    denom = np.where(maxs > mins, (maxs - mins), 1.0)
+    scaled = (arr - mins) / denom
+    # constant columns -> 0
+    scaled = np.where(denom == 1.0, 0.0, scaled)
+    return scaled, mins, maxs
+
+
+def filter_spikes(features: np.ndarray, classifier_model, *, per_video_scale: bool = False) -> np.ndarray:
     """
-    Filter spikes using trained top-3-feature classifier.
+    Filter spikes using trained classifier.
     
     Parameters:
         features: Spike feature array (n_spikes x 3)
-        classifier_model: Trained classifier (expects 3 features)
+        classifier_model: Trained classifier or model dict
         
     Returns:
         Boolean mask for valid spikes
@@ -110,14 +146,20 @@ def filter_spikes(features: np.ndarray, classifier_model) -> np.ndarray:
         return np.array([], dtype=bool)
     
     try:
-        # Extract pipeline from model dict
+        # Extract classifier from model dict (support both old pipeline and new classifier)
         if isinstance(classifier_model, dict):
-            pipeline = classifier_model['pipeline']
+            classifier = classifier_model.get('classifier') or classifier_model.get('pipeline')
+            expects_scale = classifier_model.get('expects_per_video_minmax', False)
         else:
-            pipeline = classifier_model
+            classifier = classifier_model
+            expects_scale = False
+        
+        X = features
+        if per_video_scale or expects_scale:
+            X, _, _ = _minmax_scale_array(X)
         
         # Predict
-        predictions = pipeline.predict(features)
+        predictions = classifier.predict(X)
         
         # Return boolean mask (1 = valid spike)
         return predictions == 1

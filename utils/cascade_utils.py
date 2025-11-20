@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def load_cascade_model(model_name: str, model_dir: str) -> Any:
+def load_cascade_model(model_name: str = "GC8_EXC_30Hz_smoothing25ms_high_noise", 
+                       model_dir: str = "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/Pretrained_models") -> Any:
     """
     Load a pretrained CASCADE model.
     
