@@ -224,7 +224,15 @@ def extract_spike_features(roi_dict: Dict, max_rois: Optional[int] = None) -> Tu
 
         smoothed_spike_prob = np.asarray(smoothed_traces[1])
         roi_spike_data, spike_keys = detect_spikes(smoothed_spike_prob)
-        roi_spike_keys = [(f"{roi_key}-{spike_idx}", -1) for spike_idx in spike_keys]
+        
+        # Preserve existing labels if spikes already exist
+        existing_spikes = roi_data.get('spikes', {})
+        for spike_idx in spike_keys:
+            if spike_idx in existing_spikes:
+                # Preserve the existing label
+                roi_spike_data[spike_idx]['label'] = existing_spikes[spike_idx]['label']
+        
+        roi_spike_keys = [(f"{roi_key}-{spike_idx}", roi_spike_data[spike_idx]['label']) for spike_idx in spike_keys]
         all_roi_spike_keys.extend(roi_spike_keys)
         roi_dict[roi_key]['spikes'] = roi_spike_data
         processed_count += 1
