@@ -1,22 +1,23 @@
 """This script processes fluorescence data from multiple videos to extract ROI features for classifier training.
-It first extracts all video paths from a specified dataset root directory. For each video, it computes the 
+
+It extracts all video paths from a specified dataset root directory. For each video, it computes the 
 Cascade spike probabilities using a pre-trained model and normalizes the fluorescence traces using Min-Max scaling.
-Both the normalized fluorescence and spike probabilities are smoothed using a Gaussian filter with sigma = 4. For each ROI in
-each video, two features are extracted: the skewness of the derivative of the smoothed fluorescence trace and the mean 
-left-based prominence of peaks in the smoothed spike probability trace. The extracted features, along with the smoothed traces,
-are stored in a dictionary format suitable for training a ROI classifier: 
-                {roi_key: {'traces': [smoothed_f_trace, smoothed_spike_prob],
-                           'features': {'derivative_skew': value, 'spike_prom_mean': value}, 
-                           'label': -1}}. 
-An additional dictionary is saved in JSON format for easy inspection.
-                {roi_key: {'features': {'derivative_skew': value, 'spike_prom_mean': value},
-                           'label': -1}}.
-The final output is saved as a NumPy file and a JSON file for easy access during training."""
+Both the normalized fluorescence and spike probabilities are smoothed using a Gaussian filter with sigma = 4. 
+
+For each ROI in each video, features are extracted: the skewness of the derivative of the smoothed fluorescence 
+trace and the mean left-based prominence of peaks in the smoothed spike probability trace. 
+
+The extracted features, along with the smoothed traces, are stored in a dictionary format:
+    {roi_key: {'smoothed_traces': [smoothed_f_trace, smoothed_spike_prob],
+               'raw_traces': [raw_f_trace, raw_spike_prob],
+               'features': {'derivative_skew': value, 'spike_prom_mean': value, 'spike_prom_skew': value}, 
+               'label': -1}}
+
+The output is saved as a .npy file only (no JSON to avoid corruption issues)."""
 import sys
 from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
-import json
 import argparse
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
@@ -63,89 +64,74 @@ def derivative_skewness(smoothed_scaled_f: np.ndarray) -> float:
     return (float(skew(derivative)), True)
 
 def roi_feature_extraction(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray, 
-                           raw_trace: np.ndarray, raw_spike_prob: np.ndarray ) -> dict:
+                           raw_trace: np.ndarray, raw_spike_prob: np.ndarray) -> dict:
+    """Extract ROI features. Returns only the full dict with numpy arrays."""
     deriv_skew, valid_deriv = derivative_skewness(smoothed_f_trace)
     spike_prom_mean, spike_prom_skew, valid_prom = left_based_prominence(smoothed_spike_prob)
     label = 0 if not valid_deriv or not valid_prom else -1
-    return ({'smoothed_traces': [smoothed_f_trace, smoothed_spike_prob],
-             'raw_traces': [raw_trace, raw_spike_prob],
-            'features': {'derivative_skew': deriv_skew, 'spike_prom_mean': spike_prom_mean, 'spike_prom_skew': spike_prom_skew},
-            'label': label}, {'features': {'derivative_skew': float(deriv_skew), 'spike_prom_mean': float(spike_prom_mean), 'spike_prom_skew': float(spike_prom_skew)}, 'label': int(label)})
+    return {
+        'smoothed_traces': [smoothed_f_trace, smoothed_spike_prob],
+        'raw_traces': [raw_trace, raw_spike_prob],
+        'features': {
+            'derivative_skew': deriv_skew,
+            'spike_prom_mean': spike_prom_mean,
+            'spike_prom_skew': spike_prom_skew
+        },
+        'label': label
+    }
 
 
 
-def process_video(video_path : Path):
+def process_video(video_path: Path):
+    """Process a video and extract ROI features. Returns only npy data."""
     fluorescence_file = video_path / 'suite2p' / 'plane0' / 'F.npy'
     scaled_f_file = video_path / 'suite2p' / 'plane0' / 'F_minmax.npy'
     cascade_probs_file = video_path / 'suite2p' / 'plane0' / 'cascade_spike_prob.npy'
     if not fluorescence_file.exists():
         print(f"Fluorescence file not found for video: {video_path}")
-        return
-    f : np.ndarray = np.load(fluorescence_file)
+        return []
+    f: np.ndarray = np.load(fluorescence_file)
     scaled_f = normalize_minmax(f, scaled_f_file) if not scaled_f_file.exists() else np.load(scaled_f_file)
     smoothed_scaled_f = gaussian_filter1d(scaled_f, sigma=4.0, axis=1)
-    cascade_probs = compute_cascade_probabilities(f, cascade_probs_file) #if not cascade_probs_file.exists() else np.load(cascade_probs_file)
+    
+    # Always recompute CASCADE probabilities to ensure fresh data
+    print(f"Computing CASCADE probabilities for {video_path.name}...")
+    cascade_probs = compute_cascade_probabilities(f, cascade_probs_file)
+    
     smoothed_probs = gaussian_filter1d(cascade_probs, sigma=4.0, axis=1)
     video_rois = []
-    video_rois_json = []
     for roi_idx in range(f.shape[0]):
         f_trace = smoothed_scaled_f[roi_idx]
         spike_prob = smoothed_probs[roi_idx]
-        features_dict, json_dict = roi_feature_extraction(f_trace, spike_prob, f[roi_idx], cascade_probs[roi_idx])
+        features_dict = roi_feature_extraction(f_trace, spike_prob, f[roi_idx], cascade_probs[roi_idx])
         print(cascade_probs[roi_idx][300:350])
         roi_key = f"{video_path.name}_{roi_idx}"
         video_rois.append((roi_key, features_dict))
-        video_rois_json.append((roi_key, json_dict))
-    return video_rois, video_rois_json
+    return video_rois
 
-def change_dict_format(npy_dict_path: Path, json_path: Path, dataset_root: Path):
-    npy_dict = np.load(npy_dict_path, allow_pickle=True).item()
-    with open(json_path, 'r') as f:
-        json_dict = json.load(f)
-    new_dict = {}
-    new_json_dict = {}
-    for roi_key, roi_data in npy_dict.items():
-        video_path = dataset_root / roi_key.split('_')[0]
-        roi_idx = int(roi_key.split('_')[1])
-        video_f = np.load(video_path / 'suite2p' / 'plane0' / 'F.npy')
-        roi_data['features'].pop('spike_peak_mean', None)
-        roi_data['features'].pop('raw_derivative_skew', None)
-        new_dict[roi_key] = roi_data
-
-        json_data = json_dict[roi_key]
-        json_data['features'].pop('raw_derivative_skew', None)
-        json_data['features'].pop('spike_peak_mean', None)
-        new_json_dict[roi_key] = json_data
-    output_path = npy_dict_path
-    np.save(output_path, new_dict)
-    with open(json_path, 'w') as f:
-        json.dump(new_json_dict, f, indent=2)
-    print(f"Updated dictionary saved to {output_path}")
+# Removed change_dict_format function - no longer needed since we don't use JSON
 
 def main():
-    argparser = argparse.ArgumentParser(description='Prepare ROI features from labels and train classifier')
-    argparser.add_argument('--dataset_root', type=str, default = r"C:\Users\mzinn1\Desktop\Datasets" )
-    argparser.add_argument('-c', '--change_dict', action='store_true', help='Change dictionary format to include raw and smoothed traces')
+    """Extract ROI features from Suite2p data and save to .npy file only."""
+    argparser = argparse.ArgumentParser(description='Prepare ROI features from Suite2p fluorescence data')
+    argparser.add_argument('--dataset_root', type=str, default=r"C:\Users\mzinn1\Desktop\Datasets")
     args = argparser.parse_args()
-    if args.change_dict:
-        npy_dict_path = Path('training_data/roi_filtering/all_roi_features.npy')
-        json_path = Path('training_data/roi_filtering/all_roi_features.json')
-        change_dict_format(npy_dict_path, json_path, Path(args.dataset_root))
-        return
+    
     video_paths = [path for path in Path(args.dataset_root).iterdir() if path.is_dir()]
     all_rois = []
-    all_rois_json = []
+    
     for video_path in video_paths:
         video_rois = process_video(video_path)
-        all_rois.extend(video_rois[0])
-        all_rois_json.extend(video_rois[1])
+        if video_rois:  # Only extend if not empty
+            all_rois.extend(video_rois)
+    
     all_roi_dict = dict(all_rois)
-    all_roi_dict_json = dict(all_rois_json)
-    outputh_path = Path('training_data/roi_filtering')
-    outputh_path.mkdir(parents=True, exist_ok=True)
-    np.save(outputh_path / 'all_roi_features.npy', all_roi_dict)
-    with open('data.json', 'w') as f:
-        json.dump(all_roi_dict_json, f, indent=2)
+    output_path = Path('training_data/roi_filtering')
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    npy_file = output_path / 'all_roi_features.npy'
+    np.save(npy_file, all_roi_dict)
+    print(f"✅ Saved {len(all_roi_dict)} ROIs to {npy_file}")
 
 if __name__ == '__main__':
     main()
