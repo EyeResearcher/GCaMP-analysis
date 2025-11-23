@@ -14,7 +14,7 @@ import yaml
 import numpy as np
 import pandas as pd
 from joblib import load
-
+from scipy.ndimage import gaussian_filter1d
 # Clean imports using __init__.py aggregators
 from data_classes import Experiment, Timepoint, Video, ROI, Neuron, Spike
 
@@ -24,7 +24,9 @@ from pipeline.roi_processing import extract_roi_features, filter_rois
 from pipeline.spike_detection import detect_spikes_from_cascade
 from pipeline.spike_filtering import extract_spike_features, filter_spikes
 from pipeline.neuron_grouping import group_neurons_by_sttc, group_neurons_by_dtw, compare_groupings
-from pipeline.io_handlers import save_video_summary, save_timepoint_summary, save_filtered_suite2p
+from pipeline.io_handlers import save_video_summary, save_timepoint_summary, save_filtered_suite2p, 
+from utils.io_utils import load_experiment_structure
+from utils.cascade_utils import load_cascade_model
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,6 @@ def load_models(config: Dict) -> Dict:
     """Load all required models."""
     models = {}
     
-    # ROI classifier (optional - for filtering bad ROIs)
     roi_path = Path(config['models']['roi_model_path'])
     if roi_path.exists():
         try:
@@ -46,25 +47,18 @@ def load_models(config: Dict) -> Dict:
         models['roi_classifier'] = None
         logger.warning(f"ROI classifier not found at {roi_path}, continuing without it")
         
-    # Spike classifier (optional)
-    spike_path = config['models'].get('spike_model_path')
-    if spike_path and Path(spike_path).exists():
-        try:
-            models['spike_classifier'] = load(spike_path)
-            logger.info(f"Loaded spike classifier from {spike_path}")
-        except (EOFError, Exception) as e:
-            models['spike_classifier'] = None
-            logger.warning(f"Failed to load spike classifier from {spike_path}: {e}")
-            logger.warning("Continuing without spike classifier - all spikes will be kept")
-    else:
-        models['spike_classifier'] = None
-        logger.warning("No spike classifier, will keep all detected spikes")
-        
-    # Cascade model - using utils module
-    from utils import load_cascade_model
+    spike_path = Path(config['models']['spike_model_path'])
+    try:
+        models['spike_classifier'] = load(spike_path)
+        logger.info(f"Loaded spike classifier from {spike_path}")
+    except (EOFError, Exception) as e:
+        raise RuntimeError(f"Failed to load spike classifier from {spike_path}: {e}")
+    model_name = config['models']['cascade_model_name']
+    model_dir = config['models']['cascade_model_dir']
+
     models['cascade'] = load_cascade_model(
-        model_name=config['models']['cascade_model_name'],
-        model_dir=config['models']['cascade_model_dir']
+        model_name=model_name,
+        model_dir=model_dir
     )
     logger.info("Loaded Cascade model")
     
@@ -81,6 +75,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     results = {'video_path': video_path}
     
     # Step 1: Load Suite2p data
+    from roi_classifier.prepare_data import roi_feature_extraction, normalize_minmax
     logger.info("  Step 1: Loading Suite2p data...")
     suite2p_path = video_path / 'suite2p' / 'plane0'
     if not (suite2p_path / 'F.npy').exists():
@@ -88,6 +83,8 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         return None
         
     suite2p_data = load_suite2p_data(suite2p_path)
+    norm_f = normalize_minmax(suite2p_data['F'], suite2p_path / 'F_minmax.npy')
+    norm_sm_f = gaussian_filter1d(norm_f, sigma=4.0, axis=0 )
     n_rois, n_frames = suite2p_data['F'].shape
     logger.info(f"    Loaded {n_rois} ROIs, {n_frames} frames")
     results['suite2p_data'] = suite2p_data
@@ -95,24 +92,24 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     
     # Step 2: Compute cascade probabilities
     logger.info("  Step 2: Computing spike probabilities with Cascade...")
-    cascade_prob = compute_cascade_probabilities(
-        suite2p_data['F'], 
-        models['cascade'],
-        batch_size=config.get('cascade_batch_size', 64)
-    )
+    cascade_prob = models['cascade'].predict(suite2p_data['F'])
+    norm_cascade_prob = normalize_minmax(cascade_prob, suite2p_path / 'cascade_spike_prob_minmax.npy')
+    norm_sm_sp = gaussian_filter1d(norm_cascade_prob, sigma=4.0, axis=0 )
     logger.info(f"    Computed probabilities shape: {cascade_prob.shape}")
     results['cascade_prob'] = cascade_prob
     
     # Step 3: Create ROI objects
     logger.info("  Step 3: Creating ROI objects...")
-    all_rois = []
+    all_rois : List[ROI] = []
     for i in range(n_rois):
         roi = ROI(
             index=i,
             f_trace=suite2p_data['F'][i],
-            cascade_prob=cascade_prob[i],
-            spatial_footprint=suite2p_data['stat'][i] if 'stat' in suite2p_data else None,
-            fneu=suite2p_data['Fneu'][i] if 'Fneu' in suite2p_data else None
+            sp_trace=cascade_prob[i],
+            stats=suite2p_data['stat'][i] if 'stat' in suite2p_data else None,
+            fneu=suite2p_data['Fneu'][i] if 'Fneu' in suite2p_data else None,
+            norm_f_trace=norm_f[i],
+            norm_sp_trace=norm_cascade_prob[i]
         )
         all_rois.append(roi)
     results['all_rois'] = all_rois
@@ -121,10 +118,23 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     logger.info("  Step 4: Filtering ROIs (derivative_skew, spike_prom_mean)...")
     normalization = config.get('roi_filtering', {}).get('normalization', 'minmax')
     logger.info(f"    Using {normalization} normalization")
-    roi_features = extract_roi_features(all_rois, normalization=normalization)
-    good_roi_mask = filter_rois(roi_features, models['roi_classifier'])
-    good_rois = [roi for roi, keep in zip(all_rois, good_roi_mask) if keep]
-    bad_rois = [roi for roi, keep in zip(all_rois, good_roi_mask) if not keep]
+    from joblib import Parallel, delayed
+    all_feats = Parallel(n_jobs=-1)(
+        delayed(roi.extract_features)(norm_sm_f[i, :], norm_sm_sp[i, :]) 
+        for i, roi in enumerate(all_rois)
+    )
+    feats_df = pd.DataFrame(all_feats)
+    good_roi_mask  = models['roi_classifier'].predict(feats_df)
+    for roi, pred, i in zip(all_rois, good_roi_mask, range(len(all_rois))):
+        if roi.is_good is False:
+            continue
+        good_roi_mask[i] = roi.set_classification(pred)
+
+
+
+    
+    good_rois = [roi for roi in all_rois if roi.is_good]
+    bad_rois = [roi for roi in all_rois if not roi.is_good  ]
     
     # Track bad ROI indices and features for Excel report
     bad_roi_indices = [roi.index for roi in bad_rois]
@@ -160,18 +170,11 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     logger.info("  Step 5: Creating Neuron objects with normalized traces...")
     neurons = []
     for roi in good_rois:
-        # MinMax normalize F and cascade_prob at per-video level
-        # This ensures consistency between training and inference for both ROI and spike features
-        f_min, f_max = roi.f_trace.min(), roi.f_trace.max()
-        f_normalized = (roi.f_trace - f_min) / (f_max - f_min + 1e-10) if f_max > f_min else roi.f_trace
-        
-        prob_min, prob_max = roi.cascade_prob.min(), roi.cascade_prob.max()
-        prob_normalized = (roi.cascade_prob - prob_min) / (prob_max - prob_min + 1e-10) if prob_max > prob_min else roi.cascade_prob
         
         neuron = Neuron(
             row_index=roi.index,
-            f_trace=f_normalized,  # Store normalized trace
-            cascade_prob=prob_normalized,  # Store normalized prob
+            f_trace=roi.f_trace,  # Store normalized trace
+            cascade_prob=roi.cascade_prob,  # Store normalized prob
             fs=suite2p_data.get('fs', 30.0)
         )
         neurons.append(neuron)
@@ -256,7 +259,21 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     results['summary'] = summary
     
     return results
-
+def process_timepoint(timepoint_path: Path, models: Dict, config: Dict) -> Timepoint:
+    """Process all videos in a timepoint folder."""
+    timepoint = Timepoint(timepoint_path)
+    
+    for video_dir in sorted(timepoint_path.iterdir()):
+        if video_dir.is_dir() and (video_dir / 'suite2p' / 'plane0').exists():
+            video = Video(video_dir, timepoint)
+            results = process_video_explicit(video_dir, models, config)
+            if results and results.get('filtered_neurons'):
+                video.neurons = results['filtered_neurons']
+                video.sttc_groups = results.get('sttc_groups', [])
+                video.dtw_groups = results.get('dtw_groups', [])
+                timepoint.add_video(video)
+    
+    return timepoint
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='GCaMP Analysis Pipeline')
@@ -273,73 +290,37 @@ def main():
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # Load config
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Load models once
     models = load_models(config)
     
-    # Process based on input level
     if args.video:
         results = process_video_explicit(args.video, models, config)
         if results:
             logger.info(f"Video complete: {len(results.get('filtered_neurons', []))} neurons")
     
     elif args.timepoint:
-        # Process all videos in timepoint
-        timepoint = Timepoint(args.timepoint)
-        for video_dir in sorted(args.timepoint.iterdir()):
-            if video_dir.is_dir() and (video_dir / 'suite2p' / 'plane0').exists():
-                video = Video(video_dir, timepoint)
-                results = process_video_explicit(video_dir, models, config)
-                if results and results.get('filtered_neurons'):
-                    video.neurons = results['filtered_neurons']
-                    video.sttc_groups = results.get('sttc_groups', [])
-                    video.dtw_groups = results.get('dtw_groups', [])
-                    timepoint.add_video(video)
-        
-        if timepoint.videos:
-            save_timepoint_summary(timepoint, args.timepoint / 'summary.xlsx')
+        timepoint = process_timepoint(args.timepoint, models, config)
+        logger.info(f"Timepoint complete: {len(timepoint.videos)} videos processed")
+        save_timepoint_summary(timepoint, args.timepoint / 'summary.xlsx')
             
     elif args.experiment:
-        # Process full experiment
-        # Expected structure: ex337/treatment/timepoint/video/suite2p/plane0/
-        
-        # Check if the path contains a treatment folder
         experiment_path = Path(args.experiment)
-        
-        # Look for treatment folders (subdirectories of experiment root)
         treatment_folders = [d for d in experiment_path.iterdir() if d.is_dir()]
         
         if not treatment_folders:
             logger.error(f"No treatment folders found in {experiment_path}")
             return
-        
-        # Process each treatment
+
         for treatment_dir in treatment_folders:
             logger.info(f"Processing treatment: {treatment_dir.name}")
-            
-            # Use utility function to load structure
-            from utils.io_utils import load_experiment_structure
             experiment = load_experiment_structure(treatment_dir)
             
             # Process each timepoint and video
             for timepoint in experiment.timepoints:
-                logger.info(f"  Processing timepoint: {timepoint.name}")
-                
-                for video in timepoint.videos:
-                    video_path = video.path
-                    logger.info(f"    Processing video: {video.video_id}")
-                    
-                    results = process_video_explicit(video_path, models, config)
-                    if results and results.get('filtered_neurons'):
-                        video.neurons = results['filtered_neurons']
-                        video.sttc_groups = results.get('sttc_groups', [])
-                        video.dtw_groups = results.get('dtw_groups', [])
-                        video.summary_df = results.get('summary')  # Add summary DataFrame
-                
-                # Save timepoint summary with videos as rows
+                timepoint = process_timepoint(timepoint.path, models, config)
+                experiment.add_timepoint(timepoint)
                 from pipeline.io_handlers import save_timepoint_summary_by_video
                 tp_output_path = treatment_dir / f'{timepoint.name}_video_summary.xlsx'
                 save_timepoint_summary_by_video(timepoint, tp_output_path)

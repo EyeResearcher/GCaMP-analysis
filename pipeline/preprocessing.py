@@ -49,21 +49,7 @@ def load_suite2p_data(suite2p_path: Path) -> Dict:
     
     return data
 
-def compute_cascade_probabilities(f_traces: np.ndarray, 
-                                 cascade_model,
-                                 batch_size: int = 64) -> np.ndarray:
-    """
-    Compute spike probabilities using Cascade model.
-    
-    Parameters:
-        f_traces: (n_rois, n_frames) fluorescence traces
-        cascade_model: Loaded cascade model
-        batch_size: Process in batches for memory efficiency
-        
-    Returns:
-        (n_rois, n_frames) spike probabilities
-    """
-    return cascade_model.predict(f_traces)
+
 
 def smooth_cascade_prob(prob: np.ndarray, sigma: float = 2.0) -> np.ndarray:
     """

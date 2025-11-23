@@ -63,20 +63,25 @@ def derivative_skewness(smoothed_scaled_f: np.ndarray) -> float:
         return (0.0, False) 
     return (float(skew(derivative)), True)
 
-def roi_feature_extraction(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray, 
-                           raw_trace: np.ndarray, raw_spike_prob: np.ndarray) -> dict:
+def roi_feature_extraction(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray) -> tuple[dict, dict]:
     """Extract ROI features. Returns only the full dict with numpy arrays."""
     deriv_skew, valid_deriv = derivative_skewness(smoothed_f_trace)
     spike_prom_mean, spike_prom_skew, valid_prom = left_based_prominence(smoothed_spike_prob)
-    label = 0 if not valid_deriv or not valid_prom else -1
+    return ({
+            'derivative_skew': deriv_skew,
+            'spike_prom_mean': spike_prom_mean,
+            'spike_prom_skew': spike_prom_skew},
+            {'valid_deriv': valid_deriv,
+              'valid_prom': valid_prom})
+
+def process_roi(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray, 
+                raw_trace: np.ndarray, raw_spike_prob: np.ndarray) -> dict:
+    features, validity = roi_feature_extraction(smoothed_f_trace, smoothed_spike_prob)
+    label = 0 if not validity['valid_deriv'] or not validity['valid_prom'] else -1
     return {
         'smoothed_traces': [smoothed_f_trace, smoothed_spike_prob],
         'raw_traces': [raw_trace, raw_spike_prob],
-        'features': {
-            'derivative_skew': deriv_skew,
-            'spike_prom_mean': spike_prom_mean,
-            'spike_prom_skew': spike_prom_skew
-        },
+        'features': features,
         'label': label
     }
 
@@ -101,9 +106,9 @@ def process_video(video_path: Path):
     smoothed_probs = gaussian_filter1d(cascade_probs, sigma=4.0, axis=1)
     video_rois = []
     for roi_idx in range(f.shape[0]):
-        f_trace = smoothed_scaled_f[roi_idx]
-        spike_prob = smoothed_probs[roi_idx]
-        features_dict = roi_feature_extraction(f_trace, spike_prob, f[roi_idx], cascade_probs[roi_idx])
+        f_trace_sm = smoothed_scaled_f[roi_idx]
+        spike_prob_sm = smoothed_probs[roi_idx]
+        features_dict = roi_feature_extraction(f_trace_sm, spike_prob_sm, f[roi_idx], cascade_probs[roi_idx])
         print(cascade_probs[roi_idx][300:350])
         roi_key = f"{video_path.name}_{roi_idx}"
         video_rois.append((roi_key, features_dict))
