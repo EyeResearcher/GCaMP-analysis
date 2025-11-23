@@ -53,7 +53,7 @@ def left_based_prominence(spike_prob: np.ndarray) -> np.ndarray:
     left_base_prominences : np.ndarray = peak_vals - left_vals
     prom_mean : float = np.mean(left_base_prominences)
     prom_skew : float = skew(left_base_prominences) if len(left_base_prominences) > 0 else 0.0
-    return (float(prom_mean), float(prom_skew), True)
+    return (float(prom_mean), float(prom_skew), True, peaks)
 
 def derivative_skewness(smoothed_scaled_f: np.ndarray) -> float:
     derivative = np.diff(smoothed_scaled_f)
@@ -63,20 +63,20 @@ def derivative_skewness(smoothed_scaled_f: np.ndarray) -> float:
         return (0.0, False) 
     return (float(skew(derivative)), True)
 
-def roi_feature_extraction(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray) -> tuple[dict, dict]:
+def roi_feature_extraction(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray) -> tuple[dict, dict, np.ndarray]:
     """Extract ROI features. Returns only the full dict with numpy arrays."""
     deriv_skew, valid_deriv = derivative_skewness(smoothed_f_trace)
-    spike_prom_mean, spike_prom_skew, valid_prom = left_based_prominence(smoothed_spike_prob)
+    spike_prom_mean, spike_prom_skew, valid_prom, peaks = left_based_prominence(smoothed_spike_prob)
     return ({
             'derivative_skew': deriv_skew,
             'spike_prom_mean': spike_prom_mean,
             'spike_prom_skew': spike_prom_skew},
             {'valid_deriv': valid_deriv,
-              'valid_prom': valid_prom})
+              'valid_prom': valid_prom}, peaks)
 
 def process_roi(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray, 
                 raw_trace: np.ndarray, raw_spike_prob: np.ndarray) -> dict:
-    features, validity = roi_feature_extraction(smoothed_f_trace, smoothed_spike_prob)
+    features, validity, _ = roi_feature_extraction(smoothed_f_trace, smoothed_spike_prob)
     label = 0 if not validity['valid_deriv'] or not validity['valid_prom'] else -1
     return {
         'smoothed_traces': [smoothed_f_trace, smoothed_spike_prob],

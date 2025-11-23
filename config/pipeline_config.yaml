@@ -10,7 +10,7 @@ roi_filtering:
   normalization: "minmax"  # Normalization strategy: "minmax" or "deltaf"
 
 spike_detection:
-  prob_sigma: 2.0          # Gaussian smoothing
+  prob_sigma: 4.0          # Gaussian smoothing
   window_size: 5           # +/- frames for F peak search
   min_prominence: 0.05     # Min cascade prominence
   min_distance: 8          # Min frames between spikes

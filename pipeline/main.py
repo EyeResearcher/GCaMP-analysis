@@ -1,4 +1,5 @@
 """Main pipeline with explicit steps and both DTW/STTC grouping."""
+import itertools
 import sys
 from pathlib import Path
 
@@ -93,8 +94,8 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     # Step 2: Compute cascade probabilities
     logger.info("  Step 2: Computing spike probabilities with Cascade...")
     cascade_prob = models['cascade'].predict(suite2p_data['F'])
-    norm_cascade_prob = normalize_minmax(cascade_prob, suite2p_path / 'cascade_spike_prob_minmax.npy')
-    norm_sm_sp = gaussian_filter1d(norm_cascade_prob, sigma=4.0, axis=0 )
+    
+    sm_sp = gaussian_filter1d(cascade_prob, sigma=4.0, axis=0 )
     logger.info(f"    Computed probabilities shape: {cascade_prob.shape}")
     results['cascade_prob'] = cascade_prob
     
@@ -108,8 +109,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
             sp_trace=cascade_prob[i],
             stats=suite2p_data['stat'][i] if 'stat' in suite2p_data else None,
             fneu=suite2p_data['Fneu'][i] if 'Fneu' in suite2p_data else None,
-            norm_f_trace=norm_f[i],
-            norm_sp_trace=norm_cascade_prob[i]
+            
         )
         all_rois.append(roi)
     results['all_rois'] = all_rois
@@ -120,7 +120,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     logger.info(f"    Using {normalization} normalization")
     from joblib import Parallel, delayed
     all_feats = Parallel(n_jobs=-1)(
-        delayed(roi.extract_features)(norm_sm_f[i, :], norm_sm_sp[i, :]) 
+        delayed(roi.extract_features)(norm_sm_f[i, :], sm_sp[i, :]) 
         for i, roi in enumerate(all_rois)
     )
     feats_df = pd.DataFrame(all_feats)
@@ -168,51 +168,23 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     
     # Step 5: Create neurons with per-video MinMax normalization
     logger.info("  Step 5: Creating Neuron objects with normalized traces...")
-    neurons = []
-    for roi in good_rois:
-        
-        neuron = Neuron(
-            row_index=roi.index,
-            f_trace=roi.f_trace,  # Store normalized trace
-            cascade_prob=roi.cascade_prob,  # Store normalized prob
-            fs=suite2p_data.get('fs', 30.0)
-        )
-        neurons.append(neuron)
+    neurons = [Neuron(roi, fs=suite2p_data['fs']) for roi in good_rois]
     logger.info(f"    Normalized {len(neurons)} neuron traces to [0,1] range")
     results['neurons'] = neurons
     
-    # Step 6: Detect spikes
-    logger.info("  Step 6: Detecting spikes from cascade probability...")
-    total_spikes = 0
-    for neuron in neurons:
-        spikes = detect_spikes_from_cascade(
-            neuron.raw_fluorescence,
-            neuron.cascade_prob,
-            **config['spike_detection']
-        )
-        neuron.spikes = spikes
-        total_spikes += len(spikes)
-    logger.info(f"    Found {total_spikes} candidate spikes")
-    
-    # Step 7: Filter spikes (8 features)
-    if models['spike_classifier'] is not None:
-        logger.info("  Step 7: Filtering spikes (8 features)...")
-        valid_count = 0
-        for neuron in neurons:
-            if len(neuron.spikes) > 0:
-                spike_features = extract_spike_features(
-                    neuron.spikes,
-                    neuron.raw_fluorescence,
-                    neuron.cascade_prob
-                )
-                # Apply per-video scaling before classification (features are per-neuron subset of video)
-                valid_mask = filter_spikes(spike_features, models['spike_classifier'], per_video_scale=True)
-                neuron.spikes = [s for s, keep in zip(neuron.spikes, valid_mask) if keep]
-                valid_count += len(neuron.spikes)
-        logger.info(f"    {valid_count}/{total_spikes} spikes passed filtering")
-    else:
-        logger.info("  Step 7: Skipping spike filtering (no model)")
-    
+    # Step 6: Extract Spike features 
+    # IMPLEMENT PARALLELIZED FEATURE EXTRACTION 
+    # FLATTEN LIST OF LISTS
+    all_spike_features = Parallel(n_jobs=-1)(
+        delayed(neuron.get_spike_features)(sm_sp[neuron.index, :])
+        for neuron in neurons
+    )
+    all_spike_features_flat = list(itertools.chain.from_iterable(all_spike_features))
+    key_map = dict(zip([(i, spike['key']) for spike in all_spike_features_flat]))
+    spk_feats_df = pd.DataFrame(all_spike_features_flat, set_index='key')
+    spike_mask = models['spike_classifier'].predict(spk_feats_df)
+    #IMPLEMENT KEY-BASED MAPPING
+   
     # Remove neurons with no spikes
     neurons_with_spikes = [n for n in neurons if len(n.spikes) > 0]
     for i, n in enumerate(neurons_with_spikes):

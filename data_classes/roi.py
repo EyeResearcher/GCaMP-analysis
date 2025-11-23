@@ -11,9 +11,8 @@ class ROI:
                  f_trace: np.ndarray,
                  cascade_prob: np.ndarray,
                  stats: Optional[Dict] = None,
-                 fneu: Optional[np.ndarray] = None,
-                 norm_f_trace: Optional[np.ndarray] = None,
-                 norm_sp_trace: Optional[np.ndarray] = None):
+                 fneu: Optional[np.ndarray] = None
+                 ):
         """
         Initialize ROI.
         
@@ -41,11 +40,10 @@ class ROI:
     
     def extract_features(self, sm_norm_f: np.ndarray, sm_norm_sp: np.ndarray) -> dict:
         """Extract features for this ROI using specified normalization."""
-        features, validity = roi_feature_extraction(sm_norm_f, sm_norm_sp)
-        self.features = features
+        self.features, validity, self.peaks = roi_feature_extraction(sm_norm_f, sm_norm_sp)
         if not validity['valid_deriv'] or not validity['valid_prom']:
             self.is_good = False
-        return features
+        return self.features
     
     def set_classification(self, prediction):
         """Classify ROI using provided classifier model."""

@@ -108,7 +108,7 @@ def area_asymmetry_trapz(
 
     return (A_right - A_left) / total
 
-def detect_spikes(smoothed_spike_prob: np.ndarray) -> Tuple[Dict[int, Dict], Dict[int, Dict], list[int]]:
+def detect_spikes(smoothed_spike_prob: np.ndarray = None, peaks : np.ndarray | None = None, mode = "train") -> Tuple[Dict[int, Dict], list[int|str]]:
     """
     Detect spikes and compute windows/features per spike.
     
@@ -117,12 +117,12 @@ def detect_spikes(smoothed_spike_prob: np.ndarray) -> Tuple[Dict[int, Dict], Dic
 
     Returns a mapping: {spike_frame_index: {windows: [large_window, small_window], features: {...}}}
     """
-    # Find the valid region (non-NaN values)
+    # Find the valid region (non-NaN) values)
     valid_mask = ~np.isnan(smoothed_spike_prob)
     valid_indices = np.where(valid_mask)[0]
     
     if len(valid_indices) == 0:
-        return {}, {}, []
+        return {}, []
     
     # Get the valid region bounds
     start_idx = valid_indices[0]
@@ -132,9 +132,9 @@ def detect_spikes(smoothed_spike_prob: np.ndarray) -> Tuple[Dict[int, Dict], Dic
     valid_spike_prob = smoothed_spike_prob[start_idx:end_idx]
     
     # Detect peaks in the valid region
-    peaks, _ = find_peaks(valid_spike_prob)
+    peaks, _ = find_peaks(valid_spike_prob) if peaks is None else (peaks, None)
     if peaks.size == 0:
-        return {}, {}, []
+        return {}, []
 
     prominences, left_bases, right_bases = peak_prominences(
         valid_spike_prob, peaks
@@ -143,6 +143,7 @@ def detect_spikes(smoothed_spike_prob: np.ndarray) -> Tuple[Dict[int, Dict], Dic
     spike_data: Dict[int, Dict] = {}
     num_peaks = len(peaks)
     spike_keys = []
+    inference_list = []
     for i, peak in enumerate(peaks):
         # Adjust indices back to original array coordinates
         absolute_peak = int(peak + start_idx)
@@ -173,10 +174,7 @@ def detect_spikes(smoothed_spike_prob: np.ndarray) -> Tuple[Dict[int, Dict], Dic
         absolute_prev_min = int(prev_min + start_idx)
         absolute_next_min = int(next_min + start_idx)
 
-        spike_data[absolute_peak] = {
-            "windows": {'large_window' : {'window_values' : large_window, 'bounds': (left_base, right_base)},
-                        'small_window' : {'window_values' : small_window, 'bounds': (absolute_prev_min, absolute_next_min)}},
-            "features": {
+        features = {
                 "spike_prom": float(spike_prom),
                 "isolation": int(len(large_window)),
                 "distance": int(len(small_window)),
@@ -186,12 +184,24 @@ def detect_spikes(smoothed_spike_prob: np.ndarray) -> Tuple[Dict[int, Dict], Dic
                 "dist_aai_sum": float(area_asymmetry(small_window, peak - absolute_prev_min)),
                 "iso_aai_trapz": float(area_asymmetry_trapz(large_window, zero_value=peak - left_base)),
                 "dist_aai_trapz": float(area_asymmetry_trapz(small_window, zero_value=peak - absolute_prev_min))
-            },
+            }
+        
+        if mode == "inference":
+            inference_list.append(features)
+            continue
+            
+        spike_data[absolute_peak] = {
+            "windows": {'large_window' : {'window_values' : large_window, 'bounds': (left_base, right_base)},
+                        'small_window' : {'window_values' : small_window, 'bounds': (absolute_prev_min, absolute_next_min)}},
+            "features": features,
             "label": -1,  
-        }
+        } 
         spike_keys.append(absolute_peak)
+      
     
-   
+    if mode == "inference":
+        return inference_list, []
+
     
     return spike_data, spike_keys
 
