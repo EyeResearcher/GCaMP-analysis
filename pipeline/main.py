@@ -173,17 +173,29 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     results['neurons'] = neurons
     
     # Step 6: Extract Spike features 
-    # IMPLEMENT PARALLELIZED FEATURE EXTRACTION 
-    # FLATTEN LIST OF LISTS
-    all_spike_features = Parallel(n_jobs=-1)(
-        delayed(neuron.get_spike_features)(sm_sp[neuron.index, :])
+    logger.info("  Step 6: Extracting spike features in parallel...")
+    spike_features_list = Parallel(n_jobs=-1)(
+        delayed(neuron.get_spike_features)(sm_sp[neuron.roi.index, :])
         for neuron in neurons
     )
-    all_spike_features_flat = list(itertools.chain.from_iterable(all_spike_features))
-    key_map = dict(zip([(i, spike['key']) for spike in all_spike_features_flat]))
-    spk_feats_df = pd.DataFrame(all_spike_features_flat, set_index='key')
+    
+    # Flatten list of lists of feature dicts into single list
+    spike_features_flat = [feat_dict for neuron_feats in spike_features_list 
+                          for feat_dict in neuron_feats]
+    logger.info(f"    Extracted features for {len(spike_features_flat)} total spikes")
+    
+    # Step 7: Filter spikes using the classifier
+    logger.info("  Step 7: Filtering spikes...")
+    spk_feats_df = pd.DataFrame(spike_features_flat)
     spike_mask = models['spike_classifier'].predict(spk_feats_df)
-    #IMPLEMENT KEY-BASED MAPPING
+    prev_idx = 0
+    for i, n in enumerate(neurons):
+        n_peaks = n.n_peaks_raw
+        spike_preds = spike_mask[prev_idx: prev_idx + n_peaks]
+        prev_idx += n_peaks
+        n.filter_spikes(spike_preds)
+
+    logger.info(f"    {spike_mask.sum()}/{len(spike_mask)} spikes passed filtering")
    
     # Remove neurons with no spikes
     neurons_with_spikes = [n for n in neurons if len(n.spikes) > 0]

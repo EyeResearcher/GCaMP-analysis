@@ -108,14 +108,24 @@ def area_asymmetry_trapz(
 
     return (A_right - A_left) / total
 
-def detect_spikes(smoothed_spike_prob: np.ndarray = None, peaks : np.ndarray | None = None, mode = "train") -> Tuple[Dict[int, Dict], list[int|str]]:
+def detect_spikes(smoothed_spike_prob: np.ndarray = None,
+                   peaks : np.ndarray | None = None, roi_idx = None,
+                     mode = "train") -> Tuple[Dict[int, Dict], list[int|str]]:
     """
     Detect spikes and compute windows/features per spike.
-    
-    CASCADE adds 32 NaN values at the start and end as padding.
-    We need to find the valid (non-NaN) region and work with that.
+    Args:
+        smoothed_spike_prob (np.ndarray): 1D array of smoothed spike probabilities
+        peaks (np.ndarray | None): Optional precomputed peak indices
+        roi_idx: Optional ROI index for key construction
+        mode: "train" to return detailed spike data, "inference" for feature list only
+    Returns:
+        Tuple containing for training mode:
+            - spike_data (Dict[int, Dict]): Mapping of spike index to its data (windows, features, label)
+            - spike_keys (list[int|str]): List of spike indices detected
+        or for inference mode:
+            - features_list (list[Dict]): List of feature dictionaries for each spike
+            - spike_keys (list[int|str]): List of spike keys
 
-    Returns a mapping: {spike_frame_index: {windows: [large_window, small_window], features: {...}}}
     """
     # Find the valid region (non-NaN) values)
     valid_mask = ~np.isnan(smoothed_spike_prob)
@@ -185,7 +195,7 @@ def detect_spikes(smoothed_spike_prob: np.ndarray = None, peaks : np.ndarray | N
                 "iso_aai_trapz": float(area_asymmetry_trapz(large_window, zero_value=peak - left_base)),
                 "dist_aai_trapz": float(area_asymmetry_trapz(small_window, zero_value=peak - absolute_prev_min))
             }
-        
+        spike_keys.append(absolute_peak if roi_idx is None else f"{roi_idx}_{absolute_peak}")
         if mode == "inference":
             inference_list.append(features)
             continue
@@ -196,11 +206,11 @@ def detect_spikes(smoothed_spike_prob: np.ndarray = None, peaks : np.ndarray | N
             "features": features,
             "label": -1,  
         } 
-        spike_keys.append(absolute_peak)
+    
       
     
     if mode == "inference":
-        return inference_list, []
+        return inference_list, spike_keys
 
     
     return spike_data, spike_keys
