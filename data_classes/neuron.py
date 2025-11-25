@@ -11,6 +11,7 @@ class Neuron(ROI):
     
     def __init__(self,
                  roi_instance : ROI,
+                 filtered_index: int,
                  fs: float = 30.0):
         """
         Initialize Neuron.
@@ -23,23 +24,22 @@ class Neuron(ROI):
         """
         self.__dict__.update(roi_instance.__dict__)
         self.fs = fs
-        self.filtered_index = None  # Index after filtering
+        self.filtered_index = filtered_index  # Index after filtering
         
         # Will be populated by pipeline
         self.spikes = []
-        self.filtered_index = None  # Index after filtering
         self.binary_spike_train = None
-        self.spk_features = []
+        self.spk_features
         self.n_peaks_raw = len(self.peaks)
         self.peaks_filtered = []
-        
-    def get_spike_features(self, sm_sp) -> list:
+        self.all_spk_stats = []
+    def get_spike_features(self, sm_norm_f, raw_norm_f) -> list:
         """Extract spike features using the spike detection module.
         Args: 
             sm_sp: Smoothed spike probability signal
         Returns:
             list[Dict]: List of feature dictionaries for each spike"""
-        self.spk_features, __ = detect_spikes(sm_sp, self.peaks, roi_idx=self.index, mode="inference")
+        self.spk_features, __ = detect_spikes(sm_norm_f, raw_norm_f, self.peaks, roi_idx=self.index, mode="inference")
         return self.spk_features
     
     def filter_spikes(self, predictions) -> None:
@@ -48,50 +48,62 @@ class Neuron(ROI):
             predictions (list[bool]): List indicating whether each spike is valid.
         """
         peaks_filtered = [peak for peak, pred in zip(self.peaks, predictions) if bool(pred)]
-        self.spikes = [Spike(peak, i) for i, peak in enumerate(peaks_filtered)]
-        return peaks_filtered
-    def valid_spike_prob_region(self, sm_sp) -> np.ndarray:
-        """Get the start and end indices of the valid (non-NaN) region in the smoothed spike probability.
-        
-        Args:
-            sm_sp: Smoothed spike probability signal;
 
-        Returns:
-            (np.ndar
-        """
-        valid_mask = ~np.isnan(sm_sp)
-        valid_indices = np.where(valid_mask)[0]
-        if len(valid_indices) == 0:
-            return None, None
-        start_idx = valid_indices[0]
-        end_idx = valid_indices[-1] + 1
-        valid_sp = sm_sp[start_idx:end_idx]
-        return valid_sp, start_idx, end_idx
+        return peaks_filtered
+ 
     
-    def instantiate_spikes(self,sm_sp,norm_f) -> None:
-        
+    def instantiate_spikes(self, sm_norm_f, sg_norm_f) -> list[Spike]:
+        """Instantiate Spike objects for each filtered spike.
+        Args:
+            sm_norm_f (np.ndarray): Smoothed normalized fluorescence trace
+            sg_norm_f (np.ndarray): SavGol filtered normalized fluorescence trace
+        Returns:
+            list[Spike]: List of Spike objects"""
         # Extract the valid portion
-        valid_spike_prob, start_idx, end_idx = self.valid_spike_prob_region(sm_sp)
         prominences, left_bases, right_bases = peak_prominences(
-        valid_spike_prob, self.peaks_filtered)
-        for i, spike in enumerate(self.spikes):
-            spike = self.get_spike_stats(i, spike, valid_spike_prob, start_idx, end_idx, norm_f, left_bases[i], right_bases[i])
-            self.spikes[i] = spike
+            sm_norm_f, self.peaks_filtered)
+        
+        self.spikes = [None] * len(self.peaks_filtered)  # Pre-allocate list
+        self.all_spk_stats = []
+        for i, peak in enumerate(self.peaks_filtered):
+            spike = Spike(sm_f_idx=peak, position_idx=i)
+
+            spike.left_base, spike.right_base = left_bases[i], right_bases[i]
+            spike.prev_position_idx = self.peaks_filtered[i-1] if i > 0 else 0
+            spike.next_position_idx = self.peaks_filtered[i+1] if i < len(self.peaks_filtered) - 1 else len(sm_norm_f)
+            large_win, small_win = spike.create_windows(sg_norm_f)
+            spike.f_value = sg_norm_f[spike.sm_f_idx]
+            spike.stats = spike.get_statistics()
+            self.all_spk_stats.append(spike.stats)
+            self.spikes[i] = spike    
+
         return self.spikes
-    def get_spike_stats(self, i, spike : Spike, valid_sp, start_idx, end_idx, norm_f, left_base, right_base) -> List[str]:
-        """Get list of spike detection methods used."""
-        prev_idx = spike.prev_position_idx 
-        next_idx = spike.next_position_idx if i < len(self.spikes) - 1 else len(valid_sp)
-        large_window = _create_large_window(valid_sp, spike.cascade_peak_idx, left_base, right_base, start_idx=0)
-        small_window, small_low_bounds, small_upper_bounds = _create_small_window(valid_sp, spike.cascade_peak_idx, prev_idx, next_idx, start_idx=start_idx)
-        spike.f_small_window = norm_f[small_low_bounds: small_upper_bounds]
-        spike.smooth_f_window(sigma=2.0)
-        spike.f_index = np.argmax(spike.f_small_window_smooth) + small_low_bounds
-        spike.f_value = norm_f[spike.f_index]
-        rise_slope, decay_tau, decay_shape, decay_shape_features, f_value = spike.get_statistics()
-        spike.rise_slope = rise_slope
-        spike.decay_tau = decay_tau
-        spike.f_value = f_value
-        return spike
+
+    def summarize_spike_statistics(self) -> tuple[dict, dict]:
+        """Summarize spike statistics across all spikes.
+        Returns:
+            tuple: (summary_dict, raw_dict) where:
+                - summary_dict: Dictionary with mean/std for each feature
+                - raw_dict: Dictionary mapping feature names to lists of values
+        """
+        if not self.all_spk_stats:
+            return {}, {}
+        
+        import pandas as pd
+        
+        # Convert list of dicts to DataFrame
+        stats_df = pd.DataFrame(self.all_spk_stats)
+        
+        # Create raw dictionary: {feature_name: [val1, val2, ...]}
+        raw_dict = {col: stats_df[col].tolist() for col in stats_df.columns}
+        spike_freq = len(self.spikes) / (len(self.f_trace) / self.fs) if len(self.f_trace) > 0 else 0.0
+        raw_dict['spike_frequency'] = spike_freq
+        # Compute mean and std for all columns
+        summary = {
+            **{f'mean_{col}': stats_df[col].mean() for col in stats_df.columns},
+            **{f'std_{col}': stats_df[col].std() for col in stats_df.columns}
+        }
+    
+        return summary, raw_dict
     def __repr__(self):
         return f"Neuron(index={self.row_index}, spikes={len(self.spikes)}, rate={self.get_spike_rate():.2f}Hz)"

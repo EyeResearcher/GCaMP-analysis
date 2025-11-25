@@ -1,8 +1,9 @@
 """ROI class for calcium imaging data."""
 import numpy as np
 from typing import Optional, Dict
-from roi_classifier.prepare_data import roi_feature_extraction
+from roi_classifier.update_data import compute_roi_features
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks, peak_prominences
 class ROI:
     """Represents a Region of Interest from Suite2p."""
     
@@ -40,15 +41,9 @@ class ROI:
     
     def extract_features(self, sm_norm_f: np.ndarray, sm_norm_sp: np.ndarray) -> dict:
         """Extract features for this ROI using specified normalization."""
-        self.features, validity, self.peaks = roi_feature_extraction(sm_norm_f, sm_norm_sp)
-        if not validity['valid_deriv'] or not validity['valid_prom']:
+        self.peaks, _ = find_peaks(sm_norm_f)
+        self.features, validity = compute_roi_features(sm_norm_f, sm_norm_sp)
+        if not all(validity.values()):
             self.is_good = False
         return self.features
-    
-    def set_classification(self, prediction):
-        """Classify ROI using provided classifier model."""
-        if not self.features:
-            raise ValueError("Features not extracted. Call extract_features() first.")
-        if self.is_good is False:
-            return 
-        self.is_good = bool(prediction)
+   

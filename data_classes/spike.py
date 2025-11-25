@@ -3,11 +3,17 @@ from archive.utils.spike_utils import compute_spike_constants
 import numpy as np
 from typing import Optional, Tuple
 from scipy.ndimage import gaussian_filter1d
+from utils.feature_utils import (
+    compute_decay_shape_features,
+    compute_additional_decay_features,
+    _create_large_window,
+    _create_small_window
+)
 class Spike:
     """Represents a detected spike event."""
     
     def __init__(self,
-                 cascade_peak_idx: int,
+                 sm_f_idx: int,
                  position_idx: int):
         """
         Initialize Spike.
@@ -19,7 +25,7 @@ class Spike:
             f_value: Fluorescence value at peak
         """
         self.f_index = None
-        self.cascade_peak_idx = cascade_peak_idx
+        self.sm_f_idx = sm_f_idx
         self.prob_height = None
         self.f_value = None
         self.fluorescence_peak = None  # Alias for compatibility
@@ -38,27 +44,73 @@ class Spike:
         # Feature parameters
         self.prev_position_idx = position_idx - 1 if position_idx > 1 else 0
         self.next_position_idx = position_idx + 1 
-        self.f_small_window = None
+        self.f_small_window_sg = None
         self.f_small_window_smooth = None
+        self.left_base = None
+        self.right_base = None
+        self.stats = {}
         
     def __repr__(self):
         return f"Spike(frame={self.frame_index}, prob={self.prob_height:.3f}, F={self.f_value:.2f})"
     
-    def smooth_f_window(self, sigma: float = 2.0) -> None:
-        """Apply Gaussian smoothing to the fluorescence small window."""
-        if self.f_small_window is not None:
-            self.f_small_window_smooth = gaussian_filter1d(self.f_small_window, sigma=sigma)
-    
-    def get_statistics(self):
-        rise_slope, decay_tau = compute_spike_constants(
-            self.f_small_window_smooth, np.argmax(self.f_small_window_smooth))
-        decay_shape = compute_decay_shape_features(
-            self.f_small_window_smooth, np.argmax(self.f_small_window_smooth))
-        decay_shape_features = compute_additional_decay_features(
-            self.f_small_window_smooth, np.argmax(self.f_small_window_smooth))
-        return rise_slope, decay_tau, decay_shape, decay_shape_features, self.f_value
-    
+    def create_windows(self, norm_sg_f: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        large_window_tup = _create_large_window(
+            norm_sg_f, self.sm_f_idx, self.left_base, self.right_base)
+        small_window_tup = _create_small_window(norm_sg_f, self.sm_f_idx, self.prev_position_idx, self.next_position_idx)
+        self.small_window_sg = small_window_tup[0]
+        return large_window_tup, small_window_tup
 
+    def get_features(self) -> dict:
+        pass
+    def get_statistics(self):
+        """Compute spike statistics.
+        Returns:
+            dict: Dictionary of spike statistics
+                {'rise_slope': float, 'decay_tau': float,
+                'decay_r2': float, 'decay_residual_std': float,
+                'decay_curvature': float, 'decay_biphasic_ratio': float,
+                'decay_skew': float, 'decay_kurtosis': float,
+                'decay_linearity': float}
+        """
+        rise_slope, decay_tau = compute_spike_constants(
+            self.f_small_window_sg, np.argmax(self.f_small_window_sg))
+        decay_shape = compute_decay_shape_features(
+            self.f_small_window_sg, np.argmax(self.f_small_window_sg))
+        decay_shape_features = compute_additional_decay_features(
+            self.f_small_window_sg, np.argmax(self.f_small_window_sg))
+        half_max_width = _half_max_width(self.f_small_window_sg, np.argmax(self.f_small_window_sg))
+        self.stats = {
+            'rise_slope': rise_slope,
+            'decay_tau': decay_tau,
+            **decay_shape,
+            **decay_shape_features,
+            'half_max_width': half_max_width
+        }
+        return self.stats
+    
+def _half_max_width(window: np.ndarray, peak_idx: int) -> float:
+    """Compute half-max width of a spike transient."""
+    segment = np.asarray(window, dtype=float)
+    if segment.size == 0 or not np.isfinite(segment).all():
+        return np.nan
+    
+    peak_value = float(np.nanmax(segment))
+    half_max = peak_value / 2.0
+    
+    # Search left
+    left_idx = peak_idx
+    while left_idx > 0 and segment[left_idx] >= half_max:
+        left_idx -= 1
+    left_time = left_idx + (half_max - segment[left_idx]) / (segment[left_idx + 1] - segment[left_idx]) if left_idx < peak_idx else left_idx
+    
+    # Search right
+    right_idx = peak_idx
+    while right_idx < segment.size - 1 and segment[right_idx] >= half_max:
+        right_idx += 1
+    right_time = right_idx - (half_max - segment[right_idx]) / (segment[right_idx - 1] - segment[right_idx]) if right_idx > peak_idx else right_idx
+    
+    width = right_time - left_time
+    return float(width)
 def compute_spike_constants(
     window: np.ndarray,
     peak_idx_in_window: int,

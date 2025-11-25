@@ -14,8 +14,10 @@ from typing import Dict, List, Optional
 import yaml
 import numpy as np
 import pandas as pd
-from joblib import load
+from joblib import load, dump, Parallel, delayed
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import savgol_filter
+from sklearn.linear_model import LogisticRegression
 # Clean imports using __init__.py aggregators
 from data_classes import Experiment, Timepoint, Video, ROI, Neuron, Spike
 
@@ -64,6 +66,42 @@ def load_models(config: Dict) -> Dict:
     logger.info("Loaded Cascade model")
     
     return models
+def filter_rois(all_rois: List[ROI], roi_classifier : LogisticRegression,
+                 norm_sm_f: np.ndarray, sm_sp: np.ndarray) -> tuple[List[ROI], List[ROI], np.ndarray]:
+    """Extract features and filter ROIs using the classifier."""
+    all_feats = Parallel(n_jobs=-1)(
+        delayed(roi.extract_features)(norm_sm_f[i, :], sm_sp[i, :]) 
+        for i, roi in enumerate(all_rois)
+    )
+    feats_df = pd.DataFrame(all_feats)
+    good_roi_mask  = roi_classifier.predict(feats_df)
+    for roi, pred, i in zip(all_rois, good_roi_mask, range(len(all_rois))):
+        if roi.is_good is False:
+            continue
+        good_roi_mask[i] = roi.is_good = bool(pred)
+    good_rois = [roi for roi in all_rois if roi.is_good]
+    bad_rois = [roi for roi in all_rois if not roi.is_good  ]
+    return good_rois, bad_rois, good_roi_mask
+def get_savgol_params(fs, sensor_type='gcamp8s'):
+    """Get Savitzky-Golay parameters based on sampling frequency and sensor."""
+    if sensor_type == 'gcamp8s':
+        # Target ~500-800ms window for GCaMP8s (slower kinetics)
+        window_frames = int(0.6 * fs)  # 600ms window
+    elif sensor_type == 'gcamp6f':
+        # Faster sensor, shorter window
+        window_frames = int(0.3 * fs)  # 300ms window
+    else:
+        # Default/GCaMP6s
+        window_frames = int(0.4 * fs)  # 400ms window
+    
+    # Ensure odd number
+    window_length = 2 * (window_frames // 2) + 1
+    # For GCaMP8s, use larger minimum
+    window_length = max(9, window_length)  # Minimum 9 for slow sensors
+    
+    polyorder = 3  # Cubic fit better for slow, smooth transients
+    
+    return window_length, polyorder
 
 def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Optional[Dict]:
     """
@@ -86,6 +124,8 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     suite2p_data = load_suite2p_data(suite2p_path)
     norm_f = normalize_minmax(suite2p_data['F'], suite2p_path / 'F_minmax.npy')
     norm_sm_f = gaussian_filter1d(norm_f, sigma=4.0, axis=0 )
+    window_length, polyorder = get_savgol_params(suite2p_data['fs'], sensor_type='gcamp8s')
+    norm_sg_f = savgol_filter(norm_f, window_length=window_length, polyorder=polyorder, axis=1)
     n_rois, n_frames = suite2p_data['F'].shape
     logger.info(f"    Loaded {n_rois} ROIs, {n_frames} frames")
     results['suite2p_data'] = suite2p_data
@@ -114,34 +154,14 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         all_rois.append(roi)
     results['all_rois'] = all_rois
     
-    # Step 4: Extract features and filter ROIs
-    logger.info("  Step 4: Filtering ROIs (derivative_skew, spike_prom_mean)...")
-    normalization = config.get('roi_filtering', {}).get('normalization', 'minmax')
-    logger.info(f"    Using {normalization} normalization")
-    from joblib import Parallel, delayed
-    all_feats = Parallel(n_jobs=-1)(
-        delayed(roi.extract_features)(norm_sm_f[i, :], sm_sp[i, :]) 
-        for i, roi in enumerate(all_rois)
-    )
-    feats_df = pd.DataFrame(all_feats)
-    good_roi_mask  = models['roi_classifier'].predict(feats_df)
-    for roi, pred, i in zip(all_rois, good_roi_mask, range(len(all_rois))):
-        if roi.is_good is False:
-            continue
-        good_roi_mask[i] = roi.set_classification(pred)
-
-
-
-    
-    good_rois = [roi for roi in all_rois if roi.is_good]
-    bad_rois = [roi for roi in all_rois if not roi.is_good  ]
+    good_rois, bad_rois, good_roi_mask = filter_rois(all_rois, 
+                                           models['roi_classifier'],
+                                            norm_sm_f, sm_sp)
+  
     
     # Track bad ROI indices and features for Excel report
     bad_roi_indices = [roi.index for roi in bad_rois]
-    bad_roi_features = {
-        'derivative_skew': [roi.features.get('derivative_skew', np.nan) for roi in bad_rois],
-        'spike_prom_mean': [roi.features.get('spike_prom_mean', np.nan) for roi in bad_rois]
-    }
+    bad_roi_features = [roi.features for roi in bad_rois]
     
     logger.info(f"    {len(good_rois)}/{len(all_rois)} ROIs passed filtering")
     logger.info(f"    Bad ROI indices: {bad_roi_indices[:10]}..." if len(bad_roi_indices) > 10 else f"    Bad ROI indices: {bad_roi_indices}")
@@ -150,9 +170,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     results['bad_roi_indices'] = bad_roi_indices
     results['bad_roi_features'] = bad_roi_features
     results['good_roi_mask'] = good_roi_mask
-    
-    # Step 4b: Save filtered Suite2p files
-    logger.info("  Step 4b: Saving filtered Suite2p files...")
+
     filtered_suite2p_path = save_filtered_suite2p(
         video_path=video_path,
         good_roi_mask=good_roi_mask,
@@ -165,46 +183,49 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     if len(good_rois) == 0:
         logger.warning("    No good ROIs found")
         return results
-    
-    # Step 5: Create neurons with per-video MinMax normalization
-    logger.info("  Step 5: Creating Neuron objects with normalized traces...")
-    neurons = [Neuron(roi, fs=suite2p_data['fs']) for roi in good_rois]
-    logger.info(f"    Normalized {len(neurons)} neuron traces to [0,1] range")
+
+    neurons = [Neuron(roi, i, fs=suite2p_data['fs']) for i, roi in enumerate(good_rois)]
     results['neurons'] = neurons
-    
     # Step 6: Extract Spike features 
     logger.info("  Step 6: Extracting spike features in parallel...")
     spike_features_list = Parallel(n_jobs=-1)(
-        delayed(neuron.get_spike_features)(sm_sp[neuron.index, :])
-        for neuron in neurons
+    delayed(neuron.get_spike_features)(sm_sp[neuron.index, :])
+    for neuron in neurons
     )
-    
+
     # Flatten list of lists of feature dicts into single list
     spike_features_flat = [feat_dict for neuron_feats in spike_features_list 
-                          for feat_dict in neuron_feats]
+                        for feat_dict in neuron_feats]
     logger.info(f"    Extracted features for {len(spike_features_flat)} total spikes")
-    
+
     # Step 7: Filter spikes using the classifier
     logger.info("  Step 7: Filtering spikes...")
     spk_feats_df = pd.DataFrame(spike_features_flat)
     spike_mask = models['spike_classifier'].predict(spk_feats_df)
+
+    # Map predictions back to each neuron
     prev_idx = 0
-    for i, n in enumerate(neurons):
-        n_peaks = n.n_peaks_raw
-        spike_preds = spike_mask[prev_idx: prev_idx + n_peaks]
-        prev_idx += n_peaks
-        n.peaks_filtered = n.filter_spikes(spike_preds)
+    for neuron in neurons:
+        # Number of spikes actually extracted for this neuron
+        n_spikes_extracted = len(neuron.spk_features)
+        spike_preds = spike_mask[prev_idx: prev_idx + n_spikes_extracted]
+        prev_idx += n_spikes_extracted
+
+    # Filter peaks based on predictions
+        neuron.peaks_filtered = neuron.filter_spikes(spike_preds)
+
     logger.info(f"    {spike_mask.sum()}/{len(spike_mask)} spikes passed filtering")
-   
+
     # Remove neurons with no spikes
     neurons_with_spikes = [n for n in neurons if len(n.spikes) > 0]
     for i, n in enumerate(neurons_with_spikes):
         n.filtered_index = i
 
     inst_spikes = Parallel(n_jobs=-1)(
-        delayed(n.instantiate_spikes)(sm_sp[n.index, :], norm_f[n.index, :]) for n in neurons_with_spikes
+        delayed(n.instantiate_spikes)(norm_sm_f[n.index, :], norm_sg_f[n.index, :]) for n in neurons_with_spikes
     )
     logger.info(f"    {len(neurons_with_spikes)} neurons have valid spikes")
+    
     results['filtered_neurons'] = neurons_with_spikes
     
     # Step 8: Group neurons using BOTH methods

@@ -3,12 +3,11 @@ from __future__ import annotations
 import numpy as np
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
-from typing import Dict, List, Tuple, Optional, TYPE_CHECKING, Any
+from typing import Dict, List, Tuple, Optional, TYPE_CHECKING
 import logging
 
 if TYPE_CHECKING:
     from data_classes import Neuron
-    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ def compute_sttc_matrix(neurons: List[Neuron],
                        time_window: float = 0.033,
                        fs: float = 30.0) -> np.ndarray:
     """
-    Compute STTC (Spike Time Tiling Coefficient) matrix.
+    Compute STTC (Spike Time Tiling Coefficient) matrix using elephant.
     
     Parameters:
         neurons: List of Neuron objects
@@ -28,73 +27,63 @@ def compute_sttc_matrix(neurons: List[Neuron],
     Returns:
         Symmetric STTC matrix
     """
+    from elephant.spike_train_correlation import spike_time_tiling_coefficient
+    from neo import SpikeTrain
+    import quantities as pq
+    
     n_neurons = len(neurons)
-    sttc_matrix = np.zeros((n_neurons, n_neurons))
     
-    # Convert time window to frames
-    window_frames = int(time_window * fs)
+    # Convert neurons to SpikeTrain objects
+    spike_trains = []
+    t_stop = n_frames / fs  # Total recording time in seconds
+    for neuron in neurons:
+        spike_times = np.array([s.sm_f_idx for s in neuron.spikes]) / fs  # Convert to seconds
+        spike_trains.append(SpikeTrain(spike_times * pq.s, t_stop=t_stop * pq.s))
     
-    for i in range(n_neurons):
-        for j in range(i, n_neurons):
-            if i == j:
-                sttc_matrix[i, j] = 1.0
-            else:
-                # Get spike trains
-                spikes_i = np.array([s.frame_index for s in neurons[i].spikes])
-                spikes_j = np.array([s.frame_index for s in neurons[j].spikes])
-                
-                if len(spikes_i) == 0 or len(spikes_j) == 0:
-                    sttc_matrix[i, j] = 0.0
-                    sttc_matrix[j, i] = 0.0
-                    continue
-                
-                # Calculate STTC
-                # P_A: proportion of time with spikes from A
-                tiles_a = np.zeros(n_frames, dtype=bool)
-                for spike in spikes_i:
-                    start = max(0, spike - window_frames)
-                    end = min(n_frames, spike + window_frames + 1)
-                    tiles_a[start:end] = True
-                P_A = np.mean(tiles_a)
-                
-                # P_B: proportion of time with spikes from B
-                tiles_b = np.zeros(n_frames, dtype=bool)
-                for spike in spikes_j:
-                    start = max(0, spike - window_frames)
-                    end = min(n_frames, spike + window_frames + 1)
-                    tiles_b[start:end] = True
-                P_B = np.mean(tiles_b)
-                
-                # T_A: proportion of spikes from A that fall in B's tiles
-                if len(spikes_i) > 0:
-                    in_b_tiles = np.sum([tiles_b[spike] for spike in spikes_i])
-                    T_A = in_b_tiles / len(spikes_i)
-                else:
-                    T_A = 0
-                
-                # T_B: proportion of spikes from B that fall in A's tiles
-                if len(spikes_j) > 0:
-                    in_a_tiles = np.sum([tiles_a[spike] for spike in spikes_j])
-                    T_B = in_a_tiles / len(spikes_j)
-                else:
-                    T_B = 0
-                
-                # STTC calculation
-                if P_A == 1:
-                    term1 = 1.0
-                else:
-                    term1 = (T_A - P_B) / (1 - P_A * P_B) if (1 - P_A * P_B) > 0 else 0
-                
-                if P_B == 1:
-                    term2 = 1.0
-                else:
-                    term2 = (T_B - P_A) / (1 - P_A * P_B) if (1 - P_A * P_B) > 0 else 0
-                
-                sttc = 0.5 * (term1 + term2)
-                sttc_matrix[i, j] = sttc
-                sttc_matrix[j, i] = sttc
+    # Compute STTC matrix
+    sttc_matrix = spike_time_tiling_coefficient(spike_trains, dt=time_window * pq.s)
     
-    return sttc_matrix
+    return np.array(sttc_matrix)
+
+def group_neurons_by_sttc(neurons: List[Neuron],
+                         n_frames: int,
+                         time_window: float = 0.033,
+                         linkage_method: str = 'average',
+                         distance_threshold: float = 0.3,
+                         min_group_size: int = 2,
+                         **kwargs) -> Tuple[List[List[Neuron]], np.ndarray]:
+    """
+    Group neurons using STTC correlation.
+    
+    Returns:
+        List of neuron groups and STTC matrix
+    """
+    if len(neurons) < 2:
+        return [neurons] if neurons else [], np.array([[1.0]])
+    
+    # Compute STTC matrix using elephant
+    fs = neurons[0].fs if neurons else 30.0
+    sttc_matrix = compute_sttc_matrix(neurons, n_frames, time_window, fs)
+    
+    # Convert correlation to distance (1 - correlation)
+    distance_matrix = 1 - sttc_matrix
+    np.fill_diagonal(distance_matrix, 0)
+    
+    # Hierarchical clustering
+    condensed_dist = squareform(distance_matrix)
+    Z = linkage(condensed_dist, method=linkage_method)
+    
+    # Get clusters
+    clusters = fcluster(Z, distance_threshold, criterion='distance')
+    
+    # Organize into groups
+    groups = []
+    for cluster_id in np.unique(clusters):
+        group = [neurons[i] for i in range(len(neurons)) if clusters[i] == cluster_id]
+        if len(group) >= min_group_size:
+            groups.append(group)
+    
+    return groups, sttc_matrix
 
 def compute_dtw_matrix(neurons: List[Neuron], 
                       downsample_factor: int = 3,
