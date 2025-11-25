@@ -99,7 +99,7 @@ class Labeler:
         return self.selected_label
     
 
-def save_data(npy_dict: dict, json_dict: dict, base_path: Path):
+def save_data(npy_dict: dict, base_path: Path):
     """Save both .npy and .json files"""
     base_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -107,28 +107,34 @@ def save_data(npy_dict: dict, json_dict: dict, base_path: Path):
     npy_file = base_path.with_suffix('.npy')
     np.save(npy_file, npy_dict, allow_pickle=True)
     
-    # Save .json (without traces)
-    json_file = base_path.with_suffix('.json')
-    with open(json_file, 'w') as f:
-        json.dump(json_dict, f, indent=2)
-    
-    print(f"Saved to {npy_file} and {json_file}")
 
+    
+    print(f"Saved to {npy_file} ")
 
 def main():
     parser = argparse.ArgumentParser(description="Annotate ROI data")
     parser.add_argument("--number_annotations", '-n', type=int, help="Number of annotations to perform", default=1000)
     parser.add_argument("--unlabeled_only", action='store_true', 
                        help="Only annotate ROIs with label=-1 (unlabeled)")
+    parser.add_argument("--manual_only", action='store_true',
+                       help="Only show ROIs that need manual verification (exclude auto-labeled)")
     args = parser.parse_args()
 
     base_path = Path("training_data/roi_filtering/all_roi_features")
     npy_dict = np.load(base_path.with_suffix('.npy'), allow_pickle=True).item()
 
     all_roi_keys = list(npy_dict.keys())
+    
+    # Helper function to get label value
+    def get_label_value(label):
+        return label['value'] if isinstance(label, dict) else label
+    
+    def get_label_source(label):
+        return label.get('source', 'unknown') if isinstance(label, dict) else 'unknown'
+    
     # Filter for unlabeled ROIs if flag is set
     if args.unlabeled_only:
-        unlabeled_keys = [k for k in all_roi_keys if npy_dict[k]['label'] == -1]
+        unlabeled_keys = [k for k in all_roi_keys if get_label_value(npy_dict[k]['label']) == -1]
         print(f"Filtering for unlabeled ROIs: {len(unlabeled_keys)}/{len(all_roi_keys)} are unlabeled")
         
         if len(unlabeled_keys) == 0:
@@ -139,15 +145,25 @@ def main():
         n_samples = min(args.number_annotations, len(unlabeled_keys))
         selected_keys = random.sample(unlabeled_keys, n_samples)
         print(f"Sampling {n_samples} unlabeled ROIs")
+    elif args.manual_only:
+        # Only show ROIs that aren't manually verified
+        needs_manual = [k for k in all_roi_keys 
+                       if get_label_source(npy_dict[k]['label']) != 'manual']
+        print(f"Filtering for ROIs needing manual verification: {len(needs_manual)}/{len(all_roi_keys)}")
+        
+        if len(needs_manual) == 0:
+            print("❌ All ROIs are manually verified!")
+            return
+        
+        n_samples = min(args.number_annotations, len(needs_manual))
+        selected_keys = random.sample(needs_manual, n_samples)
+        print(f"Sampling {n_samples} ROIs that need manual verification")
     else:
         # Sample from all ROIs
         total_available = len(all_roi_keys)
         n_samples = min(args.number_annotations, total_available)
         selected_keys = random.sample(all_roi_keys, n_samples)
         print(f"Sampling {n_samples} ROIs from all {total_available} ROIs")
-    
-    with open(base_path.with_suffix('.json'), 'r') as f:
-        json_dict = json.load(f)
 
     total_rois = len(npy_dict)
     labeled_count = 0
@@ -156,44 +172,68 @@ def main():
 
     for idx, roi_key in enumerate(selected_keys, start=1):
         roi_data = npy_dict[roi_key]
-        current_label = roi_data['label']
-        print(f"\n[{idx}/{args.number_annotations}] Annotating ROI: {roi_key} | Current Label: {current_label} ({'Good' if current_label == 1 else 'Bad/Unlabeled' if current_label == 0 else 'Unlabeled'})")
+        current_label = get_label_value(roi_data['label'])
+        current_source = get_label_source(roi_data['label'])
+        
+        label_str = 'Good' if current_label == 1 else 'Bad' if current_label == 0 else 'Unlabeled'
+        source_str = f"({current_source})" if current_source != 'unknown' else ""
+        
+        print(f"\n[{idx}/{n_samples}] Annotating ROI: {roi_key} | Current Label: {current_label} {label_str} {source_str}")
+        
         labeler = Labeler(roi_key, roi_data['raw_traces'][0], roi_data['smoothed_traces'][1],
-                          roi_data['features'], current_label
-                        )
+                          roi_data['features'], current_label)
         selected_label = labeler.show()
+        
         if selected_label is not None:
             if selected_label == -1:
                 skipped_count += 1
                 print(f"Skipped ROI: {roi_key}")
             else:
                 if selected_label != current_label:
-                    npy_dict[roi_key]['label'] = selected_label
-                    json_dict[roi_key]['label'] = selected_label
+                    # Ensure label is dict format
+                    if not isinstance(npy_dict[roi_key]['label'], dict):
+                        npy_dict[roi_key]['label'] = {'value': selected_label, 'source': 'manual'}
+                    else:
+                        npy_dict[roi_key]['label']['value'] = selected_label
+                        npy_dict[roi_key]['label']['source'] = 'manual'  # Mark as manually verified
+                    
                     updated_count += 1
-                    print(f"Updated ROI: {roi_key} to Label: {selected_label} ({'Good' if selected_label == 1 else 'Bad'})")
+                    print(f"Updated ROI: {roi_key} to Label: {selected_label} ({'Good' if selected_label == 1 else 'Bad'}) [manual]")
                 else:
-                    print(f"No change for ROI: {roi_key}")
+                    # Even if label value unchanged, mark as manually verified
+                    if isinstance(npy_dict[roi_key]['label'], dict):
+                        npy_dict[roi_key]['label']['source'] = 'manual'
+                    else:
+                        npy_dict[roi_key]['label'] = {'value': selected_label, 'source': 'manual'}
+                    print(f"Confirmed ROI: {roi_key} - Label unchanged but marked as manual")
             labeled_count += 1
         else:
             print(f"No label selected for ROI: {roi_key}")
+            
         if (labeled_count + updated_count) % 30 == 0:
-                save_data(npy_dict, json_dict, base_path)
-                print(f" Checkpoint: Saved progress ({labeled_count + updated_count} total changes)")
+            save_data(npy_dict, base_path)
+            print(f"📦 Checkpoint: Saved progress ({labeled_count + updated_count} total changes)")
+    
     print("\n" + "="*50)
-    save_data(npy_dict, json_dict, base_path)
+    save_data(npy_dict, base_path)
+    
+    # Count final statistics
+    total_labeled_rois = sum(1 for v in npy_dict.values() if get_label_value(v['label']) != -1)
+    total_unlabeled_rois = sum(1 for v in npy_dict.values() if get_label_value(v['label']) == -1)
+    manual_rois = sum(1 for v in npy_dict.values() if get_label_source(v['label']) == 'manual')
+    auto_rois = sum(1 for v in npy_dict.values() if get_label_source(v['label']) == 'auto')
     
     print(f"\n=== Annotation Complete ===")
-    print(f"ROIs sampled: {len(selected_keys)}")
+    print(f"ROIs sampled: {n_samples}")
     print(f"Newly labeled: {labeled_count}")
     print(f"Updated: {updated_count}")
     print(f"Skipped: {skipped_count}")
-    print(f"Total labeled in dataset: {sum(1 for v in npy_dict.values() if v['label'] != -1)}/{total_available}")
+    print(f"\nDataset Summary:")
+    print(f"  Total labeled:   {total_labeled_rois}/{len(all_roi_keys)}")
+    print(f"  Total unlabeled: {total_unlabeled_rois}/{len(all_roi_keys)}")
+    print(f"  Manual labels:   {manual_rois}")
+    print(f"  Auto labels:     {auto_rois}")
 
-    total_labeled = sum(1 for v in npy_dict.values() if v['label'] != -1)
-    total_unlabeled = sum(1 for v in npy_dict.values() if v['label'] == -1)
-    print(f"Total labeled in dataset: {total_labeled}/{len(all_roi_keys)}")
-    print(f"Total unlabeled remaining: {total_unlabeled}/{len(all_roi_keys)}")
 
 if __name__ == "__main__":
     main()

@@ -33,12 +33,13 @@ def save_data(npy_dict: dict, key_labels: dict, base_path: Path):
     df.to_csv(csv_file, index=False)
  
 class Labeler:
-    def __init__(self, roi_key: str, spike_idx: int, raw_f: np.ndarray, smoothed_sp: np.ndarray, 
+    def __init__(self, roi_key: str, spike_idx: int, raw_f: np.ndarray, smoothed_sp: np.ndarray, smoothed_f: np.ndarray,
                  spike_features: dict, spike_windows: dict, current_label: int, all_spike_indices: list):
         self.roi_key = roi_key
         self.spike_idx = spike_idx
         self.raw_f = raw_f
-        self.spike_prob = smoothed_sp  # Keep original with NaNs - bounds are relative to this
+        self.smoothed_f = smoothed_f
+        self.spike_prob = smoothed_f  # Keep original with NaNs - bounds are relative to this
         self.all_spike_indices = all_spike_indices  # All spike indices in this ROI
         
         # Debug: Check trace data
@@ -303,7 +304,7 @@ def main():
         # Get all spike indices for this ROI
         all_spike_indices = list(roi_data['spikes'].keys())
         
-        labeler = Labeler(roi_key, spike_idx, roi_data['raw_traces'][0], roi_data['smoothed_traces'][1],
+        labeler = Labeler(roi_key, spike_idx, roi_data['raw_traces'][0], roi_data['smoothed_traces'][1], roi_data['smoothed_traces'][0],
                           spike_data['features'], spike_data['windows'], current_label, all_spike_indices
                         )
         selected_label = labeler.show()

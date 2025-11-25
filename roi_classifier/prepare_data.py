@@ -70,7 +70,8 @@ def roi_feature_extraction(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np
     return ({
             'derivative_skew': deriv_skew,
             'spike_prom_mean': spike_prom_mean,
-            'spike_prom_skew': spike_prom_skew},
+            'spike_prom_skew': spike_prom_skew,
+            'range_trace': float(np.nanmax(smoothed_f_trace) - np.nanmin(smoothed_f_trace))},
             {'valid_deriv': valid_deriv,
               'valid_prom': valid_prom}, peaks)
 

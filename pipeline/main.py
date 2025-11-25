@@ -25,7 +25,7 @@ from pipeline.roi_processing import extract_roi_features, filter_rois
 from pipeline.spike_detection import detect_spikes_from_cascade
 from pipeline.spike_filtering import extract_spike_features, filter_spikes
 from pipeline.neuron_grouping import group_neurons_by_sttc, group_neurons_by_dtw, compare_groupings
-from pipeline.io_handlers import save_video_summary, save_timepoint_summary, save_filtered_suite2p, 
+from pipeline.io_handlers import save_video_summary, save_timepoint_summary, save_filtered_suite2p
 from utils.io_utils import load_experiment_structure
 from utils.cascade_utils import load_cascade_model
 
@@ -175,7 +175,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     # Step 6: Extract Spike features 
     logger.info("  Step 6: Extracting spike features in parallel...")
     spike_features_list = Parallel(n_jobs=-1)(
-        delayed(neuron.get_spike_features)(sm_sp[neuron.roi.index, :])
+        delayed(neuron.get_spike_features)(sm_sp[neuron.index, :])
         for neuron in neurons
     )
     
@@ -193,14 +193,17 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         n_peaks = n.n_peaks_raw
         spike_preds = spike_mask[prev_idx: prev_idx + n_peaks]
         prev_idx += n_peaks
-        n.filter_spikes(spike_preds)
-
+        n.peaks_filtered = n.filter_spikes(spike_preds)
     logger.info(f"    {spike_mask.sum()}/{len(spike_mask)} spikes passed filtering")
    
     # Remove neurons with no spikes
     neurons_with_spikes = [n for n in neurons if len(n.spikes) > 0]
     for i, n in enumerate(neurons_with_spikes):
         n.filtered_index = i
+
+    inst_spikes = Parallel(n_jobs=-1)(
+        delayed(n.instantiate_spikes)(sm_sp[n.index, :], norm_f[n.index, :]) for n in neurons_with_spikes
+    )
     logger.info(f"    {len(neurons_with_spikes)} neurons have valid spikes")
     results['filtered_neurons'] = neurons_with_spikes
     

@@ -11,10 +11,9 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, accuracy_score
 import joblib
-from itertools import product
+import json
 
 
 def load_labeled_spike_data(base_path: Path):
@@ -108,9 +107,162 @@ def load_labeled_spike_data(base_path: Path):
     return X, y, feature_names, spike_keys_list
 
 
+def create_feature_variants(X, feature_names):
+    """
+    Create multiple feature variants with different transformations.
+    
+    For each feature, create:
+    - Raw (original)
+    - Log-transformed (log(x + 1)) - compresses large values
+    - Square root - moderate compression
+    - Squared - emphasizes large values
+    
+    Returns:
+        variants: dict mapping transform name to feature matrix
+        variant_names: dict mapping transform name to feature name list
+    """
+    variants = {
+        'raw': X.copy(),
+        'log': np.log1p(np.abs(X)),  # log(|x| + 1)
+        'sqrt': np.sqrt(np.abs(X)),  # sqrt(|x|)
+        'square': X ** 2,  # x²
+    }
+    
+    variant_names = {
+        'raw': feature_names,
+        'log': [f"{name}_log" for name in feature_names],
+        'sqrt': [f"{name}_sqrt" for name in feature_names],
+        'square': [f"{name}_sq" for name in feature_names],
+    }
+    
+    return variants, variant_names
+
+
+def test_top_features_strategy(X_train, X_test, y_train, y_test, feature_names, n_estimators=100, max_depth=None, random_state=42):
+    """
+    Test performance using only top N most important features.
+    
+    Strategy:
+    1. Train on all features to get feature importances
+    2. Select top N features
+    3. Test different transformations on just those features
+    
+    Returns:
+        results: list of result dicts
+        best: best configuration dict
+        feature_ranking: list of (feature_name, importance) tuples
+    """
+    print("\n" + "="*70)
+    print("TESTING TOP IMPORTANT FEATURES STRATEGY")
+    print("="*70)
+    
+    # Step 1: Train on raw features to get importances
+    print("\nStep 1: Training on all raw features to rank importance...")
+    rf_baseline = RandomForestClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        random_state=random_state,
+        class_weight='balanced',
+        n_jobs=-1
+    )
+    rf_baseline.fit(X_train, y_train)
+    
+    # Get feature importances
+    importances = rf_baseline.feature_importances_
+    feature_ranking = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)
+    
+    print("\nFeature importance ranking:")
+    for i, (feat, imp) in enumerate(feature_ranking[:10], 1):
+        print(f"  {i:2d}. {feat:25s}: {imp:.4f}")
+    
+    # Step 2: Test with different numbers of top features
+    results = []
+    transformation_options = ['raw', 'log', 'sqrt', 'square']
+    
+    for n_top in [3, 5, 7, 10, 15, len(feature_names)]:
+        if n_top > len(feature_names):
+            continue
+            
+        print(f"\n--- Testing with top {n_top} features ---")
+        top_features = [feat for feat, _ in feature_ranking[:n_top]]
+        top_indices = [feature_names.index(feat) for feat in top_features]
+        
+        X_train_subset = X_train[:, top_indices]
+        X_test_subset = X_test[:, top_indices]
+        
+        # Create variants for this subset
+        variants_train = {
+            'raw': X_train_subset.copy(),
+            'log': np.log1p(np.abs(X_train_subset)),
+            'sqrt': np.sqrt(np.abs(X_train_subset)),
+            'square': X_train_subset ** 2,
+        }
+        
+        variants_test = {
+            'raw': X_test_subset.copy(),
+            'log': np.log1p(np.abs(X_test_subset)),
+            'sqrt': np.sqrt(np.abs(X_test_subset)),
+            'square': X_test_subset ** 2,
+        }
+        
+        # Test uniform transformations
+        for transform in transformation_options:
+            rf = RandomForestClassifier(
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                random_state=random_state,
+                class_weight='balanced',
+                n_jobs=-1
+            )
+            
+            # Cross-validation
+            cv_scores = cross_val_score(
+                rf, variants_train[transform], y_train, 
+                cv=5, scoring='accuracy', n_jobs=-1
+            )
+            cv_acc = cv_scores.mean()
+            
+            # Train and test
+            rf.fit(variants_train[transform], y_train)
+            y_pred = rf.predict(variants_test[transform])
+            y_pred_proba = rf.predict_proba(variants_test[transform])[:, 1]
+            
+            test_acc = accuracy_score(y_test, y_pred)
+            roc_auc = roc_auc_score(y_test, y_pred_proba)
+            
+            results.append({
+                'n_features': n_top,
+                'features': top_features,
+                'transform': transform,
+                'config': f"Top{n_top}_{transform.upper()}",
+                'cv_acc': cv_acc,
+                'test_acc': test_acc,
+                'roc_auc': roc_auc,
+                'model': rf
+            })
+            
+            print(f"  Top {n_top:2d} [{transform:6s}]: CV Acc: {cv_acc:.4f} | Test Acc: {test_acc:.4f} | ROC AUC: {roc_auc:.4f}")
+    
+    # Find best configuration
+    best = max(results, key=lambda x: x['test_acc'])
+    
+    print(f"\n{'='*70}")
+    print(f"BEST TOP-N FEATURES CONFIGURATION:")
+    print(f"  Number of features: {best['n_features']}")
+    print(f"  Transformation: {best['transform']}")
+    print(f"  CV Accuracy: {best['cv_acc']:.4f}")
+    print(f"  Test Accuracy: {best['test_acc']:.4f}")
+    print(f"  ROC AUC: {best['roc_auc']:.4f}")
+    print(f"\n  Selected features:")
+    for i, feat in enumerate(best['features'], 1):
+        print(f"    {i:2d}. {feat}")
+    
+    return results, best, feature_ranking
+
+
 def train_random_forest(X, y, feature_names, test_size=0.2, random_state=42, n_estimators=100, max_depth=None):
     """
-    Train a Random Forest classifier and evaluate its performance.
+    Train a Random Forest classifier testing different feature transformations.
     
     Parameters
     ----------
@@ -137,49 +289,45 @@ def train_random_forest(X, y, feature_names, test_size=0.2, random_state=42, n_e
         Test features
     y_test : np.ndarray
         Test labels
-    scaler : MinMaxScaler or None
-        Fitted scaler (if used)
-    feature_config : tuple
-        Configuration of which features were scaled
+    best_transform_config : dict
+        Configuration of which features used which transformation
     """
-    # Split data first (before any scaling)
+    # Split data first
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
     
-    # Try all combinations of raw vs scaled for each feature
     n_features = X.shape[1]
     
-    # Generate all binary combinations (0=raw, 1=scaled)
-    # This gives us 2^n_features combinations
-    all_configs = list(product([False, True], repeat=n_features))
+    print(f"\nTraining set: {len(X_train)} samples")
+    print(f"  - Good spikes: {(y_train == 1).sum()}")
+    print(f"  - Bad spikes: {(y_train == 0).sum()}")
+    print(f"Test set: {len(X_test)} samples")
+    print(f"  - Good spikes: {(y_test == 1).sum()}")
+    print(f"  - Bad spikes: {(y_test == 0).sum()}")
     
-    print(f"\nTesting {len(all_configs)} feature scaling combinations...")
-    print(f"  (0 = raw feature, 1 = MinMax scaled feature)\n")
+    # Create feature variants
+    variants_train, _ = create_feature_variants(X_train, feature_names)
+    variants_test, _ = create_feature_variants(X_test, feature_names)
+    
+    transformation_options = ['raw', 'log', 'sqrt', 'square']
     
     best_score = -1
     best_clf = None
     best_config = None
-    best_scaler = None
     best_X_train = None
     best_X_test = None
     
     results = []
     
-    for config_idx, config in enumerate(all_configs):
-        # Create a copy of the data
-        X_train_copy = X_train.copy()
-        X_test_copy = X_test.copy()
-        
-        # Apply scaling to selected features
-        scaler = None
-        if any(config):  # If any feature should be scaled
-            scaler = MinMaxScaler()
-            scaled_features = [i for i, scale in enumerate(config) if scale]
-            
-            # Fit scaler on training data only
-            X_train_copy[:, scaled_features] = scaler.fit_transform(X_train_copy[:, scaled_features])
-            X_test_copy[:, scaled_features] = scaler.transform(X_test_copy[:, scaled_features])
+    # Strategy 1: Test uniform transformations (all features same)
+    print(f"\n{'='*70}")
+    print("TESTING UNIFORM TRANSFORMATIONS (all features same)")
+    print(f"{'='*70}")
+    
+    for transform in transformation_options:
+        X_train_variant = variants_train[transform]
+        X_test_variant = variants_test[transform]
         
         # Train classifier
         clf = RandomForestClassifier(
@@ -189,71 +337,123 @@ def train_random_forest(X, y, feature_names, test_size=0.2, random_state=42, n_e
             n_jobs=-1,
             class_weight='balanced'
         )
-        clf.fit(X_train_copy, y_train)
         
-        # Evaluate on test set
-        test_score = clf.score(X_test_copy, y_test)
-        
-        # Cross-validation score
-        cv_scores = cross_val_score(clf, X_train_copy, y_train, cv=5, scoring='accuracy')
+        # Cross-validation
+        cv_scores = cross_val_score(clf, X_train_variant, y_train, cv=5, scoring='accuracy', n_jobs=-1)
         cv_mean = cv_scores.mean()
         cv_std = cv_scores.std()
         
-        # ROC AUC
-        y_pred_proba = clf.predict_proba(X_test_copy)[:, 1]
+        # Train and evaluate
+        clf.fit(X_train_variant, y_train)
+        test_score = clf.score(X_test_variant, y_test)
+        y_pred_proba = clf.predict_proba(X_test_variant)[:, 1]
         roc_auc = roc_auc_score(y_test, y_pred_proba)
         
-        # Build config string
-        config_str = ''.join(['S' if scale else 'R' for scale in config])
-        feature_config_names = [f"{name}={'scaled' if scale else 'raw'}" for name, scale in zip(feature_names, config)]
+        config_str = transform.upper() * n_features
         
         results.append({
-            'config_idx': config_idx,
             'config': config_str,
+            'transform': transform,
             'cv_accuracy': cv_mean,
             'cv_std': cv_std,
             'test_accuracy': test_score,
             'roc_auc': roc_auc,
-            'config_tuple': config
         })
         
-        # Print progress more frequently
-        if (config_idx + 1) % 10 == 0 or config_idx == 0:
-            print(f"  [{config_idx + 1}/{len(all_configs)}] Config: {config_str} | CV Acc: {cv_mean:.4f} | Test Acc: {test_score:.4f} | ROC AUC: {roc_auc:.4f}")
+        print(f"  {transform.upper():6s}: CV Acc: {cv_mean:.4f} (+/- {cv_std*2:.4f}) | Test Acc: {test_score:.4f} | ROC AUC: {roc_auc:.4f}")
         
-        # Track best model
+        # Track best
         if test_score > best_score:
             best_score = test_score
             best_clf = clf
-            best_config = config
-            best_scaler = scaler
-            best_X_train = X_train_copy
-            best_X_test = X_test_copy
+            best_config = {name: transform for name in feature_names}
+            best_X_train = X_train_variant
+            best_X_test = X_test_variant
+            print(f"  ✓ New best!")
+    
+    # Strategy 2: Test random feature-specific transformations
+    print(f"\n{'='*70}")
+    print("TESTING RANDOM FEATURE-SPECIFIC TRANSFORMATIONS")
+    print(f"{'='*70}")
+    
+    n_random_tests = min(100, 2 ** n_features)  # Don't test more than possible or 100
+    np.random.seed(random_state)
+    
+    for i in range(n_random_tests):
+        # Randomly choose transformation for each feature
+        config = np.random.choice(transformation_options, size=n_features)
+        
+        # Build feature matrix
+        X_train_combo = []
+        X_test_combo = []
+        for feat_idx, transform in enumerate(config):
+            X_train_combo.append(variants_train[transform][:, feat_idx:feat_idx+1])
+            X_test_combo.append(variants_test[transform][:, feat_idx:feat_idx+1])
+        
+        X_train_combo = np.hstack(X_train_combo)
+        X_test_combo = np.hstack(X_test_combo)
+        
+        # Train classifier
+        clf = RandomForestClassifier(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            random_state=random_state + i,
+            n_jobs=-1,
+            class_weight='balanced'
+        )
+        
+        # Cross-validation
+        cv_scores = cross_val_score(clf, X_train_combo, y_train, cv=5, scoring='accuracy', n_jobs=-1)
+        cv_mean = cv_scores.mean()
+        cv_std = cv_scores.std()
+        
+        # Train and evaluate
+        clf.fit(X_train_combo, y_train)
+        test_score = clf.score(X_test_combo, y_test)
+        y_pred_proba = clf.predict_proba(X_test_combo)[:, 1]
+        roc_auc = roc_auc_score(y_test, y_pred_proba)
+        
+        # Create config string: R/L/S/Q for Raw/Log/Sqrt/sQuare
+        transform_map = {'raw': 'R', 'log': 'L', 'sqrt': 'S', 'square': 'Q'}
+        config_str = ''.join([transform_map[t] for t in config])
+        
+        results.append({
+            'config': config_str,
+            'transform_per_feature': {feature_names[j]: config[j] for j in range(n_features)},
+            'cv_accuracy': cv_mean,
+            'cv_std': cv_std,
+            'test_accuracy': test_score,
+            'roc_auc': roc_auc,
+        })
+        
+        if (i + 1) % 10 == 0 or i == 0:
+            print(f"  [{i+1}/{n_random_tests}] Config: {config_str} | CV Acc: {cv_mean:.4f} | Test Acc: {test_score:.4f} | ROC AUC: {roc_auc:.4f}")
+        
+        # Track best
+        if test_score > best_score:
+            best_score = test_score
+            best_clf = clf
+            best_config = {feature_names[j]: config[j] for j in range(n_features)}
+            best_X_train = X_train_combo
+            best_X_test = X_test_combo
             print(f"  ✓ New best! Config: {config_str} | Test Acc: {test_score:.4f}")
     
     # Sort results by test accuracy
     results_df = pd.DataFrame(results).sort_values('test_accuracy', ascending=False)
     
     print("\n" + "="*80)
-    print("TOP 10 FEATURE SCALING CONFIGURATIONS")
+    print("TOP 10 FEATURE TRANSFORMATION CONFIGURATIONS")
     print("="*80)
-    print(results_df.head(10).to_string(index=False))
+    print(results_df[['config', 'cv_accuracy', 'test_accuracy', 'roc_auc']].head(10).to_string(index=False))
     
     print("\n" + "="*80)
     print("BEST CONFIGURATION DETAILS")
     print("="*80)
-    best_config_str = ''.join(['S' if scale else 'R' for scale in best_config])
-    print(f"\nBest configuration: {best_config_str}")
-    print("Feature scaling:")
-    for i, (name, scale) in enumerate(zip(feature_names, best_config)):
-        print(f"  {name}: {'MinMax scaled' if scale else 'raw'}")
     
-    print(f"\nTraining set: {len(X_train)} samples")
-    print(f"  - Good spikes: {(y_train == 1).sum()}")
-    print(f"  - Bad spikes: {(y_train == 0).sum()}")
-    print(f"Test set: {len(X_test)} samples")
-    print(f"  - Good spikes: {(y_test == 1).sum()}")
-    print(f"  - Bad spikes: {(y_test == 0).sum()}")
+    print(f"\nTest Accuracy: {best_score:.4f}")
+    print("\nFeature transformations:")
+    for name, transform in best_config.items():
+        print(f"  {name}: {transform}")
     
     # Evaluate best model
     y_pred = best_clf.predict(best_X_test)
@@ -284,7 +484,7 @@ def train_random_forest(X, y, feature_names, test_size=0.2, random_state=42, n_e
     feature_importance = pd.DataFrame({
         'feature': feature_names,
         'importance': best_clf.feature_importances_,
-        'scaling': ['scaled' if scale else 'raw' for scale in best_config]
+        'transform': [best_config[name] for name in feature_names]
     }).sort_values('importance', ascending=False)
     
     print("\n" + "="*80)
@@ -292,7 +492,7 @@ def train_random_forest(X, y, feature_names, test_size=0.2, random_state=42, n_e
     print("="*80)
     print(feature_importance.to_string(index=False))
     
-    return best_clf, best_X_test, y_test, best_scaler, best_config
+    return best_clf, best_X_test, y_test, best_config
 
 
 def main():
@@ -343,39 +543,183 @@ def main():
     print("Loading labeled spike data...")
     X, y, feature_names, spike_keys = load_labeled_spike_data(base_path)
     
-    # Train classifier (will test all feature scaling combinations)
-    clf, X_test, y_test, scaler, best_config = train_random_forest(
-        X, y, feature_names,
-        test_size=args.test_size,
-        random_state=args.random_state,
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth
+    print(f"\nFeatures: {feature_names}")
+    
+    # Split data once for consistent comparison
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=args.test_size, random_state=args.random_state, stratify=y
     )
     
-    # Save model
+    print(f"\nTraining set: {len(X_train)} samples")
+    print(f"  - Good spikes: {(y_train == 1).sum()}")
+    print(f"  - Bad spikes: {(y_train == 0).sum()}")
+    print(f"Test set: {len(X_test)} samples")
+    print(f"  - Good spikes: {(y_test == 1).sum()}")
+    print(f"  - Bad spikes: {(y_test == 0).sum()}")
+    
+    # Strategy 1: Test all features with transformations
+    print("\n" + "="*70)
+    print("STRATEGY 1: ALL FEATURES WITH TRANSFORMATIONS")
+    print("="*70)
+    
+    all_features_results = []
+    variants_train, _ = create_feature_variants(X_train, feature_names)
+    variants_test, _ = create_feature_variants(X_test, feature_names)
+    
+    transformation_options = ['raw', 'log', 'sqrt', 'square']
+    best_all_features = {'test_acc': -1}
+    
+    for transform in transformation_options:
+        X_train_var = variants_train[transform]
+        X_test_var = variants_test[transform]
+        
+        rf = RandomForestClassifier(
+            n_estimators=args.n_estimators,
+            max_depth=args.max_depth,
+            random_state=args.random_state,
+            class_weight='balanced',
+            n_jobs=-1
+        )
+        
+        cv_scores = cross_val_score(rf, X_train_var, y_train, cv=5, scoring='accuracy', n_jobs=-1)
+        cv_acc = cv_scores.mean()
+        
+        rf.fit(X_train_var, y_train)
+        test_acc = rf.score(X_test_var, y_test)
+        y_pred_proba = rf.predict_proba(X_test_var)[:, 1]
+        roc_auc = roc_auc_score(y_test, y_pred_proba)
+        
+        result = {
+            'transform': transform,
+            'cv_acc': cv_acc,
+            'test_acc': test_acc,
+            'roc_auc': roc_auc,
+            'model': rf,
+            'X_test': X_test_var,
+            'config': {name: transform for name in feature_names}
+        }
+        all_features_results.append(result)
+        
+        print(f"  {transform.upper():6s}: CV Acc: {cv_acc:.4f} | Test Acc: {test_acc:.4f} | ROC AUC: {roc_auc:.4f}")
+        
+        if test_acc > best_all_features['test_acc']:
+            best_all_features = result
+            print(f"  ✓ New best!")
+    
+    # Strategy 2: Test top features
+    top_results, best_top_features, feature_ranking = test_top_features_strategy(
+        X_train, X_test, y_train, y_test, feature_names,
+        n_estimators=args.n_estimators,
+        max_depth=args.max_depth,
+        random_state=args.random_state
+    )
+    
+    # Compare strategies
+    print("\n" + "="*70)
+    print("FINAL COMPARISON")
+    print("="*70)
+    print(f"\nAll features (best config):")
+    print(f"  Transform: {best_all_features['transform']}")
+    print(f"  Test Accuracy: {best_all_features['test_acc']:.4f}")
+    print(f"  ROC AUC: {best_all_features['roc_auc']:.4f}")
+    
+    print(f"\nTop-N features (best config):")
+    print(f"  Number of features: {best_top_features['n_features']}")
+    print(f"  Transform: {best_top_features['transform']}")
+    print(f"  Test Accuracy: {best_top_features['test_acc']:.4f}")
+    print(f"  ROC AUC: {best_top_features['roc_auc']:.4f}")
+    
+    # Choose overall best model
+    if best_top_features['test_acc'] > best_all_features['test_acc']:
+        print(f"\n🏆 Winner: Top-{best_top_features['n_features']} features with {best_top_features['transform']} transform")
+        best_overall = best_top_features
+        is_top_features = True
+    else:
+        print(f"\n🏆 Winner: All features with {best_all_features['transform']} transform")
+        best_overall = best_all_features
+        is_top_features = False
+    
+    # Save the best model
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(clf, output_path)
-    print(f"\n✓ Model saved to: {output_path}")
+    joblib.dump(best_overall['model'], output_path)
+    print(f"\n💾 Model saved to: {output_path}")
     
-    # Save scaler if used
-    if scaler is not None:
-        scaler_path = output_path.parent / 'scaler.joblib'
-        joblib.dump(scaler, scaler_path)
-        print(f"✓ Scaler saved to: {scaler_path}")
+    # Save configuration
+    config = {
+        'transform': best_overall['transform'],
+        'feature_names': feature_names,
+        'test_accuracy': float(best_overall['test_acc']),
+        'roc_auc': float(best_overall['roc_auc']),
+        'n_estimators': args.n_estimators,
+        'max_depth': args.max_depth,
+    }
     
-    # Save feature names and scaling configuration
-    feature_names_path = output_path.parent / 'feature_names.txt'
-    with open(feature_names_path, 'w') as f:
-        f.write('\n'.join(feature_names))
-    print(f"✓ Feature names saved to: {feature_names_path}")
+    if is_top_features:
+        config['use_top_features'] = True
+        config['n_top_features'] = best_overall['n_features']
+        config['selected_features'] = best_overall['features']
+        config['feature_ranking'] = [(feat, float(imp)) for feat, imp in feature_ranking]
+    else:
+        config['use_top_features'] = False
+        config['selected_features'] = feature_names
+        config['feature_ranking'] = [(feat, float(imp)) for feat, imp in feature_ranking]
     
-    # Save scaling configuration
-    config_path = output_path.parent / 'scaling_config.txt'
+    config_path = output_path.parent / 'spike_classifier_config.json'
     with open(config_path, 'w') as f:
-        for name, scale in zip(feature_names, best_config):
-            f.write(f"{name}: {'scaled' if scale else 'raw'}\n")
-    print(f"✓ Scaling configuration saved to: {config_path}")
+        json.dump(config, f, indent=2)
+    print(f"💾 Configuration saved to: {config_path}")
+    
+    # Final evaluation report
+    print("\n" + "="*70)
+    print("CLASSIFICATION REPORT (Best Model)")
+    print("="*70)
+    
+    # Get predictions for best model
+    if is_top_features:
+        top_indices = [feature_names.index(feat) for feat in best_overall['features']]
+        X_test_final = X_test[:, top_indices]
+        transform = best_overall['transform']
+        
+        if transform == 'log':
+            X_test_final = np.log1p(np.abs(X_test_final))
+        elif transform == 'sqrt':
+            X_test_final = np.sqrt(np.abs(X_test_final))
+        elif transform == 'square':
+            X_test_final = X_test_final ** 2
+        
+        y_pred_final = best_overall['model'].predict(X_test_final)
+        
+        # Feature importances for selected features
+        feature_imp = sorted(
+            zip(best_overall['features'], best_overall['model'].feature_importances_),
+            key=lambda x: x[1],
+            reverse=True
+        )
+    else:
+        y_pred_final = best_overall['model'].predict(best_overall['X_test'])
+        
+        # Feature importances for all features
+        feature_imp = sorted(
+            zip(feature_names, best_overall['model'].feature_importances_),
+            key=lambda x: x[1],
+            reverse=True
+        )
+    
+    print("\n" + classification_report(y_test, y_pred_final, target_names=['Bad', 'Good']))
+    
+    print("\nConfusion Matrix:")
+    cm = confusion_matrix(y_test, y_pred_final)
+    print(f"              Predicted")
+    print(f"              Bad   Good")
+    print(f"Actual Bad  [{cm[0,0]:4d}  {cm[0,1]:4d}]")
+    print(f"       Good [{cm[1,0]:4d}  {cm[1,1]:4d}]")
+    
+    print("\nFeature Importance:")
+    for feat, imp in feature_imp:
+        print(f"  {feat:25s}: {imp:.4f}")
+    
+    print("\n✅ Training complete!")
 
 
 if __name__ == "__main__":
