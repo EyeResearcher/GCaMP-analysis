@@ -22,7 +22,7 @@ from sklearn.linear_model import LogisticRegression
 from data_classes import Experiment, Timepoint, Video, ROI, Neuron, Spike
 
 # Import from individual modules to avoid circular import
-from pipeline.preprocessing import load_suite2p_data, compute_cascade_probabilities
+from pipeline.preprocessing import load_suite2p_data
 from pipeline.roi_processing import extract_roi_features, filter_rois
 from pipeline.spike_detection import detect_spikes_from_cascade
 from pipeline.spike_filtering import extract_spike_features, filter_spikes
@@ -133,7 +133,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     
     # Step 2: Compute cascade probabilities
     logger.info("  Step 2: Computing spike probabilities with Cascade...")
-    cascade_prob = models['cascade'].predict(suite2p_data['F'])
+    cascade_prob = np.load(suite2p_path / 'cascade_prob.npy')
     
     sm_sp = gaussian_filter1d(cascade_prob, sigma=4.0, axis=0 )
     logger.info(f"    Computed probabilities shape: {cascade_prob.shape}")
@@ -146,7 +146,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         roi = ROI(
             index=i,
             f_trace=suite2p_data['F'][i],
-            sp_trace=cascade_prob[i],
+            cascade_prob=cascade_prob[i],
             stats=suite2p_data['stat'][i] if 'stat' in suite2p_data else None,
             fneu=suite2p_data['Fneu'][i] if 'Fneu' in suite2p_data else None,
             
@@ -227,6 +227,9 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     logger.info(f"    {len(neurons_with_spikes)} neurons have valid spikes")
     
     results['filtered_neurons'] = neurons_with_spikes
+    results['spike_summaries_per_neuron'] = {
+        n.index: n.summarize_spike_statistics() for n in neurons_with_spikes
+    }
     
     # Step 8: Group neurons using BOTH methods
     if len(neurons_with_spikes) > 1:
@@ -248,10 +251,10 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         if dtw_matrix is not None:
             logger.info(f"      Found {len(dtw_groups)} DTW groups")
             # Compare methods
-            compare_groupings(sttc_groups, dtw_groups, neurons_with_spikes)
+            grouping_stats = compare_groupings(sttc_groups, dtw_groups, sttc_matrix, dtw_matrix, neurons_with_spikes)
         else:
             logger.info("      DTW groups skipped (GPU not available)")
-        
+        results['grouping_stats'] = grouping_stats
         results['sttc_groups'] = sttc_groups
         results['sttc_matrix'] = sttc_matrix
         results['dtw_groups'] = dtw_groups if dtw_matrix is not None else []

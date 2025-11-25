@@ -3,8 +3,10 @@ from __future__ import annotations
 import numpy as np
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
-from typing import Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Dict, List, Tuple, Optional, TYPE_CHECKING, Any
 import logging
+import torch
+from data_classes.neuron_group import NeuronGroup
 
 if TYPE_CHECKING:
     from data_classes import Neuron
@@ -45,6 +47,8 @@ def compute_sttc_matrix(neurons: List[Neuron],
     
     return np.array(sttc_matrix)
 
+
+
 def group_neurons_by_sttc(neurons: List[Neuron],
                          n_frames: int,
                          time_window: float = 0.033,
@@ -81,7 +85,8 @@ def group_neurons_by_sttc(neurons: List[Neuron],
     for cluster_id in np.unique(clusters):
         group = [neurons[i] for i in range(len(neurons)) if clusters[i] == cluster_id]
         if len(group) >= min_group_size:
-            groups.append(group)
+            neuron_group = NeuronGroup(f"sttc_{cluster_id}", group, method='sttc')
+            groups.append(neuron_group)
     
     return groups, sttc_matrix
 
@@ -254,45 +259,6 @@ def _single_dtw_gpu(trace_i: Any, trace_j: Any, device: Any) -> Any:
     
     return dtw_matrix[n % 2, m]
 
-def group_neurons_by_sttc(neurons: List[Neuron],
-                         n_frames: int,
-                         time_window: float = 0.033,
-                         correlation_threshold: float = 0.1,
-                         linkage_method: str = 'average',
-                         distance_threshold: float = 0.3,
-                         min_group_size: int = 2,
-                         **kwargs) -> Tuple[List[List[Neuron]], np.ndarray]:
-    """
-    Group neurons using STTC correlation.
-    
-    Returns:
-        List of neuron groups and STTC matrix
-    """
-    if len(neurons) < 2:
-        return [neurons] if neurons else [], np.array([[1.0]])
-    
-    # Compute STTC matrix
-    sttc_matrix = compute_sttc_matrix(neurons, n_frames, time_window)
-    
-    # Convert correlation to distance (1 - correlation)
-    distance_matrix = 1 - sttc_matrix
-    np.fill_diagonal(distance_matrix, 0)
-    
-    # Hierarchical clustering
-    condensed_dist = squareform(distance_matrix)
-    Z = linkage(condensed_dist, method=linkage_method)
-    
-    # Get clusters
-    clusters = fcluster(Z, distance_threshold, criterion='distance')
-    
-    # Organize into groups
-    groups = []
-    for cluster_id in np.unique(clusters):
-        group = [neurons[i] for i in range(len(neurons)) if clusters[i] == cluster_id]
-        if len(group) >= min_group_size:
-            groups.append(group)
-    
-    return groups, sttc_matrix
 
 def group_neurons_by_dtw(neurons: List[Neuron],
                         downsample_factor: int = 3,
@@ -332,12 +298,14 @@ def group_neurons_by_dtw(neurons: List[Neuron],
     for cluster_id in np.unique(clusters):
         group = [neurons[i] for i in range(len(neurons)) if clusters[i] == cluster_id]
         if len(group) >= min_group_size:
-            groups.append(group)
+            groups.append(NeuronGroup(f"dtw_{cluster_id}", group, method='dtw'))
     
     return groups, dtw_matrix
 
-def compare_groupings(sttc_groups: List[List[Neuron]], 
-                     dtw_groups: List[List[Neuron]],
+def compare_groupings(sttc_groups: List[NeuronGroup], 
+                     dtw_groups: List[NeuronGroup],
+                        sttc_matrix: np.ndarray,
+                        dtw_matrix: np.ndarray,
                      neurons: List[Neuron]) -> Dict:
     """
     Compare STTC and DTW groupings.
@@ -347,14 +315,21 @@ def compare_groupings(sttc_groups: List[List[Neuron]],
     """
     # Create membership arrays
     sttc_membership = np.zeros(len(neurons))
+    sttc_mean_stats = []    
     for i, group in enumerate(sttc_groups):
-        for neuron in group:
+        mean_stats = group.get_mean_spike_stats(sttc_matrix, dtw_matrix)
+        mean_stats_ids = {"group_id": group.group_id,"method": "sttc", **mean_stats}
+        sttc_mean_stats.append(mean_stats_ids)
+        for neuron in group.neurons:
             idx = neurons.index(neuron)
             sttc_membership[idx] = i
-    
+    dtw_mean_stats = []
     dtw_membership = np.zeros(len(neurons))
     for i, group in enumerate(dtw_groups):
-        for neuron in group:
+        mean_stats = group.get_mean_spike_stats(sttc_matrix, dtw_matrix)
+        mean_stats_ids = {"group_id": group.group_id,"method": "dtw", **mean_stats}
+        dtw_mean_stats.append(mean_stats_ids)
+        for neuron in group.neurons:
             idx = neurons.index(neuron)
             dtw_membership[idx] = i
     
@@ -370,5 +345,6 @@ def compare_groupings(sttc_groups: List[List[Neuron]],
     return {
         'n_sttc_groups': len(sttc_groups),
         'n_dtw_groups': len(dtw_groups),
-        'agreement': agreement
+        'agreement': agreement,
+        'combined_stats' : sttc_mean_stats.extend(dtw_mean_stats)
     }

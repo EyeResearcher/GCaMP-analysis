@@ -2,7 +2,7 @@
 from data_classes.spike import Spike
 import numpy as np
 from typing import List, Optional
-from roi import ROI
+from .roi import ROI
 from spike_classifier.prepare_data import detect_spikes, _create_large_window, _create_small_window
 from scipy.signal import peak_prominences
 from scipy.ndimage import gaussian_filter1d
@@ -29,10 +29,12 @@ class Neuron(ROI):
         # Will be populated by pipeline
         self.spikes = []
         self.binary_spike_train = None
-        self.spk_features
+        self.spk_features = []
         self.n_peaks_raw = len(self.peaks)
         self.peaks_filtered = []
         self.all_spk_stats = []
+        self.summary_stats = {}
+        self.raw_stats = {}
     def get_spike_features(self, sm_norm_f, raw_norm_f) -> list:
         """Extract spike features using the spike detection module.
         Args: 
@@ -79,31 +81,50 @@ class Neuron(ROI):
 
         return self.spikes
 
-    def summarize_spike_statistics(self) -> tuple[dict, dict]:
+    def summarize_spike_statistics(self) -> dict:
         """Summarize spike statistics across all spikes.
+
         Returns:
-            tuple: (summary_dict, raw_dict) where:
-                - summary_dict: Dictionary with mean/std for each feature
-                - raw_dict: Dictionary mapping feature names to lists of values
+            dict: Ordered mapping of summary statistics. For each column in the
+                per-spike stats DataFrame (in the same column order) this
+                returns mean and variance entries as:
+                    mean_<col>, var_<col>
+                Finally 'spike_frequency' is appended.
         """
         if not self.all_spk_stats:
-            return {}, {}
-        
+            return {}
+
         import pandas as pd
-        
+        from collections import OrderedDict
+
         # Convert list of dicts to DataFrame
         stats_df = pd.DataFrame(self.all_spk_stats)
-        
+
         # Create raw dictionary: {feature_name: [val1, val2, ...]}
-        raw_dict = {col: stats_df[col].tolist() for col in stats_df.columns}
+        self.raw_stats = {col: stats_df[col].tolist() for col in stats_df.columns}
+
+        # spike frequency (Hz)
         spike_freq = len(self.spikes) / (len(self.f_trace) / self.fs) if len(self.f_trace) > 0 else 0.0
-        raw_dict['spike_frequency'] = spike_freq
-        # Compute mean and std for all columns
-        summary = {
-            **{f'mean_{col}': stats_df[col].mean() for col in stats_df.columns},
-            **{f'std_{col}': stats_df[col].std() for col in stats_df.columns}
-        }
-    
-        return summary, raw_dict
+        self.raw_stats['spike_frequency'] = spike_freq
+
+        # Build ordered summary: for each original column, add mean and variance
+        summary = OrderedDict()
+        # include original ROI index and filtered index so dataframe rows can be simple 0..N-1 (filtered order)
+        summary['neuron_idx'] = int(self.index)
+        summary['filtered_index'] = int(self.filtered_index)
+        summary["spike_frequency"] = float(spike_freq)
+        summary["number_of_spikes"] = len(self.spikes)
+        for col in stats_df.columns:
+            mean_val = float(stats_df[col].mean())
+            var_val = float(stats_df[col].var())  # sample variance (ddof=1) by pandas default
+            summary[f"mean_{col}"] = mean_val
+            summary[f"var_{col}"] = var_val
+
+       
+
+        # store for backwards access
+        self.summary_stats = dict(summary)
+
+        return self.summary_stats
     def __repr__(self):
-        return f"Neuron(index={self.row_index}, spikes={len(self.spikes)}, rate={self.get_spike_rate():.2f}Hz)"
+        return f"Neuron(index={self.index}, spikes={len(self.spikes)})"

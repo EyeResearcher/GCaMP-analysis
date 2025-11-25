@@ -66,11 +66,11 @@ class Spike:
         """Compute spike statistics.
         Returns:
             dict: Dictionary of spike statistics
-                {'rise_slope': float, 'decay_tau': float,
+                {'f_value': float, 'rise_slope': float, 'decay_tau': float,
                 'decay_r2': float, 'decay_residual_std': float,
                 'decay_curvature': float, 'decay_biphasic_ratio': float,
                 'decay_skew': float, 'decay_kurtosis': float,
-                'decay_linearity': float}
+                'decay_linearity': float, 'half_max_width': float}
         """
         rise_slope, decay_tau = compute_spike_constants(
             self.f_small_window_sg, np.argmax(self.f_small_window_sg))
@@ -80,6 +80,7 @@ class Spike:
             self.f_small_window_sg, np.argmax(self.f_small_window_sg))
         half_max_width = _half_max_width(self.f_small_window_sg, np.argmax(self.f_small_window_sg))
         self.stats = {
+            'f_value': self.f_value,
             'rise_slope': rise_slope,
             'decay_tau': decay_tau,
             **decay_shape,

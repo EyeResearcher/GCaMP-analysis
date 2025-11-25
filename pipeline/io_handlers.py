@@ -14,41 +14,20 @@ logger = logging.getLogger(__name__)
 def save_video_summary(results: Dict, output_dir: Path) -> pd.DataFrame:
     """Save video processing results."""
     output_dir.mkdir(exist_ok=True, parents=True)
-    
-    neurons = results.get('filtered_neurons', [])
-    if not neurons:
-        return pd.DataFrame()
-    
-    # Build summary
-    rows = []
-    for neuron in neurons:
-        row = {
-            'neuron_id': neuron.row_index,
-            'n_spikes': len(neuron.spikes),
-            'spike_frequency': len(neuron.spikes) / (len(neuron.raw_fluorescence) / 30.0)
-        }
-        
-        # Add group memberships
-        for i, group in enumerate(results.get('sttc_groups', [])):
-            if neuron in group:
-                row['sttc_group'] = i
-                break
-        else:
-            row['sttc_group'] = -1
-        
-        for i, group in enumerate(results.get('dtw_groups', [])):
-            if neuron in group:
-                row['dtw_group'] = i
-                break
-        else:
-            row['dtw_group'] = -1
-        
-        rows.append(row)
-    
-    summary_df = pd.DataFrame(rows)
+    neuron_summary_df = pd.DataFrame(results["spike_summaries_per_neuron"])
+
+    bad_feats = results.get('bad_roi_features', {})
+    bad_feats = {k: np.asarray(v) for k, v in bad_feats.items()}
+    bad_idxs = results.get('bad_roi_indices', [])
+    bad_feats_df = pd.DataFrame(bad_feats)
+    bad_rois_df = pd.DataFrame({'index': bad_idxs}).join(bad_feats_df)
+
+
+    grouping_summary = results['grouping_stats']['combined_stats']
+    grouping_summary_df = pd.DataFrame(grouping_summary)
     
     # Save files
-    summary_df.to_csv(output_dir / 'neuron_summary.csv', index=False)
+    neuron_summary_df.to_csv(output_dir / 'neuron_summary.csv', index=False)
     
     if results.get('sttc_matrix') is not None:
         np.save(output_dir / 'sttc_matrix.npy', results['sttc_matrix'])
@@ -57,11 +36,11 @@ def save_video_summary(results: Dict, output_dir: Path) -> pd.DataFrame:
         np.save(output_dir / 'dtw_matrix.npy', results['dtw_matrix'])
     
     # Save Excel with multiple sheets including bad ROI tracking
-    create_excel_report(results, output_dir / 'analysis.xlsx')
+    create_excel_report(results, neuron_summary_df, bad_rois_df, grouping_summary_df, output_dir / 'analysis.xlsx')
     
-    return summary_df
+    return neuron_summary_df
 
-def create_excel_report(results: Dict, output_path: Path):
+def create_excel_report(results: Dict, neuron_summary_df: pd.DataFrame, bad_rois_df, grouping_summary_df: pd.DataFrame, output_path: Path):
     """
     Create comprehensive multi-sheet Excel report.
     
@@ -75,7 +54,7 @@ def create_excel_report(results: Dict, output_path: Path):
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
         
         # Sheet 1: Neuron Summary (one row per neuron)
-        neurons = results.get('filtered_neurons', [])
+        """neurons = results.get('filtered_neurons', [])
         if neurons:
             neuron_summary = []
             for neuron in neurons:
@@ -132,12 +111,12 @@ def create_excel_report(results: Dict, output_path: Path):
                     'decay_taus': str(decay_taus),
                     'rise_slopes': str(rise_slopes),
                 }
-                supp_data.append(row)
+                supp_data.append(row)"""
             
-            pd.DataFrame(supp_data).to_excel(writer, sheet_name='Supplementary_Data', index=False)
+        neuron_summary_df.to_excel(writer, sheet_name='Per Neuron Summary', index=False)
         
         # Sheet 3: Group Analysis (one row per group)
-        group_analysis = []
+        """group_analysis = []
         
         # STTC Groups
         sttc_groups = results.get('sttc_groups', [])
@@ -282,9 +261,10 @@ def create_excel_report(results: Dict, output_path: Path):
         
         if group_analysis:
             pd.DataFrame(group_analysis).to_excel(writer, sheet_name='Group_Analysis', index=False)
-        
+        """
+        grouping_summary_df.to_excel(writer, sheet_name='Group Analysis', index=False)
         # 4. Bad ROIs sheet - IMPORTANT FOR CROSS-REFERENCING
-        if 'bad_roi_indices' in results and results['bad_roi_indices']:
+        """ if 'bad_roi_indices' in results and results['bad_roi_indices']:
             bad_roi_data = []
             for i, idx in enumerate(results['bad_roi_indices']):
                 row = {
@@ -300,7 +280,8 @@ def create_excel_report(results: Dict, output_path: Path):
                 bad_roi_data.append(row)
             
             bad_roi_df = pd.DataFrame(bad_roi_data)
-            bad_roi_df.to_excel(writer, sheet_name='Bad_ROIs', index=False)
+            bad_roi_df.to_excel(writer, sheet_name='Bad_ROIs', index=False)"""
+        bad_rois_df.to_excel(writer, sheet_name='Bad_ROIs', index=False)
         
         # 5. ROI Filter Summary sheet
         total_rois = len(results.get('all_rois', []))
