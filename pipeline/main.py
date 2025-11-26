@@ -18,6 +18,7 @@ from joblib import load, dump, Parallel, delayed
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 from sklearn.linear_model import LogisticRegression
+from sklearn.base import BaseEstimator
 # Clean imports using __init__.py aggregators
 from data_classes import Experiment, Timepoint, Video, ROI, Neuron, Spike
 
@@ -32,39 +33,73 @@ from utils.io_utils import load_experiment_structure
 from utils.cascade_utils import load_cascade_model
 
 logger = logging.getLogger(__name__)
-
 def load_models(config: Dict) -> Dict:
-    """Load all required models."""
-    models = {}
-    
-    roi_path = Path(config['models']['roi_model_path'])
+    """Load all required models and normalize wrappers to sklearn estimators."""
+    models: Dict = {}
+
+    # ROI classifier (may be stored directly or inside a dict wrapper)
+    models['roi_classifier'] = None
+    roi_path = Path(config['models'].get('roi_model_path', ''))
     if roi_path.exists():
         try:
-            models['roi_classifier'] = load(roi_path)
+            loaded = load(roi_path)
+            if isinstance(loaded, BaseEstimator):
+                models['roi_classifier'] = loaded
+            elif isinstance(loaded, dict):
+                # try common wrapper keys first, then pick first BaseEstimator value
+                for key in ('model', 'estimator', 'classifier', 'clf', 'pipe', 'pipeline'):
+                    if key in loaded and isinstance(loaded[key], BaseEstimator):
+                        models['roi_classifier'] = loaded[key]
+                        break
+                if models['roi_classifier'] is None:
+                    found = next((v for v in loaded.values() if isinstance(v, BaseEstimator)), None)
+                    if found is not None:
+                        models['roi_classifier'] = found
+                    else:
+                        logger.warning("ROI file contained a dict but no sklearn estimator found; continuing without ROI classifier")
+            else:
+                logger.warning("Loaded ROI model is not a sklearn estimator; continuing without ROI classifier")
             logger.info(f"Loaded ROI classifier from {roi_path}")
-        except (EOFError, Exception) as e:
+        except Exception as e:
             models['roi_classifier'] = None
             logger.warning(f"Failed to load ROI classifier from {roi_path}: {e}")
             logger.warning("Continuing without ROI classifier - all ROIs will be kept")
     else:
-        models['roi_classifier'] = None
         logger.warning(f"ROI classifier not found at {roi_path}, continuing without it")
-        
-    spike_path = Path(config['models']['spike_model_path'])
-    try:
-        models['spike_classifier'] = load(spike_path)
-        logger.info(f"Loaded spike classifier from {spike_path}")
-    except (EOFError, Exception) as e:
-        raise RuntimeError(f"Failed to load spike classifier from {spike_path}: {e}")
+
+    # Spike classifier
+    models['spike_classifier'] = None
+    spike_path = Path(config['models'].get('spike_model_path', ''))
+    if spike_path.exists():
+        try:
+            loaded = load(spike_path)
+            if isinstance(loaded, BaseEstimator):
+                models['spike_classifier'] = loaded
+            elif isinstance(loaded, dict):
+                for key in ('model', 'estimator', 'classifier', 'clf', 'pipe', 'pipeline'):
+                    if key in loaded and isinstance(loaded[key], BaseEstimator):
+                        models['spike_classifier'] = loaded[key]
+                        break
+                if models['spike_classifier'] is None:
+                    found = next((v for v in loaded.values() if isinstance(v, BaseEstimator)), None)
+                    if found is not None:
+                        models['spike_classifier'] = found
+                    else:
+                        raise RuntimeError("Spike model file contained a dict but no sklearn estimator found")
+            else:
+                raise RuntimeError("Loaded spike model is not a sklearn estimator")
+            logger.info(f"Loaded spike classifier from {spike_path}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load spike classifier from {spike_path}: {e}")
+    else:
+        raise RuntimeError(f"Spike classifier not found at {spike_path}")
+
+    # Cascade model
     model_name = config['models']['cascade_model_name']
     model_dir = config['models']['cascade_model_dir']
-
-    models['cascade'] = load_cascade_model(
-        model_name=model_name,
-        model_dir=model_dir
-    )
+    models['cascade'] = load_cascade_model(model_name=model_name, model_dir=model_dir)
     logger.info("Loaded Cascade model")
-    
+
     return models
 def filter_rois(all_rois: List[ROI], roi_classifier : LogisticRegression,
                  norm_sm_f: np.ndarray, sm_sp: np.ndarray) -> tuple[List[ROI], List[ROI], np.ndarray]:
@@ -74,13 +109,30 @@ def filter_rois(all_rois: List[ROI], roi_classifier : LogisticRegression,
         for i, roi in enumerate(all_rois)
     )
     feats_df = pd.DataFrame(all_feats)
-    good_roi_mask  = roi_classifier.predict(feats_df)
+
+    # Get predictions (handle missing classifier)
+    if roi_classifier is None:
+        preds = np.ones(len(all_rois), dtype=bool)
+    else:
+        preds = roi_classifier.predict(feats_df)
+
+    # Normalize to a boolean numpy mask (required for indexing suite2p arrays)
+    good_roi_mask = np.asarray(preds).astype(bool)
+
+    # Respect existing roi.is_good flags and record final mask
     for roi, pred, i in zip(all_rois, good_roi_mask, range(len(all_rois))):
         if roi.is_good is False:
+            # preserve an explicitly marked-bad ROI
+            good_roi_mask[i] = False
             continue
-        good_roi_mask[i] = roi.is_good = bool(pred)
+        roi.is_good = bool(pred)
+        good_roi_mask[i] = roi.is_good
+
+    # Ensure boolean dtype before returning
+    good_roi_mask = np.asarray(good_roi_mask, dtype=bool)
+
     good_rois = [roi for roi in all_rois if roi.is_good]
-    bad_rois = [roi for roi in all_rois if not roi.is_good  ]
+    bad_rois = [roi for roi in all_rois if not roi.is_good]
     return good_rois, bad_rois, good_roi_mask
 def get_savgol_params(fs, sensor_type='gcamp8s'):
     """Get Savitzky-Golay parameters based on sampling frequency and sensor."""
@@ -133,7 +185,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     
     # Step 2: Compute cascade probabilities
     logger.info("  Step 2: Computing spike probabilities with Cascade...")
-    cascade_prob = np.load(suite2p_path / 'cascade_prob.npy')
+    cascade_prob = np.load(suite2p_path / 'cascade_spike_prob.npy')
     
     sm_sp = gaussian_filter1d(cascade_prob, sigma=4.0, axis=0 )
     logger.info(f"    Computed probabilities shape: {cascade_prob.shape}")

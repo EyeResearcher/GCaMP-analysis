@@ -1,6 +1,6 @@
 models:
-  roi_model_path: "roi_classifier/models/roi_classifier.pkl"
-  spike_model_path: "spike_classifier/models/spike_classifier.pkl"  
+  roi_model_path: "roi_classifier/models/roi_classifier.joblib"
+  spike_model_path: "spike_classifier/models/spike_classifier.joblib"  
   cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
   cascade_model_dir: "Cascade/Pretrained_models"
 
