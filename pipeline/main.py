@@ -322,6 +322,7 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
     results['summary'] = summary
     
     return results
+
 def process_timepoint(timepoint_path: Path, models: Dict, config: Dict) -> Timepoint:
     """Process all videos in a timepoint folder."""
     timepoint = Timepoint(timepoint_path)
