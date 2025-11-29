@@ -198,7 +198,6 @@ def process_video_explicit(video_path: Path, models: Dict, config: Dict) -> Opti
         roi = ROI(
             index=i,
             f_trace=suite2p_data['F'][i],
-            cascade_prob=cascade_prob[i],
             stats=suite2p_data['stat'][i] if 'stat' in suite2p_data else None,
             fneu=suite2p_data['Fneu'][i] if 'Fneu' in suite2p_data else None,
             

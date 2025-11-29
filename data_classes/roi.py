@@ -10,7 +10,6 @@ class ROI:
     def __init__(self, 
                  index: int,
                  f_trace: np.ndarray,
-                 cascade_prob: np.ndarray,
                  stats: Optional[Dict] = None,
                  fneu: Optional[np.ndarray] = None
                  ):
@@ -26,7 +25,6 @@ class ROI:
         """
         self.index = index
         self.f_trace = f_trace
-        self.cascade_prob = cascade_prob
         self.stats = stats
         self.fneu = fneu
         
