@@ -22,7 +22,7 @@ class Timepoint:
         self.path = Path(path)
         self.name = name or path.name
         self.treatment = treatment
-        self.videos = []
+        self.videos : List[Video] = []
         self.summary_df = None
         
     def add_video(self, video: Video):

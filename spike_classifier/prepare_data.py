@@ -88,7 +88,7 @@ def _compute_spike_features(
 
 
 
-def detect_spikes(smoothed_f: np.ndarray = None, f_trace: np.ndarray = None,
+def detect_spikes(smoothed_f: np.ndarray = None,
                    peaks : np.ndarray | None = None, roi_idx = None,
                      mode = "train") -> Tuple[Dict[int, Dict], list[int|str]]:
     """
@@ -152,6 +152,9 @@ def detect_spikes(smoothed_f: np.ndarray = None, f_trace: np.ndarray = None,
         spike_key = peak if roi_idx is None else f"{roi_idx}_{peak}"
         spike_keys.append(spike_key)
         if mode == "inference":
+            features = {"spike_prom": features["spike_prom"],
+                        "dominance_score": features["dominance_score"],
+                        "prom_gap": features["prom_gap"]}
             inference_list.append(features)
             continue
             

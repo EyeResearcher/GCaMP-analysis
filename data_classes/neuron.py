@@ -4,7 +4,7 @@ import numpy as np
 from typing import List, Optional
 from .roi import ROI
 from spike_classifier.prepare_data import detect_spikes, _create_large_window, _create_small_window
-from scipy.signal import peak_prominences
+from scipy.signal import peak_prominences, find_peaks
 from scipy.ndimage import gaussian_filter1d
 class Neuron(ROI):
     """Represents a validated neuron after ROI filtering."""
@@ -27,29 +27,64 @@ class Neuron(ROI):
         self.filtered_index = filtered_index  # Index after filtering
         
         # Will be populated by pipeline
-        self.spikes = []
+        self.spikes : List[Spike] = []
         self.binary_spike_train = None
         self.spk_features = []
-        self.n_peaks_raw = len(self.peaks)
+        self.peaks = np.ndarray([])
+        self.n_peaks_raw = None
         self.peaks_filtered = []
         self.all_spk_stats = []
         self.summary_stats = {}
         self.raw_stats = {}
-    def get_spike_features(self, sm_norm_f, raw_norm_f) -> list:
+    def get_spike_features(self, sm_norm_f) -> list:
         """Extract spike features using the spike detection module.
         Args: 
             sm_sp: Smoothed spike probability signal
         Returns:
             list[Dict]: List of feature dictionaries for each spike"""
-        self.spk_features, __ = detect_spikes(sm_norm_f, raw_norm_f, self.peaks, roi_idx=self.index, mode="inference")
-        return self.spk_features
+        # Detect peaks on the (smoothed) spike-probability or provided smoothed signal
+        peaks, _ = find_peaks(sm_norm_f)
+        self.n_peaks_raw = int(len(peaks))
+
+        # Run detection to compute per-spike feature dicts (inference mode returns list, keys)
+        feats_list, spike_keys = detect_spikes(sm_norm_f, peaks, roi_idx=self.index, mode="inference")
+
+        # Return both the features list and the peak indices so callers can assign them
+        return feats_list, peaks
     
     def filter_spikes(self, predictions) -> None:
         """Filter spikes based on model predictions.
         Args:
             predictions (list[bool]): List indicating whether each spike is valid.
         """
-        peaks_filtered = [peak for peak, pred in zip(self.peaks, predictions) if bool(pred)]
+        import numpy as _np
+
+        # Normalize peaks to a 1-D numpy array (handle None, scalars, lists)
+        peaks_arr = self.peaks
+        if peaks_arr is None:
+            peaks_arr = _np.array([], dtype=int)
+        else:
+            peaks_arr = _np.asarray(peaks_arr)
+            if peaks_arr.ndim == 0:
+                # scalar -> treat as single-element array
+                peaks_arr = peaks_arr.reshape(1)
+
+        n_peaks = peaks_arr.size
+
+        # Coerce predictions to a 1-D array so single-value predictions still iterate
+        preds_arr = _np.asarray(predictions)
+        if preds_arr.ndim == 0:
+            preds_arr = preds_arr.reshape(1)
+
+        # Ensure length matches; if not, truncate or pad with False
+        if preds_arr.size < n_peaks:
+            pad = _np.zeros(n_peaks - preds_arr.size, dtype=bool)
+            preds_arr = _np.concatenate([preds_arr, pad])
+        elif preds_arr.size > n_peaks:
+            preds_arr = preds_arr[:n_peaks]
+
+        # Build filtered peaks as Python ints
+        peaks_filtered = [int(p) for p, pred in zip(peaks_arr.tolist(), preds_arr) if bool(pred)]
 
         return peaks_filtered
  
@@ -71,15 +106,20 @@ class Neuron(ROI):
             spike = Spike(sm_f_idx=peak, position_idx=i)
 
             spike.left_base, spike.right_base = left_bases[i], right_bases[i]
+            spike.prominence = prominences[i]  # Set prominence from peak_prominences
             spike.prev_position_idx = self.peaks_filtered[i-1] if i > 0 else 0
             spike.next_position_idx = self.peaks_filtered[i+1] if i < len(self.peaks_filtered) - 1 else len(sm_norm_f)
             large_win, small_win = spike.create_windows(sg_norm_f)
             spike.f_value = sg_norm_f[spike.sm_f_idx]
             spike.stats = spike.get_statistics()
+            # Copy computed stats back to spike attributes for io_handlers access
+            spike.rise_slope = spike.stats.get('rise_slope', 0.0)
+            spike.decay_tau = spike.stats.get('decay_tau', 5.0)
             self.all_spk_stats.append(spike.stats)
             self.spikes[i] = spike    
 
-        return self.spikes
+        # Return both so main process can reassign after parallel execution
+        return (self.spikes, self.all_spk_stats)
 
     def summarize_spike_statistics(self) -> dict:
         """Summarize spike statistics across all spikes.

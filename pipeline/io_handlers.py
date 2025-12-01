@@ -14,10 +14,26 @@ logger = logging.getLogger(__name__)
 def save_video_summary(results: Dict, output_dir: Path) -> pd.DataFrame:
     """Save video processing results."""
     output_dir.mkdir(exist_ok=True, parents=True)
-    neuron_summary_df = pd.DataFrame(results["spike_summaries_per_neuron"])
+    # spike_summaries_per_neuron is {neuron_idx: summary_dict}; convert to list of dicts
+    spike_summaries = results.get("spike_summaries_per_neuron", {})
+    if isinstance(spike_summaries, dict):
+        # Convert dict-of-dicts to list of row dicts for DataFrame
+        rows = list(spike_summaries.values())
+    else:
+        rows = spike_summaries
+    neuron_summary_df = pd.DataFrame(rows) if rows else pd.DataFrame()
 
     bad_feats = results.get('bad_roi_features', {})
-    bad_feats = {k: np.asarray(v) for k, v in bad_feats.items()}
+    
+    combined = {}
+    for feat_dict in bad_feats:
+        if not isinstance(feat_dict, dict):
+            continue
+        for k, v in feat_dict.items():
+            combined.setdefault(k, []).append(v)
+    bad_feats = combined
+    # Ensure numpy arrays for DataFrame construction
+
     bad_idxs = results.get('bad_roi_indices', [])
     bad_feats_df = pd.DataFrame(bad_feats)
     bad_rois_df = pd.DataFrame({'index': bad_idxs}).join(bad_feats_df)
@@ -424,17 +440,14 @@ def save_timepoint_summary_by_video(timepoint: Timepoint, output_path: Path):
             spikes = neuron.spikes
             total_spikes += len(spikes)
             
-            # Calculate spike frequency for this neuron
-            if hasattr(neuron, 'get_spike_rate'):
-                spike_freq = neuron.get_spike_rate()
-            else:
-                spike_freq = len(spikes) / (len(neuron.raw_fluorescence) / 30.0) if len(neuron.raw_fluorescence) > 0 else 0
+            
+            spike_freq = len(spikes) / (video.n_frames / 30.0) if video.n_frames > 0 else 0
             all_spike_frequencies.append(spike_freq)
             
             # Collect spike properties (using actual Spike attributes)
-            all_f_values.extend([s.f_value for s in spikes])
-            all_prob_heights.extend([s.prob_height for s in spikes])
-            all_prominences.extend([s.prominence for s in spikes])
+            all_f_values.extend([s.f_value for s in spikes if s.f_value is not None])
+            all_prob_heights.extend([s.prob_height for s in spikes if s.prob_height is not None])
+            all_prominences.extend([s.prominence for s in spikes if s.prominence is not None])
             all_decay_taus.extend([s.decay_tau for s in spikes if hasattr(s, 'decay_tau') and s.decay_tau is not None])
             all_rise_slopes.extend([s.rise_slope for s in spikes if hasattr(s, 'rise_slope') and s.rise_slope is not None])
         

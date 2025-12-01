@@ -145,6 +145,8 @@ def load_experiment_structure(base_path: Path) -> Experiment:
     # Find all suite2p/plane0 folders
     plane0_folders = find_suite2p_folders(base_path)
     logger.info(f"Found {len(plane0_folders)} videos in {base_path}")
+    for plane0_path in plane0_folders:
+        print(f"  - {plane0_path}")
     
     # Group by timepoint
     timepoint_dict = {}
@@ -171,6 +173,7 @@ def load_experiment_structure(base_path: Path) -> Experiment:
         # Create video
         video = Video(
             path=metadata['video_path'],
+            suite2p_path=plane0_path,
             timepoint=timepoint
         )
         timepoint.add_video(video)

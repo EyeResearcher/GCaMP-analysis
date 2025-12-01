@@ -58,6 +58,7 @@ class Spike:
             norm_sg_f, self.sm_f_idx, self.left_base, self.right_base)
         small_window_tup = _create_small_window(norm_sg_f, self.sm_f_idx, self.prev_position_idx, self.next_position_idx)
         self.small_window_sg = small_window_tup[0]
+        self.f_small_window_sg = small_window_tup[0]  # Also set f_small_window_sg for get_statistics()
         return large_window_tup, small_window_tup
 
     def get_features(self) -> dict:
@@ -89,8 +90,8 @@ class Spike:
         }
         return self.stats
     
-def _half_max_width(window: np.ndarray, peak_idx: int) -> float:
-    """Compute half-max width of a spike transient."""
+def _half_max_width(window: np.ndarray, peak_idx: int, fs: float = 30.0) -> float:
+    """Compute half-max width of a spike transient in seconds."""
     segment = np.asarray(window, dtype=float)
     if segment.size == 0 or not np.isfinite(segment).all():
         return np.nan
@@ -110,8 +111,9 @@ def _half_max_width(window: np.ndarray, peak_idx: int) -> float:
         right_idx += 1
     right_time = right_idx - (half_max - segment[right_idx]) / (segment[right_idx - 1] - segment[right_idx]) if right_idx > peak_idx else right_idx
     
-    width = right_time - left_time
-    return float(width)
+    width_frames = right_time - left_time
+    width_seconds = width_frames / fs  # Convert to seconds
+    return float(width_seconds)
 def compute_spike_constants(
     window: np.ndarray,
     peak_idx_in_window: int,

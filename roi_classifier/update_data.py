@@ -178,7 +178,7 @@ def peak_density_and_prominence(smoothed_spike_prob: np.ndarray) -> tuple:
     return (peak_density, median_prom, True)
 
 
-def compute_roi_features(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray) -> tuple:
+def compute_roi_features(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.ndarray, mode = None) -> tuple[dict,dict]:
     """
     Extract ROI-level features from traces.
 
@@ -189,6 +189,9 @@ def compute_roi_features(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.n
     validity : dict
         Flags indicating which feature groups were computed cleanly.
     """
+    assert smoothed_f_trace.ndim == 1
+    assert smoothed_spike_prob.ndim == 1
+    assert max(smoothed_f_trace) < 1 and min (smoothed_f_trace) >= 0, "F trace must be min-max normalized"
     # Derivative-based metrics
     deriv_skew, valid_deriv_skew, derivative = derivative_skewness(smoothed_f_trace)
     deriv_asym, valid_deriv_asym = derivative_asymmetry(smoothed_f_trace)
@@ -210,7 +213,8 @@ def compute_roi_features(smoothed_f_trace: np.ndarray, smoothed_spike_prob: np.n
 
     # Simple range of F trace (already had this)
     trace_range = float(np.nanmax(smoothed_f_trace) - np.nanmin(smoothed_f_trace))
-
+    if mode == "inference" :
+        return ({"derivative_skew" : float(deriv_skew)},{ "valid_deriv_skew" : bool(valid_deriv_skew)})
     features = {
         # Derivative-based
         "derivative_skew": float(deriv_skew),

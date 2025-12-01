@@ -42,10 +42,22 @@ def compute_sttc_matrix(neurons: List[Neuron],
         spike_times = np.array([s.sm_f_idx for s in neuron.spikes]) / fs  # Convert to seconds
         spike_trains.append(SpikeTrain(spike_times * pq.s, t_stop=t_stop * pq.s))
     
-    # Compute STTC matrix
-    sttc_matrix = spike_time_tiling_coefficient(spike_trains, dt=time_window * pq.s)
-    
-    return np.array(sttc_matrix)
+    # Compute pairwise STTC matrix (elephant's function expects two spike trains)
+    n = len(spike_trains)
+    sttc_matrix = np.zeros((n, n), dtype=float)
+    for i in range(n):
+        for j in range(i, n):
+            st1 = spike_trains[i]
+            st2 = spike_trains[j]
+            try:
+                val = float(spike_time_tiling_coefficient(st1, st2, dt=time_window * pq.s))
+            except Exception:
+                # fallback to zero correlation if computation fails
+                val = 0.0
+            sttc_matrix[i, j] = val
+            sttc_matrix[j, i] = val
+
+    return sttc_matrix
 
 
 
@@ -323,6 +335,17 @@ def compare_groupings(sttc_groups: List[NeuronGroup],
         for neuron in group.neurons:
             idx = neurons.index(neuron)
             sttc_membership[idx] = i
+    if not dtw_groups:
+        logger.info(f"  Grouping comparison:")
+        logger.info(f"    STTC groups: {len(sttc_groups)}")
+        logger.info(f"    DTW groups: n/a (DTW grouping skipped)")
+        logger.info(f"    Agreement: n/a (DTW grouping skipped)")
+        return {
+            'n_sttc_groups': len(sttc_groups),
+            'n_dtw_groups': 0,
+            'agreement': 0.0,
+            'combined_stats' : sttc_mean_stats
+        }
     dtw_mean_stats = []
     dtw_membership = np.zeros(len(neurons))
     for i, group in enumerate(dtw_groups):
