@@ -10,7 +10,7 @@ if str(ROOT_DIR) not in sys.path:
 
 import argparse
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import yaml
 import numpy as np
 import pandas as pd
@@ -23,11 +23,7 @@ from sklearn.base import BaseEstimator
 from data_classes import Experiment, Timepoint, Video, ROI, Neuron, Spike
 
 # Import from individual modules to avoid circular import
-from pipeline.preprocessing import load_suite2p_data
-from pipeline.roi_processing import extract_roi_features, filter_rois
-from pipeline.spike_detection import detect_spikes_from_cascade
-from pipeline.spike_filtering import extract_spike_features, filter_spikes
-from pipeline.neuron_grouping import group_neurons_by_sttc, group_neurons_by_dtw, compare_groupings
+
 from pipeline.io_handlers import save_video_summary, save_timepoint_summary, save_filtered_suite2p
 from utils.io_utils import load_experiment_structure
 from utils.cascade_utils import load_cascade_model
@@ -37,43 +33,22 @@ def load_models(config: Dict) -> Dict:
     """Load all required models and normalize wrappers to sklearn estimators."""
     models: Dict = {}
 
-    # ROI classifier (may be stored directly or inside a dict wrapper)
     models['roi_classifier'] = None
     roi_path = Path(config['models'].get('roi_model_path', ''))
     if roi_path.exists():
         models['roi_classifier'] = load(roi_path)
         print(f"Loaded ROI classifier from {roi_path}")
     else:
-        logger.warning(f"ROI classifier not found at {roi_path}, continuing without it")
+        raise RuntimeError(f"ROI classifier not found at {roi_path}")
 
-    # Spike classifier
     models['spike_classifier'] = None
     spike_path = Path(config['models'].get('spike_model_path', ''))
     if spike_path.exists():
-        try:
-            loaded = load(spike_path)
-            if isinstance(loaded, BaseEstimator):
-                models['spike_classifier'] = loaded
-            elif isinstance(loaded, dict):
-                for key in ('model', 'estimator', 'classifier', 'clf', 'pipe', 'pipeline'):
-                    if key in loaded and isinstance(loaded[key], BaseEstimator):
-                        models['spike_classifier'] = loaded[key]
-                        break
-                if models['spike_classifier'] is None:
-                    found = next((v for v in loaded.values() if isinstance(v, BaseEstimator)), None)
-                    if found is not None:
-                        models['spike_classifier'] = found
-                    else:
-                        raise RuntimeError("Spike model file contained a dict but no sklearn estimator found")
-            else:
-                raise RuntimeError("Loaded spike model is not a sklearn estimator")
-            logger.info(f"Loaded spike classifier from {spike_path}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to load spike classifier from {spike_path}: {e}")
+        models['spike_classifier'] = load(spike_path)
+        print(f"Loaded Spike classifier from {spike_path}")
     else:
         raise RuntimeError(f"Spike classifier not found at {spike_path}")
-
-    # Cascade model
+    
     model_name = config['models']['cascade_model_name']
     model_dir = config['models']['cascade_model_dir']
     try: 
@@ -86,21 +61,17 @@ def load_models(config: Dict) -> Dict:
     return models
 
 
-def get_savgol_params(fs, sensor_type='gcamp8s'):
-    """Get Savitzky-Golay parameters based on sampling frequency and sensor."""
+def get_savgol_params(fs, sensor_type='gcamp6s') -> Tuple[int, int]:
+    """Get Savitzky-Golay parameters based on sampling frequency and sensor.
+        Window size depends on kinetics of sensor type."""
     if sensor_type == 'gcamp8s':
-        # Target ~500-800ms window for GCaMP8s (slower kinetics)
         window_frames = int(0.6 * fs)  # 600ms window
     elif sensor_type == 'gcamp6f':
-        # Faster sensor, shorter window
         window_frames = int(0.3 * fs)  # 300ms window
     else:
-        # Default/GCaMP6s
         window_frames = int(0.4 * fs)  # 400ms window
     
-    # Ensure odd number
     window_length = 2 * (window_frames // 2) + 1
-    # For GCaMP8s, use larger minimum
     window_length = max(9, window_length)  # Minimum 9 for slow sensors
     
     polyorder = 3  # Cubic fit better for slow, smooth transients
@@ -119,10 +90,8 @@ def process_video_explicit(video: Video, models: Dict, config: Dict) -> Optional
     logger.info(f"Processing video: {video_path.name}")
     results = {'video_path': video_path}
     
-    current_video = Video(video_path, suite2p_path)
-    # process_fluorescence_traces returns (cascade_prob, norm_sm_f, norm_sg_f, sm_sp)
+    current_video = video
     cascade_prob, norm_sm_f, norm_sg_f, sm_sp = current_video.process_fluorescence_traces()
-    # Ensure the Video instance has the processed attributes (some callers expect them)
     current_video.norm_sm_f = norm_sm_f
     current_video.norm_sg_f = norm_sg_f
     current_video.sm_sp = sm_sp
@@ -145,14 +114,13 @@ def process_video_explicit(video: Video, models: Dict, config: Dict) -> Optional
             
         )
         all_rois.append(roi)
-    results['all_rois'] = all_rois
     good_rois, bad_rois, good_roi_mask = current_video.filter_rois(all_rois, models['roi_classifier'])
     bad_roi_indices = [roi.index for roi in bad_rois]
     bad_roi_features = [roi.features for roi in bad_rois]
 
     logger.info(f"    {len(good_rois)}/{len(all_rois)} ROIs passed filtering")
     logger.info(f"    Bad ROI indices: {bad_roi_indices[:10]}..." if len(bad_roi_indices) > 10 else f"    Bad ROI indices: {bad_roi_indices}")
-    
+    results['all_rois'] = all_rois
     results['good_rois'] = good_rois
     results['bad_roi_indices'] = bad_roi_indices
     results['bad_roi_features'] = bad_roi_features
@@ -220,7 +188,7 @@ def process_timepoint(timepoint: Timepoint, models: Dict, config: Dict) -> Timep
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='GCaMP Analysis Pipeline')
-    parser.add_argument('--config', type=Path, default = "/Users/morganzinn/work/gcamp/GCaMP-analysis/config/pipeline_config.yaml", help='Config file path')
+    parser.add_argument('--config', type=Path, default = "config\\pipeline_config.yaml", help='Config file path')
     parser.add_argument('--video', type=Path, help='Process single video')
     parser.add_argument('--timepoint', type=Path, help='Process timepoint folder')
     parser.add_argument('--experiment', type=Path, help='Process full experiment')

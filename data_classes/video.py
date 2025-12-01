@@ -143,16 +143,13 @@ class Video:
         bad_rois = [roi for roi in all_rois if not roi.is_good]
         return good_rois, bad_rois, good_roi_mask
     def get_all_spike_features(self, spk_model : RandomForestClassifier) -> pd.DataFrame:
-        # Run feature extraction in parallel. Note: joblib workers run in separate
-        # processes, so they cannot mutate main-process `Neuron` instances. We
-        # therefore capture the returned feature lists and assign them back below.
+
         spike_features_list = Parallel(n_jobs=-1)(
                     delayed(neuron.get_spike_features)(self.norm_sm_f[neuron.index, :])
                     for neuron in self.neurons)
-
-        # Assign extracted features and detected peaks back to the main-process Neuron objects
         spike_features_flat = []
         for neuron, res in zip(self.neurons, spike_features_list):
+
             if res is None:
                 feats_list = []
                 peaks = np.array([], dtype=int)
@@ -160,24 +157,19 @@ class Video:
                 try:
                     feats_list, peaks = res
                 except Exception:
-                    # backward compatibility: worker returned only a list of features
                     feats_list = res
                     peaks = np.array([], dtype=int)
 
             neuron.spk_features = [] if feats_list is None else list(feats_list)
-            # store detected peaks and counts for main-process access
             neuron.peaks = np.asarray(peaks)
             neuron.n_peaks_raw = int(len(neuron.peaks))
-
-            # extend flat list for DataFrame construction
             for feat_dict in (feats_list or []):
                 spike_features_flat.append(feat_dict)
+
         spk_feats_df = pd.DataFrame(spike_features_flat)
-        # Defensive: if no spike model provided or no features, return early
         if spk_model is None or spk_feats_df.empty:
             return spk_feats_df, np.array([], dtype=bool)
 
-        # Determine expected feature order for spike model (config preferred)
         expected = None
         transform = None
         cfg_path = Path('spike_classifier/models/spike_classifier_config.json')
@@ -199,16 +191,8 @@ class Video:
             for col in expected:
                 if col not in spk_feats_df.columns:
                     spk_feats_df[col] = np.nan
-            Xdf = spk_feats_df[expected].copy()
-            # Apply simple transforms if specified in config
-            if transform == 'log':
-                # use log1p to be safe with zeros
-                try:
-                    X = np.log1p(Xdf.astype(float).values)
-                except Exception:
-                    X = Xdf.values
-            else:
-                X = Xdf.values
+            Xdf : pd.DataFrame= spk_feats_df[expected].copy()    
+            X = Xdf.values
         else:
             X = spk_feats_df.values
 
@@ -282,9 +266,9 @@ class Video:
         self.sttc_groups, self.sttc_matrix = group_neurons_by_sttc(
             self.neurons, self.n_frames, **config['grouping']['sttc']
         )
-        self.dtw_groups, self.dtw_matrix = group_neurons_by_dtw(
-            self.neurons, **config['grouping']['dtw']
-        )
+        self.dtw_groups, self.dtw_matrix = [], np.ndarray([]) #group_neurons_by_dtw(
+            #self.neurons, **config['grouping']['dtw']
+        #)
 
         grouping_stats = compare_groupings(self.sttc_groups, self.dtw_groups, self.sttc_matrix, self.dtw_matrix, self.neurons)
         return grouping_stats

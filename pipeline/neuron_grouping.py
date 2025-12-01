@@ -133,7 +133,7 @@ def compute_dtw_matrix(neurons: List[Neuron],
     # Prepare downsampled traces
     traces = []
     for neuron in neurons:
-        trace = neuron.raw_fluorescence
+        trace = neuron.f_trace
         # Downsample
         if downsample_factor > 1:
             trace = trace[::downsample_factor]
@@ -150,126 +150,102 @@ def compute_dtw_matrix(neurons: List[Neuron],
     
     # Convert to torch tensors and pad to same length
     max_len = max(len(t) for t in traces)
-    traces_padded = []
-    for trace in traces:
-        padded = np.pad(trace, (0, max_len - len(trace)), mode='constant', constant_values=0)
-        traces_padded.append(padded)
+    traces_padded = np.zeros((n_neurons, max_len), dtype=np.float32)
+    for i, trace in enumerate(traces):
+        traces_padded[i, :len(trace)] = trace
     
-    traces_tensor = torch.tensor(traces_padded, dtype=torch.float32, device=device)
+    traces_tensor = torch.from_numpy(traces_padded).to(device)
     
-    # Compute DTW distance matrix on GPU
-    distance_matrix = _compute_dtw_gpu(traces_tensor, device)
+    # Compute DTW distance matrix using fast SoftDTW approximation
+    distance_matrix = _compute_soft_dtw_matrix(traces_tensor, device, gamma=1.0)
     
     return distance_matrix
 
 
-def _compute_dtw_gpu(traces: Any, device: Any) -> np.ndarray:
+def _compute_soft_dtw_matrix(traces: torch.Tensor, device: torch.device, gamma: float = 1.0) -> np.ndarray:
     """
-    GPU-accelerated DTW distance computation.
+    Compute pairwise SoftDTW distances (fast, differentiable DTW approximation).
+    
+    SoftDTW replaces the min() in DTW with soft-min, enabling vectorized computation.
+    As gamma -> 0, SoftDTW -> DTW.
     
     Parameters:
-        traces: Tensor of shape (n_neurons, max_len)
+        traces: Tensor of shape (n_neurons, seq_len)
         device: torch device
+        gamma: Smoothing parameter (smaller = closer to true DTW)
         
     Returns:
         Distance matrix as numpy array
     """
     n_neurons, seq_len = traces.shape
     
-    # Initialize distance matrix
-    dist_matrix = torch.zeros((n_neurons, n_neurons), device=device)
+    # Compute pairwise squared Euclidean distance matrix for all timesteps
+    dist_matrix = np.zeros((n_neurons, n_neurons), dtype=np.float32)
     
-    # Compute pairwise DTW distances
-    # Process in batches to avoid memory issues
-    batch_size = min(50, n_neurons)
+    batch_size = 32  # Process this many pairs at once
     
-    for i in range(0, n_neurons, batch_size):
-        i_end = min(i + batch_size, n_neurons)
-        batch_traces_i = traces[i:i_end]  # (batch_size, seq_len)
+    # Use vectorized soft-DTW computation
+    for i in range(n_neurons):
+        # Compute distances from neuron i to all neurons j >= i
+        trace_i = traces[i:i+1]  # (1, T)
         
-        for j in range(i, n_neurons, batch_size):
-            j_end = min(j + batch_size, n_neurons)
-            batch_traces_j = traces[j:j_end]  # (batch_size, seq_len)
+        # Process in batches
+        for j_start in range(i, n_neurons, batch_size):
+            j_end = min(j_start + batch_size, n_neurons)
+            traces_j = traces[j_start:j_end]  # (batch, T)
             
-            # Compute DTW for this batch pair
-            batch_dist = _batch_dtw(batch_traces_i, batch_traces_j, device)
+            # Compute SoftDTW for this batch
+            distances = _batch_soft_dtw(trace_i, traces_j, gamma, device)
             
-            # Fill in the distance matrix (symmetric)
-            dist_matrix[i:i_end, j:j_end] = batch_dist
-            if i != j:
-                dist_matrix[j:j_end, i:i_end] = batch_dist.T
+            # Fill symmetric matrix
+            dist_matrix[i, j_start:j_end] = distances.cpu().numpy()
+            dist_matrix[j_start:j_end, i] = distances.cpu().numpy()
     
-    return dist_matrix.cpu().numpy()
+    return dist_matrix
 
 
-def _batch_dtw(traces_i: Any, traces_j: Any, device: Any) -> Any:
+def _batch_soft_dtw(trace_i: torch.Tensor, traces_j: torch.Tensor, gamma: float, device: torch.device) -> torch.Tensor:
     """
-    Compute DTW distances for a batch of trace pairs.
-    Uses memory-efficient pairwise computation.
+    Compute SoftDTW from one trace to a batch of traces.
     
     Parameters:
-        traces_i: Tensor of shape (n_i, seq_len)
-        traces_j: Tensor of shape (n_j, seq_len)
+        trace_i: (1, T) single trace
+        traces_j: (B, T) batch of traces
+        gamma: smoothing parameter
         device: torch device
         
     Returns:
-        Distance matrix of shape (n_i, n_j)
+        (B,) distances
     """
-    import torch
+    B, T = traces_j.shape
     
-    n_i = traces_i.shape[0]
-    n_j = traces_j.shape[0]
+    # Compute cost matrix: |trace_i[t1] - traces_j[:, t2]|^2
+    # trace_i: (1, T) -> (1, T, 1)
+    # traces_j: (B, T) -> (B, 1, T)
+    trace_i_exp = trace_i.unsqueeze(2)  # (1, T, 1)
+    traces_j_exp = traces_j.unsqueeze(1)  # (B, 1, T)
     
-    # Initialize output distance matrix
-    distances = torch.zeros((n_i, n_j), device=device)
+    # Cost matrix: (B, T, T) where cost[b, i, j] = (trace_i[i] - traces_j[b, j])^2
+    cost = (trace_i_exp - traces_j_exp) ** 2  # (B, T, T) via broadcasting
     
-    # Compute DTW for each pair
-    for i in range(n_i):
-        for j in range(n_j):
-            distances[i, j] = _single_dtw_gpu(traces_i[i], traces_j[j], device)
+    # SoftDTW dynamic programming
+    # R[b, i, j] = cost[b, i, j] + softmin(R[b, i-1, j], R[b, i, j-1], R[b, i-1, j-1])
+    R = torch.full((B, T + 1, T + 1), float('inf'), device=device)
+    R[:, 0, 0] = 0
     
-    return distances
-
-
-def _single_dtw_gpu(trace_i: Any, trace_j: Any, device: Any) -> Any:
-    """
-    Compute DTW distance between two sequences on GPU.
+    for i in range(1, T + 1):
+        for j in range(1, T + 1):
+            # Soft minimum of three predecessors
+            r_prev = torch.stack([
+                R[:, i-1, j],
+                R[:, i, j-1],
+                R[:, i-1, j-1]
+            ], dim=1)  # (B, 3)
+            
+            soft_min = -gamma * torch.logsumexp(-r_prev / gamma, dim=1)
+            R[:, i, j] = cost[:, i-1, j-1] + soft_min
     
-    Parameters:
-        trace_i: Tensor of shape (seq_len,)
-        trace_j: Tensor of shape (seq_len,)
-        device: torch device
-        
-    Returns:
-        Scalar DTW distance
-    """
-    import torch
-    
-    n = len(trace_i)
-    m = len(trace_j)
-    
-    # Create cost matrix (only need current and previous row for memory efficiency)
-    dtw_matrix = torch.full((2, m + 1), float('inf'), device=device)
-    dtw_matrix[0, 0] = 0
-    
-    # Dynamic programming
-    for i in range(1, n + 1):
-        curr_row = i % 2
-        prev_row = (i - 1) % 2
-        
-        dtw_matrix[curr_row, :] = float('inf')
-        
-        for j in range(1, m + 1):
-            cost = torch.abs(trace_i[i - 1] - trace_j[j - 1])
-            dtw_matrix[curr_row, j] = cost + torch.min(
-                torch.stack([
-                    dtw_matrix[prev_row, j],      # insertion
-                    dtw_matrix[curr_row, j - 1],  # deletion
-                    dtw_matrix[prev_row, j - 1]   # match
-                ])
-            )
-    
-    return dtw_matrix[n % 2, m]
+    return R[:, T, T]
 
 
 def group_neurons_by_dtw(neurons: List[Neuron],
@@ -365,9 +341,12 @@ def compare_groupings(sttc_groups: List[NeuronGroup],
     logger.info(f"    DTW groups: {len(dtw_groups)}")
     logger.info(f"    Agreement: {agreement:.2%}")
     
+    # Combine stats (note: extend returns None, so use + concatenation)
+    combined_stats = sttc_mean_stats + dtw_mean_stats
+    
     return {
         'n_sttc_groups': len(sttc_groups),
         'n_dtw_groups': len(dtw_groups),
         'agreement': agreement,
-        'combined_stats' : sttc_mean_stats.extend(dtw_mean_stats)
+        'combined_stats': combined_stats
     }
