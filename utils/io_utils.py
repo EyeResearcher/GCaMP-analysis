@@ -3,10 +3,11 @@ I/O utilities for loading experiment data.
 """
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 import logging
-
+from joblib import load
+from utils.cascade_utils import load_cascade_model
 if TYPE_CHECKING:
     from data_classes import Experiment, Timepoint, Video
 
@@ -217,3 +218,36 @@ class SummaryFiles:
         filtered_dir = self.output_dir / video_name / "filtered_suite2p" / "plane0"
         filtered_dir.mkdir(parents=True, exist_ok=True)
         return filtered_dir
+def load_models(config: Dict) -> Dict:
+    """Load all required models and normalize wrappers to sklearn estimators."""
+    models: Dict = {}
+
+    models['roi_classifier'] = None
+    roi_path = Path(config['models'].get('roi_model_path', ''))
+    if roi_path.exists():
+        models['roi_classifier'] = load(roi_path)
+        print(f"Loaded ROI classifier from {roi_path}")
+    else:
+        raise RuntimeError(f"ROI classifier not found at {roi_path}")
+
+    models['spike_classifier'] = None
+    spike_path = Path(config['models'].get('spike_model_path', ''))
+    if spike_path.exists():
+        models['spike_classifier'] = load(spike_path)
+        print(f"Loaded Spike classifier from {spike_path}")
+    else:
+        if not spike_path:
+            raise ValueError("Spike model path is not provided in the configuration.")
+        else:
+            raise RuntimeError(f"Spike classifier not found at {spike_path}")
+    
+    model_name = config['models']['cascade_model_name']
+    model_dir = config['models']['cascade_model_dir']
+    try: 
+        models['cascade'] = load_cascade_model(model_name=model_name, model_dir=model_dir)
+        logger.info("Loaded Cascade model")
+    except Exception as e:
+        logger.warning(f"Failed to load Cascade model from {model_dir} with name {model_name}: {e}")
+        print(f"Failed to load Cascade model from {model_dir} with name {model_name}: {e}")
+
+    return models

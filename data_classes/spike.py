@@ -75,17 +75,17 @@ class Spike:
         """
         rise_slope, decay_tau = compute_spike_constants(
             self.f_small_window_sg, np.argmax(self.f_small_window_sg))
-        decay_shape = compute_decay_shape_features(
-            self.f_small_window_sg, np.argmax(self.f_small_window_sg))
-        decay_shape_features = compute_additional_decay_features(
-            self.f_small_window_sg, np.argmax(self.f_small_window_sg))
+        #decay_shape = compute_decay_shape_features(
+            #self.f_small_window_sg, np.argmax(self.f_small_window_sg))
+        #decay_shape_features = compute_additional_decay_features(
+            #self.f_small_window_sg, np.argmax(self.f_small_window_sg))
         half_max_width = _half_max_width(self.f_small_window_sg, np.argmax(self.f_small_window_sg))
         self.stats = {
             'f_value': self.f_value,
             'rise_slope': rise_slope,
             'decay_tau': decay_tau,
-            **decay_shape,
-            **decay_shape_features,
+            #**decay_shape,
+            #**decay_shape_features,
             'half_max_width': half_max_width
         }
         return self.stats

@@ -44,9 +44,9 @@ class Labeler:
         button_frame = Frame(controls_frame)
         button_frame.pack()
         
-        Button(button_frame, text="Good (1)", command=lambda: self.label_roi(1), 
+        Button(button_frame, text="Active (1)", command=lambda: self.label_roi(1), 
                bg='green', fg='white', font=('Arial', 12, 'bold'), width=15, height=2).pack(side="left", padx=10)
-        Button(button_frame, text="Bad (0)", command=lambda: self.label_roi(0), 
+        Button(button_frame, text="Inactive (0)", command=lambda: self.label_roi(0), 
                bg='red', fg='white', font=('Arial', 12, 'bold'), width=15, height=2).pack(side="left", padx=10)
         Button(button_frame, text="Skip", command=self.skip_roi, 
                bg='gray', fg='white', font=('Arial', 12, 'bold'), width=15, height=2).pack(side="left", padx=10)

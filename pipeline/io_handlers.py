@@ -1,16 +1,169 @@
 """IO handlers for saving results with bad ROI tracking."""
 from __future__ import annotations
 import pandas as pd
+from data_classes.neuron_group import NeuronGroup
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, TYPE_CHECKING
 import logging
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 if TYPE_CHECKING:
     from data_classes import Timepoint, Experiment
 
 logger = logging.getLogger(__name__)
 
+def visualize_neuron_groups(neuron_groups: List[NeuronGroup], 
+                            stat: np.ndarray, 
+                            img_size: tuple = (512, 512), 
+                            video_path: Path = None,
+                            config_label: str = None):
+    """
+    Visualize neuron groups in a color-coordinated fashion.
+    
+    Each neuron group is assigned a unique color. Neurons are drawn using their
+    xpix/ypix coordinates from the stat array.
+    
+    Args:
+        neuron_groups (List[NeuronGroup]): List of neuron groups to visualize
+        stat (np.ndarray): Array of stat dictionaries from Suite2p (one per ROI)
+        img_size (tuple): Size of the output image (height, width)
+        video_path (Path): Path to video directory for saving output
+        config_label (str): Optional label for the configuration (e.g., "tw0.033_dt0.3")
+        
+    Returns:
+        Path: Path to saved image
+    """
+    if not neuron_groups:
+        logger.warning("No neuron groups to visualize")
+        return None
+    
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    
+    # Create blank image (dark background)
+    img = np.zeros((img_size[0], img_size[1], 3), dtype=np.float32)
+    
+    # Generate distinct colors for each group
+    cmap = plt.cm.get_cmap('tab20', max(len(neuron_groups), 1))
+    colors = [cmap(i)[:3] for i in range(len(neuron_groups))]  # RGB only
+    
+    # Track group info for legend
+    group_info = []
+    
+    # Draw each neuron group
+    for group_idx, group in enumerate(neuron_groups):
+        color = colors[group_idx]
+        n_neurons_drawn = 0
+        
+        # Get neuron indices from group
+        neuron_indices = group.neuron_indices if hasattr(group, 'neuron_indices') else []
+        
+        # Get average STTC from pre-computed stats
+        avg_sttc = group.mean_spk_stats.get('mean_sttc', None) if hasattr(group, 'mean_spk_stats') else None
+        
+        for neuron_idx in neuron_indices:
+            # Get stat dict for this neuron
+            if neuron_idx >= len(stat):
+                logger.warning(f"Neuron index {neuron_idx} out of range for stat array (len={len(stat)})")
+                continue
+            
+            neuron_stat = stat[neuron_idx]
+            
+            # Get pixel coordinates
+            if 'ypix' not in neuron_stat or 'xpix' not in neuron_stat:
+                logger.warning(f"Neuron {neuron_idx} missing ypix/xpix in stat")
+                continue
+            
+            ypix = np.array(neuron_stat['ypix'])
+            xpix = np.array(neuron_stat['xpix'])
+            
+            # Filter pixels within image bounds
+            valid_mask = (ypix >= 0) & (ypix < img_size[0]) & (xpix >= 0) & (xpix < img_size[1])
+            ypix = ypix[valid_mask]
+            xpix = xpix[valid_mask]
+            
+            if len(ypix) == 0:
+                continue
+            
+            # Color these pixels
+            img[ypix, xpix, 0] = color[0]
+            img[ypix, xpix, 1] = color[1]
+            img[ypix, xpix, 2] = color[2]
+            
+            n_neurons_drawn += 1
+        
+        group_info.append({
+            'group_id': group.group_id if hasattr(group, 'group_id') else f'group_{group_idx}',
+            'color': color,
+            'n_neurons': len(neuron_indices),
+            'n_drawn': n_neurons_drawn,
+            'avg_sttc': avg_sttc
+        })
+    
+    # Display image
+    ax.imshow(img, origin='upper')
+    ax.set_xlim(0, img_size[1])
+    ax.set_ylim(img_size[0], 0)  # Flip y-axis to match image coordinates
+    ax.set_aspect('equal')
+    ax.axis('off')
+    
+    # Add title
+    title = f"Neuron Groups (n={len(neuron_groups)})"
+    if config_label:
+        title += f"\n{config_label}"
+    ax.set_title(title, fontsize=14, fontweight='bold', color='white')
+    
+    # Create legend with avg STTC
+    if group_info:
+        legend_elements = []
+        for info in group_info:
+            # Build label with optional avg STTC
+            if info['avg_sttc'] is not None and not np.isnan(info['avg_sttc']):
+                label = f"{info['group_id']} (n={info['n_neurons']}, STTC={info['avg_sttc']:.2f})"
+            else:
+                label = f"{info['group_id']} (n={info['n_neurons']})"
+            
+            legend_elements.append(
+                Patch(
+                    facecolor=info['color'],
+                    edgecolor='white',
+                    linewidth=0.5,
+                    label=label
+                )
+            )
+        
+        # Place legend outside plot
+        ax.legend(
+            handles=legend_elements,
+            loc='upper left',
+            bbox_to_anchor=(1.02, 1),
+            fontsize=8,
+            framealpha=0.9,
+            facecolor='black',
+            labelcolor='white'
+        )
+    
+    # Adjust layout to fit legend
+    plt.tight_layout()
+    
+    # Save figure
+    output_dir = video_path / 'metrics'
+    output_dir.mkdir(exist_ok=True, parents=True)
+    
+    if config_label:
+        output_path = output_dir / f'neuron_groups_{config_label}.png'
+    else:
+        output_path = output_dir / 'neuron_groups.png'
+    
+    fig.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='black')
+    plt.close(fig)
+    
+    logger.info(f"Saved neuron group visualization to {output_path}")
+    
+    return output_path
+# ...existing code...
 def save_video_summary(results: Dict, output_dir: Path) -> pd.DataFrame:
     """Save video processing results."""
     output_dir.mkdir(exist_ok=True, parents=True)
@@ -475,6 +628,9 @@ def save_timepoint_summary_by_video(timepoint: Timepoint, output_path: Path):
         dtw_groups = video.dtw_groups if hasattr(video, 'dtw_groups') else []
         row['n_sttc_groups'] = len(sttc_groups)
         row['n_dtw_groups'] = len(dtw_groups)
+        row['avg_cells_per_grp_sttc'] = (np.mean([len(g.neurons) for g in sttc_groups]) if sttc_groups else 0)
+        row['n_cells_in_sttc_groups'] = sum(len(g.neurons) for g in sttc_groups)
+        row['prop_cells_in_sttc_groups'] = (sum(len(g.neurons) for g in sttc_groups) / len(neurons)) if neurons else 0
         
         video_summary.append(row)
     

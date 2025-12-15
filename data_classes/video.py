@@ -1,8 +1,10 @@
 """Video class for managing individual recording sessions."""
 from __future__ import annotations
+from logging import config
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 import pandas as pd
+from data_classes.neuron_group import NeuronGroup
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -69,8 +71,8 @@ class Video:
         # === Grouping results ===
         self.sttc_matrix = np.ndarray([])
         self.dtw_matrix = np.ndarray([])
-        self.sttc_groups = []
-        self.dtw_groups = []
+        self.sttc_groups : List[NeuronGroup] = []
+        self.dtw_groups : List[NeuronGroup] = []
         self.grouping_stats = pd.DataFrame()
         self.summary_df = None
     
@@ -171,7 +173,6 @@ class Video:
             return spk_feats_df, np.array([], dtype=bool)
 
         expected = None
-        transform = None
         cfg_path = Path('spike_classifier/models/spike_classifier_config.json')
         if cfg_path.exists():
             try:
@@ -180,7 +181,6 @@ class Video:
                     expected = cfg.get('selected_features')
                 else:
                     expected = cfg.get('feature_names')
-                transform = cfg.get('transform')
             except Exception:
                 expected = None
 
@@ -212,15 +212,6 @@ class Video:
                     passed = int(sum(1 for v in seg if bool(v)))
             per_neuron_summary.append((neuron.index, n_sp, passed))
             prev += n_sp
-
-        # Print a brief summary and a distribution sample
-        total_extracted = sum(x[1] for x in per_neuron_summary)
-        total_passed = int(spike_mask.sum()) if spike_mask.size else 0
-        print(f"Spike extraction: total_extracted={total_extracted}, total_passed={total_passed}, neurons={len(self.neurons)}")
-        # show top 10 neurons by passed spikes
-        top_passed = sorted(per_neuron_summary, key=lambda x: x[2], reverse=True)[:10]
-        print("Top neurons (index, extracted, passed):", top_passed)
-
         return spk_feats_df, spike_mask
     
     def filter_all_spikes(self, spike_mask: np.ndarray) -> list[Neuron]:
@@ -258,20 +249,33 @@ class Video:
                     neuron.all_spk_stats = []
 
         per_neuron_spike_summaries = {
-            n.index: n.summarize_spike_statistics() for n in self.neurons
+            n.index: n.summarize_spike_statistics(self.suite2p_data['F'][n.index]) for n in self.neurons
         }
         return per_neuron_spike_summaries
     
-    def get_group_summary(self, config) -> pd.DataFrame:
-        self.sttc_groups, self.sttc_matrix = group_neurons_by_sttc(
-            self.neurons, self.n_frames, **config['grouping']['sttc']
-        )
-        self.dtw_groups, self.dtw_matrix = [], np.ndarray([]) #group_neurons_by_dtw(
-            #self.neurons, **config['grouping']['dtw']
-        #)
+    def get_group_summary(self, time_window, distance_threshold) -> pd.DataFrame:
+        """
+        Docstring for get_group_summary
+        
+        Args:
+            config: dict specifying grouping parameters
+        Returns:
+            grouping_stats: Dict summarizing grouping results
+             'n_sttc_groups': len(sttc_groups),
+            'n_dtw_groups': len(dtw_groups),
+            'agreement': agreement,
+            'combined_stats': combined_stats
+    }
+        """
 
+        self.sttc_groups, self.sttc_matrix = group_neurons_by_sttc(
+            self.neurons, self.n_frames, time_window = time_window, distance_threshold=distance_threshold
+        )
+        #self.dtw_groups, self.dtw_matrix = [], np.ndarray([]) #group_neurons_by_dtw(
+            #self.neurons, **dtw_config
+        #)
         grouping_stats = compare_groupings(self.sttc_groups, self.dtw_groups, self.sttc_matrix, self.dtw_matrix, self.neurons)
-        return grouping_stats
+        return grouping_stats, self.sttc_groups
     def _parse_metadata(self):
         """
         Parse metadata from directory structure.

@@ -121,7 +121,7 @@ class Neuron(ROI):
         # Return both so main process can reassign after parallel execution
         return (self.spikes, self.all_spk_stats)
 
-    def summarize_spike_statistics(self) -> dict:
+    def summarize_spike_statistics(self, f_trace_raw) -> dict:
         """Summarize spike statistics across all spikes.
 
         Returns:
@@ -154,6 +154,9 @@ class Neuron(ROI):
         summary['filtered_index'] = int(self.filtered_index)
         summary["spike_frequency"] = float(spike_freq)
         summary["number_of_spikes"] = len(self.spikes)
+        summary["spike_indices"] = self.peaks_filtered
+        summary["spike_values_normalized"] = [spike.f_value for spike in self.spikes]
+        summary["spike_values_raw"] = [f_trace_raw[spike.sm_f_idx] for spike in self.spikes]
         for col in stats_df.columns:
             mean_val = float(stats_df[col].mean())
             var_val = float(stats_df[col].var())  # sample variance (ddof=1) by pandas default

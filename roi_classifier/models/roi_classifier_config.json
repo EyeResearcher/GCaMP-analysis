@@ -30,7 +30,7 @@
   "roc_auc": 0.9898550724637681,
   "cv_accuracy": 0.9409895052473762,
   "n_train": 576,
-  "n_test": 144,
+  "n_test": 144,                                     
   "manual_only": true,
   "all_results": [
     {

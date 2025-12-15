@@ -6,6 +6,7 @@ from scipy.spatial.distance import squareform
 from typing import Dict, List, Tuple, Optional, TYPE_CHECKING, Any
 import logging
 import torch
+from joblib import Parallel, delayed
 from data_classes.neuron_group import NeuronGroup
 
 if TYPE_CHECKING:
@@ -18,46 +19,92 @@ def compute_sttc_matrix(neurons: List[Neuron],
                        time_window: float = 0.033,
                        fs: float = 30.0) -> np.ndarray:
     """
-    Compute STTC (Spike Time Tiling Coefficient) matrix using elephant.
+    Compute STTC (Spike Time Tiling Coefficient) matrix - fully vectorized.
+    
+    Uses the Cutts & Eglen (2014) formula:
+    STTC = 0.5 * ((P_A - T_B)/(1 - P_A*T_B) + (P_B - T_A)/(1 - P_B*T_A))
     
     Parameters:
         neurons: List of Neuron objects
         n_frames: Total number of frames
-        time_window: Time window in seconds
+        time_window: Time window in seconds (dt)
         fs: Sampling frequency
         
     Returns:
-        Symmetric STTC matrix
+        Symmetric STTC matrix with values in [-1, 1]
     """
-    from elephant.spike_train_correlation import spike_time_tiling_coefficient
-    from neo import SpikeTrain
-    import quantities as pq
+    n = len(neurons)
+    if n == 0:
+        return np.array([[]])
     
-    n_neurons = len(neurons)
+    dt_frames = int(time_window * fs)
     
-    # Convert neurons to SpikeTrain objects
-    spike_trains = []
-    t_stop = n_frames / fs  # Total recording time in seconds
-    for neuron in neurons:
-        spike_times = np.array([s.sm_f_idx for s in neuron.spikes]) / fs  # Convert to seconds
-        spike_trains.append(SpikeTrain(spike_times * pq.s, t_stop=t_stop * pq.s))
+    # Build binary spike matrix (n_neurons x n_frames)
+    spike_matrix = np.zeros((n, n_frames), dtype=np.float32)
+    for i, neuron in enumerate(neurons):
+        if hasattr(neuron, 'spikes') and neuron.spikes:
+            times = [s.sm_f_idx for s in neuron.spikes]
+            valid_times = [t for t in times if 0 <= t < n_frames]
+            if valid_times:
+                spike_matrix[i, valid_times] = 1.0
     
-    # Compute pairwise STTC matrix (elephant's function expects two spike trains)
-    n = len(spike_trains)
-    sttc_matrix = np.zeros((n, n), dtype=float)
+    # Build tiled matrix (dilate each spike by ±dt_frames)
+    # Use convolution for fast dilation
+    kernel = np.ones(2 * dt_frames + 1, dtype=np.float32)
+    tiled_matrix = np.zeros((n, n_frames), dtype=np.float32)
     for i in range(n):
-        for j in range(i, n):
-            st1 = spike_trains[i]
-            st2 = spike_trains[j]
-            try:
-                val = float(spike_time_tiling_coefficient(st1, st2, dt=time_window * pq.s))
-            except Exception:
-                # fallback to zero correlation if computation fails
-                val = 0.0
-            sttc_matrix[i, j] = val
-            sttc_matrix[j, i] = val
-
-    return sttc_matrix
+        if np.any(spike_matrix[i]):
+            convolved = np.convolve(spike_matrix[i], kernel, mode='same')
+            tiled_matrix[i] = (convolved > 0).astype(np.float32)
+    
+    # T values: fraction of time each neuron is "active" (within dt of any spike)
+    T = tiled_matrix.sum(axis=1) / n_frames  # (n,)
+    
+    # Spike counts per neuron
+    n_spikes = spike_matrix.sum(axis=1)  # (n,)
+    
+    # P matrix: P[i,j] = fraction of neuron i's spikes within ±dt of neuron j's spikes
+    # = (spike_matrix[i] @ tiled_matrix[j].T) / n_spikes[i]
+    # Vectorized: P = (spike_matrix @ tiled_matrix.T) / n_spikes[:, None]
+    
+    # spike_matrix @ tiled_matrix.T gives (n, n) where [i,j] = count of i's spikes in j's tiled region
+    overlap_matrix = spike_matrix @ tiled_matrix.T  # (n, n)
+    
+    # Avoid division by zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        P = overlap_matrix / n_spikes[:, None]  # P[i,j] = P_i given j's tiling
+        P = np.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # STTC formula: 0.5 * ((P[i,j] - T[j])/(1 - P[i,j]*T[j]) + (P[j,i] - T[i])/(1 - P[j,i]*T[i]))
+    # Compute both terms
+    T_row = T[None, :]  # (1, n) -> broadcast to (n, n) as T_B
+    T_col = T[:, None]  # (n, 1) -> broadcast to (n, n) as T_A
+    
+    # Term A: (P[i,j] - T[j]) / (1 - P[i,j] * T[j])
+    denom_A = 1.0 - P * T_row
+    with np.errstate(divide='ignore', invalid='ignore'):
+        term_A = (P - T_row) / denom_A
+        term_A = np.nan_to_num(term_A, nan=0.0, posinf=1.0, neginf=-1.0)
+    
+    # Term B: (P[j,i] - T[i]) / (1 - P[j,i] * T[i])  -> use P.T
+    denom_B = 1.0 - P.T * T_col
+    with np.errstate(divide='ignore', invalid='ignore'):
+        term_B = (P.T - T_col) / denom_B
+        term_B = np.nan_to_num(term_B, nan=0.0, posinf=1.0, neginf=-1.0)
+    
+    sttc_matrix = 0.5 * (term_A + term_B)
+    
+    # Clamp to [-1, 1] and set diagonal to 1
+    sttc_matrix = np.clip(sttc_matrix, -1.0, 1.0)
+    np.fill_diagonal(sttc_matrix, 1.0)
+    
+    # Handle neurons with no spikes (set their row/col to 0 except diagonal)
+    no_spikes = n_spikes == 0
+    sttc_matrix[no_spikes, :] = 0.0
+    sttc_matrix[:, no_spikes] = 0.0
+    np.fill_diagonal(sttc_matrix, 1.0)
+    
+    return sttc_matrix.astype(np.float32)
 
 
 
@@ -97,7 +144,7 @@ def group_neurons_by_sttc(neurons: List[Neuron],
     for cluster_id in np.unique(clusters):
         group = [neurons[i] for i in range(len(neurons)) if clusters[i] == cluster_id]
         if len(group) >= min_group_size:
-            neuron_group = NeuronGroup(f"sttc_{cluster_id}", group, method='sttc')
+            neuron_group = NeuronGroup(f"sttc_{cluster_id}", group, method='sttc', t_win=time_window, sttc_thresh=1-distance_threshold)
             groups.append(neuron_group)
     
     return groups, sttc_matrix
@@ -306,7 +353,10 @@ def compare_groupings(sttc_groups: List[NeuronGroup],
     sttc_mean_stats = []    
     for i, group in enumerate(sttc_groups):
         mean_stats = group.get_mean_spike_stats(sttc_matrix, dtw_matrix)
-        mean_stats_ids = {"group_id": group.group_id,"method": "sttc", **mean_stats}
+        mean_stats_ids = {"time window": group.t_win, "sttc_thresh": group.sttc_thresh,
+                           "dtw_thresh": group.dtw_thresh, "group_id": group.group_id, "neuron_indices": group.neuron_indices, 
+                           "number_neurons" : group.size, 
+                           "method": "sttc", **mean_stats}
         sttc_mean_stats.append(mean_stats_ids)
         for neuron in group.neurons:
             idx = neurons.index(neuron)
@@ -326,7 +376,7 @@ def compare_groupings(sttc_groups: List[NeuronGroup],
     dtw_membership = np.zeros(len(neurons))
     for i, group in enumerate(dtw_groups):
         mean_stats = group.get_mean_spike_stats(sttc_matrix, dtw_matrix)
-        mean_stats_ids = {"group_id": group.group_id,"method": "dtw", **mean_stats}
+        mean_stats_ids = {"time window": group.t_win, "sttc_thresh": group.sttc_thresh, "dtw_thresh": group.dtw_thresh, "group_id": group.group_id,"method": "dtw", **mean_stats}
         dtw_mean_stats.append(mean_stats_ids)
         for neuron in group.neurons:
             idx = neurons.index(neuron)
