@@ -24,8 +24,6 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 import argparse
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from utils import load_cascade_model
 from scipy.ndimage import gaussian_filter1d
 from utils.feature_utils import compute_roi_features
 from utils.preprocessing import normalize_minmax
@@ -86,8 +84,8 @@ def process_roi(smoothed_f_trace: np.ndarray,
     label = {'value': 0, 'source': 'auto'} if not critical_valid else {'value': -1, 'source': 'unlabeled'}
     
     return {
-        'smoothed_f_trace': smoothed_f_trace,
-        'raw_traces': [raw_trace],
+        'smoothed_trace': smoothed_f_trace,
+        'raw_trace': raw_trace,
         'features': features,
         'label': label,
         'spikes': {}  # Initialize empty spikes dict for later annotation

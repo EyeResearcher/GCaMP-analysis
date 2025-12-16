@@ -6,6 +6,7 @@ Only trains on manually labeled ROIs.
 """
 import argparse
 import json
+from datetime import datetime
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -510,7 +511,8 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    model_path = output_dir / "roi_classifier.joblib"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = output_dir / f"roi_classifier_{timestamp}.joblib"
     joblib.dump(overall_best['model_instance'], model_path)
     print(f"\n💾 Best model saved to {model_path}")
     
@@ -540,7 +542,7 @@ def main():
         ]
     }
     
-    config_path = output_dir / "roi_classifier_config.json"
+    config_path = output_dir / f"roi_classifier_config_{timestamp}.json"
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
     print(f"💾 Configuration saved to {config_path}")

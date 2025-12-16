@@ -180,7 +180,7 @@ def main():
         
         print(f"\n[{idx}/{n_samples}] Annotating ROI: {roi_key} | Current Label: {current_label} {label_str} {source_str}")
         
-        labeler = Labeler(roi_key, roi_data['raw_traces'][0], roi_data['smoothed_traces'][1],
+        labeler = Labeler(roi_key, roi_data['raw_trace'], roi_data['smoothed_trace'],
                           roi_data['features'], current_label)
         selected_label = labeler.show()
         
