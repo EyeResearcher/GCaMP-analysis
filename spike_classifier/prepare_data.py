@@ -182,9 +182,35 @@ def detect_spikes(smoothed_f: np.ndarray = None,
     return spike_data, spike_keys
 
 def parallel_detect_spikes(args):
-    smoothed_spike_prob, f_trace, roi_idx = args
-    spike_data, spike_keys = detect_spikes(smoothed_spike_prob, f_trace=f_trace, roi_idx=roi_idx)
+    smoothed_f, roi_idx = args
+    spike_data, spike_keys = detect_spikes(smoothed_f, roi_idx=roi_idx)
     return spike_data, spike_keys
+
+def validate_roi_label(roi_key: str, roi_data: Dict) -> None:
+    """
+    Validate that all ROIs have a 'label' field with a 'value'.
+    
+    Args:
+        roi_dict: Dictionary of ROI data
+    
+    Raises:
+        ValueError: If any ROI is missing 'label' or 'value'.
+    """
+
+    roi_label = roi_data.get('label', None)
+    if roi_label is None:
+        raise ValueError(f"ROI {roi_key} is missing 'label' data.")
+    
+    roi_label_value = roi_label.get('value', None)
+
+    if roi_label_value is None:
+        raise ValueError(f"ROI {roi_key} has label without 'value' field.")
+    
+    if roi_label_value != 1:
+        return False
+    
+    return True
+
 def process_rois(roi_dict: Dict, max_rois: Optional[int] = None) -> Tuple[Dict, list]:
     """
     Iterate through ROI data and collect spike features for labeled-good ROIs (label == 1).
@@ -199,22 +225,23 @@ def process_rois(roi_dict: Dict, max_rois: Optional[int] = None) -> Tuple[Dict, 
     processed_count = 0
     bad_roi = 0
     for roi_key, roi_data in roi_dict.items():
-        if roi_data.get("label", -1) != 1:
-            bad_roi +=1
-            continue
-        
-        # Check if we've reached the max ROI limit
+
+        valid = validate_roi_label(roi_key, roi_data)
+        if not valid:
+            bad_roi += 1
+            continue 
+
         if max_rois is not None and processed_count >= max_rois:
-            print(f"✓ Reached max_rois limit ({max_rois}), stopping spike extraction")
+            print(f"Reached max_rois limit ({max_rois}), stopping spike extraction")
             break
 
-        smoothed_traces = roi_data.get("smoothed_traces", [])
-        raw_f_traces = roi_data.get("raw_traces", [])
-        if len(smoothed_traces) < 2:
-            continue
+        smoothed_f_trace = roi_data.get("smoothed_trace", None)
+        if smoothed_f_trace is None:
+            raise ValueError(f"ROI {roi_key} is missing 'smoothed_trace' data.")
+        smoothed_f_trace = np.asarray(smoothed_f_trace)
 
-        smoothed_spike_prob = np.asarray(smoothed_traces[0])
-        roi_spike_data, spike_keys = detect_spikes(smoothed_spike_prob, raw_f_traces[0])
+
+        roi_spike_data, spike_keys = detect_spikes(smoothed_f_trace)
         
         # Preserve existing labels if spikes already exist
         existing_spikes = roi_data.get('spikes', {})
@@ -228,8 +255,8 @@ def process_rois(roi_dict: Dict, max_rois: Optional[int] = None) -> Tuple[Dict, 
         roi_dict[roi_key]['spikes'] = roi_spike_data
         processed_count += 1
 
-    print(f"✓ Processed {processed_count} good ROIs, found {len(all_roi_spike_keys)} spikes")
-    print(f"✗ Skipped {bad_roi} bad ROIs")
+    print(f"Processed {processed_count} good ROIs, found {len(all_roi_spike_keys)} spikes")
+    print(f"Skipped {bad_roi} bad ROIs")
     return roi_dict, all_roi_spike_keys
 
 
@@ -256,7 +283,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Prepare spike feature data from fluorescence traces."
     )
-    parser.add_argument("--input_path", help="Path to .npy file containing ROI dictionary.", default="training_data/roi_filtering/all_roi_features.npy")
+    parser.add_argument(
+        "--input_path", 
+        help="Path to .npy file containing ROI dictionary.",
+        default="training_data/roi_filtering/all_roi_features.npy")
     parser.add_argument(
         "-o",
         "--output",

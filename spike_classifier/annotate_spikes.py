@@ -10,11 +10,8 @@ adapted into an existing Tkinter-based GUI.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import random
-from typing import Tuple
-import tkinter as tk
 from tkinter import Tk, Frame, Label, Button
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
