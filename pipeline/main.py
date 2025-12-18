@@ -362,7 +362,6 @@ def main():
             # Process each timepoint and video
             for timepoint in experiment.timepoints:
                 timepoint = process_timepoint(timepoint, models, config, stats)
-                # Note: timepoint is already in experiment.timepoints from load_experiment_structure
                 from pipeline.io_handlers import save_timepoint_summary_by_video
                 tp_output_path = treatment_dir / f'{timepoint.treatment}_{timepoint.name}_video_summary.xlsx'
                 save_timepoint_summary_by_video(timepoint, tp_output_path)

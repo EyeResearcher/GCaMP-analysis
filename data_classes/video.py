@@ -21,23 +21,27 @@ if TYPE_CHECKING:
 from joblib import Parallel, delayed
 
 def get_savgol_params(fs, sensor_type='gcamp8s'):
-    """Get Savitzky-Golay parameters based on sampling frequency and sensor."""
+    """Get Savitzky-Golay parameters based on sampling frequency and sensor.
+    Args:
+        fs: Sampling frequency in Hz
+        sensor_type: Type of calcium sensor ('gcamp6f', 'gcamp6s', 'gcamp8s', etc.):
+            GCAMP8s assumed by default, 600ms window.
+            GCAMP6f uses shorter window due to faster kinetics, 300ms.
+            GCAMP6s uses intermediate window, 400ms.
+
+    Returns:
+        window_length: Length of the filter window (odd integer)"""
     if sensor_type == 'gcamp8s':
-        # Target ~500-800ms window for GCaMP8s (slower kinetics)
-        window_frames = int(0.6 * fs)  # 600ms window
+        window_frames = int(0.6 * fs) 
     elif sensor_type == 'gcamp6f':
-        # Faster sensor, shorter window
-        window_frames = int(0.3 * fs)  # 300ms window
+        window_frames = int(0.3 * fs)
     else:
-        # Default/GCaMP6s
-        window_frames = int(0.4 * fs)  # 400ms window
-    
-    # Ensure odd number
+        window_frames = int(0.4 * fs)  
+
     window_length = 2 * (window_frames // 2) + 1
-    # For GCaMP8s, use larger minimum
-    window_length = max(9, window_length)  # Minimum 9 for slow sensors
+    window_length = max(9, window_length) 
     
-    polyorder = 3  # Cubic fit better for slow, smooth transients
+    polyorder = 3
     
     return window_length, polyorder
 
@@ -57,18 +61,24 @@ class Video:
         self.timepoint = timepoint
         self.suite2p_path = Path(suite2p_path)
         self.suite2p_data = load_suite2p_data(suite2p_path)
+
         # === Processed data ===
+
         self.norm_f = np.ndarray([])
         self.norm_sm_f = np.ndarray([])
         self.norm_sg_f = np.ndarray([])
         self.sm_sp = np.ndarray([])
+
         # === Metadata ===
+
         self.n_rois, self.n_frames = self.suite2p_data['F'].shape
         self._parse_metadata()
         
         # Will be populated by pipeline
         self.neurons : List[Neuron] = []
+
         # === Grouping results ===
+        
         self.sttc_matrix = np.ndarray([])
         self.dtw_matrix = np.ndarray([])
         self.sttc_groups : List[NeuronGroup] = []
@@ -77,31 +87,39 @@ class Video:
         self.summary_df = None
     
     def process_fluorescence_traces(self) -> None:
+        """Normalize and smooth fluorescence traces.
+            Args:
+                self: Video object
+            Returns:
+                cascade_prob: Loaded cascade spike probability traces
+                norm_sm_f: Smoothed min-max normalized fluorescence traces
+                norm_sg_f: Savitzky-Golay filtered min-max normalized fluorescence traces
+                sm_sp: Smoothed cascade spike probability traces
+        """
         self.norm_f = normalize_minmax(self.suite2p_data['F'], self.suite2p_path / 'F_minmax.npy')
-        # Smooth each ROI along the time axis (axis=1). Each row is an ROI.
         self.norm_sm_f = gaussian_filter1d(self.norm_f, sigma=4.0, axis=1 )
 
         window_length, polyorder = get_savgol_params(self.suite2p_data['fs'], sensor_type='gcamp8s')
         self.norm_sg_f = savgol_filter(self.norm_f, window_length=window_length, polyorder=polyorder, axis=1)
+
         cascade_prob = np.load(self.suite2p_path / 'cascade_spike_prob.npy')
-        # Smooth spike-probabilities per-ROI along time as well
         self.sm_sp = gaussian_filter1d(cascade_prob, sigma=4.0, axis=1 )
         return cascade_prob, self.norm_sm_f, self.norm_sg_f, self.sm_sp
 
-    def filter_rois(self, all_rois: List[ROI], roi_classifier : RandomForestClassifier) -> tuple[List[ROI], List[ROI], np.ndarray]:
+    def filter_rois(self, all_rois: List[ROI],
+                    roi_classifier : RandomForestClassifier) -> tuple[List[ROI], List[ROI], np.ndarray]:
         """Extract features and filter ROIs using the classifier."""
+
+
         all_feats = Parallel(n_jobs=-1)(
             delayed(roi.extract_features)(self.norm_sm_f[i, :], self.sm_sp[i, :])
             for i, roi in enumerate(all_rois)
         )
-
-        print(f"Extracted features for {len(all_rois)} ROIs.")
         feats_df = pd.DataFrame(all_feats)
 
         if roi_classifier is None:
-            preds = np.ones(len(all_rois), dtype=bool)
+            raise RuntimeError("ROI classifier model is not provided.")
         else:
-            # Determine expected order of features. Prefer model attribute, fallback to config file
             expected = None
             if hasattr(roi_classifier, 'feature_names_in_'):
                 try:
@@ -116,8 +134,6 @@ class Video:
                         expected = cfg.get('feature_names')
                     except Exception:
                         expected = None
-
-            # Ensure DataFrame contains expected columns (fill missing with NaN)
             if expected:
                 for col in expected:
                     if col not in feats_df.columns:
@@ -127,6 +143,7 @@ class Video:
                 X = feats_df.values
 
             preds = roi_classifier.predict(X)
+            
         print(f"Total passed: {np.sum(preds)} / {len(all_rois)}")
         good_roi_mask = np.asarray(preds).astype(bool)
 
@@ -144,6 +161,8 @@ class Video:
         good_rois = [roi for roi in all_rois if roi.is_good]
         bad_rois = [roi for roi in all_rois if not roi.is_good]
         return good_rois, bad_rois, good_roi_mask
+    
+
     def get_all_spike_features(self, spk_model : RandomForestClassifier) -> pd.DataFrame:
 
         spike_features_list = Parallel(n_jobs=-1)(

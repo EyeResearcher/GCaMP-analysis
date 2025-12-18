@@ -25,7 +25,7 @@ sys.path.insert(0, str(project_root))
 import argparse
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
-from utils.feature_utils import compute_roi_features
+from utils.model_utils.rois import compute_roi_features
 from utils.preprocessing import normalize_minmax
 
 
@@ -195,6 +195,7 @@ def main():
                                        help='Create backup before overwriting (update mode only)')
     args = argparser.parse_args()
     
+    dataset_root = Path(args.dataset_root)  
     output_path = Path('training_data/roi_filtering')
     output_path.mkdir(parents=True, exist_ok=True)
     npy_file = output_path / 'all_roi_features.npy'
@@ -225,7 +226,7 @@ def main():
         all_roi_dict = update_roi_features(roi_dict)
 
     else:
-        video_paths = [path for path in Path(args.dataset_root).iterdir() if path.is_dir()]
+        video_paths = [path for path in dataset_root.iterdir() if path.is_dir()]
         all_rois = []
         
         for video_path in video_paths:

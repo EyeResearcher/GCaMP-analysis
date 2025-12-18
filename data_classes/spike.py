@@ -2,10 +2,7 @@
 from archive.utils.spike_utils import compute_spike_constants
 import numpy as np
 from typing import Optional, Tuple
-from scipy.ndimage import gaussian_filter1d
 from utils.feature_utils import (
-    compute_decay_shape_features,
-    compute_additional_decay_features,
     _create_large_window,
     _create_small_window
 )
