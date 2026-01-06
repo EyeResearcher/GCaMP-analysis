@@ -3,7 +3,7 @@ from data_classes.spike import Spike
 import numpy as np
 from typing import List, Optional
 from .roi import ROI
-from spike_classifier.prepare_data import detect_spikes, _create_large_window, _create_small_window
+from spike_classifier.prepare_data import define_candidate_fluor_events as detect_spikes
 from scipy.signal import peak_prominences, find_peaks
 from scipy.ndimage import gaussian_filter1d
 class Neuron(ROI):

@@ -1,7 +1,7 @@
 """ROI class for calcium imaging data."""
 import numpy as np
 from typing import Optional, Dict
-from utils.feature_utils import compute_roi_features
+from utils.model_utils.rois import compute_roi_features
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks, peak_prominences
 class ROI:

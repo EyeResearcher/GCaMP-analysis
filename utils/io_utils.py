@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 import logging
 from joblib import load
-from utils.cascade_utils import load_cascade_model
+from archive.cascade_utils import load_cascade_model
 if TYPE_CHECKING:
     from data_classes import Experiment, Timepoint, Video
 

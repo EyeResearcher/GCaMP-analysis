@@ -11,7 +11,7 @@ from .io_utils import (
 )
 
 # Cascade utilities
-from .cascade_utils import (
+from ..archive.cascade_utils import (
     CascadeWrapper,
     batch_predict_cascade,
     load_cascade_predictions,
