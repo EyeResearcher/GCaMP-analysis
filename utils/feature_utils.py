@@ -1,6 +1,6 @@
+from __future__ import annotations
 import numpy as np
 from typing import Tuple, Optional
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Tuple

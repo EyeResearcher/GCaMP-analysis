@@ -127,7 +127,9 @@ def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None) -> T
     return roi_dict, all_roi_spike_keys
 
 
-def main(input_path: str, output_path: Optional[str] = None, max_rois: Optional[int] = None) -> Dict[str, Dict[int, Dict]]:
+def main(input_path: str,
+         output_path: Optional[str] = None, 
+         max_rois: Optional[int] = None) -> Dict[str, Dict[int, Dict]]:
     roi_dict = load_roi_data(input_path)
     
     
