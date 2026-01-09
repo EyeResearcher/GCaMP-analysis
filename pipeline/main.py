@@ -24,7 +24,7 @@ from data_classes import Experiment, Timepoint, Video, ROI, Neuron, Spike
 
 from pipeline.io_handlers import save_video_summary, save_timepoint_summary, save_filtered_suite2p
 from utils.io_utils import load_experiment_structure, load_models
-from utils.cascade_utils import load_cascade_model
+from archive.cascade_utils import load_cascade_model
 
 logger = logging.getLogger(__name__)
 

@@ -349,109 +349,12 @@ def test_feature_selection(model_class, model_name, X_train, X_test, y_train, y_
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Train ROI classifier with feature transformation testing")
-    parser.add_argument("--data_path", type=str, 
-                       default="training_data/roi_filtering/all_roi_features.npy",
-                       help="Path to ROI data file")
-    parser.add_argument("--output_dir", type=str,
-                       default="roi_classifier/models",
-                       help="Directory to save models")
-    parser.add_argument("--test_size", type=float, default=0.2,
-                       help="Fraction of data for testing")
-    parser.add_argument("--random_state", type=int, default=42,
-                       help="Random seed")
-    parser.add_argument("--n_estimators", type=int, default=100,
-                       help="Number of trees for Random Forest")
-    parser.add_argument("--max_depth", type=int, default=None,
-                       help="Max depth for Random Forest (None=unlimited)")
-    parser.add_argument("--include_auto", action='store_true',
-                       help="Include auto-labeled ROIs (default: manual only)")
-    args = parser.parse_args()
-    
-    # Load data
-    data_path = Path(args.data_path)
-    print(f"Loading ROI data from {data_path}...")
-    
-    manual_only = not args.include_auto
-    X, y, feature_names, roi_keys = load_labeled_roi_data(data_path, manual_only=manual_only)
-    
-    print(f"\n{'='*70}")
-    print(f"Dataset Summary")
-    print(f"{'='*70}")
-    print(f"Total labeled ROIs: {len(X)}")
-    print(f"Number of features: {len(feature_names)}")
-    print(f"Feature names: {feature_names}")
-    print(f"Feature shape: {X.shape}")
-    print(f"Label distribution:")
-    print(f"  - Bad (0):  {(y == 0).sum()}")
-    print(f"  - Good (1): {(y == 1).sum()}")
-    print(f"Training on: {'Manual labels only' if manual_only else 'Manual + Auto labels'}")
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=args.test_size, random_state=args.random_state, stratify=y
-    )
-    
-    print(f"\nTrain set: {len(X_train)} samples")
-    print(f"  - Bad (0):  {(y_train == 0).sum()}")
-    print(f"  - Good (1): {(y_train == 1).sum()}")
-    print(f"Test set: {len(X_test)} samples")
-    print(f"  - Bad (0):  {(y_test == 0).sum()}")
-    print(f"  - Good (1): {(y_test == 1).sum()}")
-    
-    # Test Random Forest
-    rf_results, rf_best = test_model_with_transforms(
-        RandomForestClassifier, "Random Forest",
-        X_train, X_test, y_train, y_test, feature_names,
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth,
-        random_state=args.random_state
-    )
-    
-    # Test Logistic Regression
-    lr_results, lr_best = test_model_with_transforms(
-        LogisticRegression, "Logistic Regression",
-        X_train, X_test, y_train, y_test, feature_names,
-        random_state=args.random_state
-    )
-    
-    # Display feature importance for best models
-    print(f"\n{'='*70}")
-    print("FEATURE IMPORTANCE - BEST MODELS")
-    print(f"{'='*70}")
-    
-    print(f"\nRandom Forest (best: {rf_best['transform']}):")
-    print(rf_best['feature_importance'].to_string(index=False))
-    
-    print(f"\nLogistic Regression (best: {lr_best['transform']}):")
-    print(lr_best['feature_importance'].to_string(index=False))
-    
-    # Test feature selection for both models
-    print(f"\n{'='*70}")
-    print("TESTING FEATURE SUBSETS")
-    print(f"{'='*70}")
-    
-    rf_feature_results = test_feature_selection(
-        RandomForestClassifier, "Random Forest",
-        X_train, X_test, y_train, y_test, feature_names,
-        rf_best['feature_importance'], rf_best['transform'],
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth,
-        random_state=args.random_state
-    )
-    
-    lr_feature_results = test_feature_selection(
-        LogisticRegression, "Logistic Regression",
-        X_train, X_test, y_train, y_test, feature_names,
-        lr_best['feature_importance'], lr_best['transform'],
-        random_state=args.random_state
-    )
-    
-    # Compare all configurations
-    all_configs = rf_results + lr_results + rf_feature_results + lr_feature_results
-    
-    # Create comprehensive results table
+# =============================================================================
+# Results Analysis
+# =============================================================================
+
+def find_overall_best(all_configs: list, feature_names: list) -> dict:
+    """Find the best model configuration from all tested configurations."""
     results_rows = []
     for r in all_configs:
         n_feat = r.get('n_features', len(feature_names))
@@ -465,14 +368,8 @@ def main():
         })
     
     results_df = pd.DataFrame(results_rows).sort_values('test_accuracy', ascending=False)
-    
-    print(f"\n{'='*70}")
-    print("COMPREHENSIVE RESULTS - ALL CONFIGURATIONS")
-    print(f"{'='*70}")
-    print(results_df.to_string(index=False))
-    
-    # Find overall best from all configurations
     best_row = results_df.iloc[0]
+    
     overall_best = None
     for config in all_configs:
         if (config['model'] == best_row['model'] and 
@@ -480,6 +377,17 @@ def main():
             config.get('n_features', len(feature_names)) == best_row['n_features']):
             overall_best = config
             break
+    
+    return overall_best, results_df
+
+
+def print_results_summary(results_df: pd.DataFrame, overall_best: dict, 
+                         feature_names: list, y_test: np.ndarray):
+    """Print comprehensive results summary."""
+    print(f"\n{'='*70}")
+    print("COMPREHENSIVE RESULTS - ALL CONFIGURATIONS")
+    print(f"{'='*70}")
+    print(results_df.to_string(index=False))
     
     print(f"\n{'='*70}")
     print(f"🏆 OVERALL WINNER: {overall_best['model']} with {overall_best['transform']} transform")
@@ -506,9 +414,25 @@ def main():
     print(f"              Bad   Good")
     print(f"Actual Bad  [{cm[0,0]:4d}  {cm[0,1]:4d}]")
     print(f"       Good [{cm[1,0]:4d}  {cm[1,1]:4d}]")
+
+
+# =============================================================================
+# Model Saving
+# =============================================================================
+
+def save_model_and_config(overall_best: dict, feature_names: list, 
+                          output_dir: Path, X_train: np.ndarray, X_test: np.ndarray,
+                          manual_only: bool, all_configs: list) -> tuple[Path, Path]:
+    """
+    Save the best model and its configuration.
     
-    # Save best model
-    output_dir = Path(args.output_dir)
+    Returns
+    -------
+    model_path : Path
+        Path to saved model
+    config_path : Path
+        Path to saved config
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -516,7 +440,6 @@ def main():
     joblib.dump(overall_best['model_instance'], model_path)
     print(f"\n💾 Best model saved to {model_path}")
     
-    # Save configuration
     config = {
         'model_type': overall_best['model'],
         'transform': overall_best['transform'],
@@ -547,7 +470,227 @@ def main():
         json.dump(config, f, indent=2)
     print(f"💾 Configuration saved to {config_path}")
     
-    print("\n✅ Training complete!")
+    return model_path, config_path
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
+def train_roi_classifier(
+    data_path: Path,
+    output_dir: Path = None,
+    test_size: float = 0.2,
+    random_state: int = 42,
+    n_estimators: int = 100,
+    max_depth: int = None,
+    manual_only: bool = True,
+    save_model: bool = True,
+    verbose: bool = True
+) -> dict:
+    """
+    Train ROI classifier with feature transformation testing.
+    
+    This is the main entry point for training. Tests Random Forest and 
+    Logistic Regression with different feature transformations and 
+    feature subsets.
+    
+    Parameters
+    ----------
+    data_path : Path
+        Path to ROI data .npy file
+    output_dir : Path, optional
+        Directory to save models. If None, models won't be saved.
+    test_size : float
+        Fraction of data for testing (default: 0.2)
+    random_state : int
+        Random seed for reproducibility (default: 42)
+    n_estimators : int
+        Number of trees for Random Forest (default: 100)
+    max_depth : int or None
+        Max depth for Random Forest (default: None = unlimited)
+    manual_only : bool
+        Only use manually labeled ROIs (default: True)
+    save_model : bool
+        Whether to save the best model (default: True)
+    verbose : bool
+        Print detailed output (default: True)
+    
+    Returns
+    -------
+    result : dict
+        Dictionary containing:
+        - 'best_model': The trained best model instance
+        - 'config': Configuration dict with model settings
+        - 'results_df': DataFrame with all results
+        - 'feature_names': List of feature names
+        - 'model_path': Path to saved model (if save_model=True)
+        - 'config_path': Path to saved config (if save_model=True)
+    """
+    data_path = Path(data_path)
+    
+    # Load data
+    if verbose:
+        print(f"Loading ROI data from {data_path}...")
+    
+    X, y, feature_names, roi_keys = load_labeled_roi_data(data_path, manual_only=manual_only)
+    
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"Dataset Summary")
+        print(f"{'='*70}")
+        print(f"Total labeled ROIs: {len(X)}")
+        print(f"Number of features: {len(feature_names)}")
+        print(f"Feature names: {feature_names}")
+        print(f"Label distribution:")
+        print(f"  - Bad (0):  {(y == 0).sum()}")
+        print(f"  - Good (1): {(y == 1).sum()}")
+        print(f"Training on: {'Manual labels only' if manual_only else 'Manual + Auto labels'}")
+    
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=y
+    )
+    
+    if verbose:
+        print(f"\nTrain set: {len(X_train)} samples")
+        print(f"  - Bad (0):  {(y_train == 0).sum()}")
+        print(f"  - Good (1): {(y_train == 1).sum()}")
+        print(f"Test set: {len(X_test)} samples")
+        print(f"  - Bad (0):  {(y_test == 0).sum()}")
+        print(f"  - Good (1): {(y_test == 1).sum()}")
+    
+    # Test Random Forest
+    rf_results, rf_best = test_model_with_transforms(
+        RandomForestClassifier, "Random Forest",
+        X_train, X_test, y_train, y_test, feature_names,
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        random_state=random_state
+    )
+    
+    # Test Logistic Regression
+    lr_results, lr_best = test_model_with_transforms(
+        LogisticRegression, "Logistic Regression",
+        X_train, X_test, y_train, y_test, feature_names,
+        random_state=random_state
+    )
+    
+    # Display feature importance for best models
+    if verbose:
+        print(f"\n{'='*70}")
+        print("FEATURE IMPORTANCE - BEST MODELS")
+        print(f"{'='*70}")
+        
+        print(f"\nRandom Forest (best: {rf_best['transform']}):")
+        print(rf_best['feature_importance'].to_string(index=False))
+        
+        print(f"\nLogistic Regression (best: {lr_best['transform']}):")
+        print(lr_best['feature_importance'].to_string(index=False))
+        
+        print(f"\n{'='*70}")
+        print("TESTING FEATURE SUBSETS")
+        print(f"{'='*70}")
+    
+    # Test feature selection for both models
+    rf_feature_results = test_feature_selection(
+        RandomForestClassifier, "Random Forest",
+        X_train, X_test, y_train, y_test, feature_names,
+        rf_best['feature_importance'], rf_best['transform'],
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        random_state=random_state
+    )
+    
+    lr_feature_results = test_feature_selection(
+        LogisticRegression, "Logistic Regression",
+        X_train, X_test, y_train, y_test, feature_names,
+        lr_best['feature_importance'], lr_best['transform'],
+        random_state=random_state
+    )
+    
+    # Combine all configurations
+    all_configs = rf_results + lr_results + rf_feature_results + lr_feature_results
+    
+    # Find overall best
+    overall_best, results_df = find_overall_best(all_configs, feature_names)
+    
+    if verbose:
+        print_results_summary(results_df, overall_best, feature_names, y_test)
+    
+    # Build config dict
+    config = {
+        'model_type': overall_best['model'],
+        'transform': overall_best['transform'],
+        'feature_names': feature_names,
+        'n_features': overall_best.get('n_features', len(feature_names)),
+        'selected_features': overall_best.get('features', feature_names),
+        'test_accuracy': float(overall_best['test_acc']),
+        'roc_auc': float(overall_best['roc_auc']),
+        'cv_accuracy': float(overall_best['cv_acc']),
+        'n_train': int(len(X_train)),
+        'n_test': int(len(X_test)),
+        'manual_only': manual_only
+    }
+    
+    # Prepare result dict
+    result = {
+        'best_model': overall_best['model_instance'],
+        'config': config,
+        'results_df': results_df,
+        'feature_names': feature_names,
+        'all_configs': all_configs,
+        'model_path': None,
+        'config_path': None
+    }
+    
+    # Save model if requested
+    if save_model and output_dir is not None:
+        output_dir = Path(output_dir)
+        model_path, config_path = save_model_and_config(
+            overall_best, feature_names, output_dir,
+            X_train, X_test, manual_only, all_configs
+        )
+        result['model_path'] = model_path
+        result['config_path'] = config_path
+    
+    if verbose:
+        print("\n✅ Training complete!")
+    
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Train ROI classifier with feature transformation testing")
+    parser.add_argument("--data_path", type=str, 
+                       default="training_data/roi_filtering/all_roi_features.npy",
+                       help="Path to ROI data file")
+    parser.add_argument("--output_dir", type=str,
+                       default="roi_classifier/models",
+                       help="Directory to save models")
+    parser.add_argument("--test_size", type=float, default=0.2,
+                       help="Fraction of data for testing")
+    parser.add_argument("--random_state", type=int, default=42,
+                       help="Random seed")
+    parser.add_argument("--n_estimators", type=int, default=100,
+                       help="Number of trees for Random Forest")
+    parser.add_argument("--max_depth", type=int, default=None,
+                       help="Max depth for Random Forest (None=unlimited)")
+    parser.add_argument("--include_auto", action='store_true',
+                       help="Include auto-labeled ROIs (default: manual only)")
+    args = parser.parse_args()
+
+    train_roi_classifier(
+        data_path=Path(args.data_path),
+        output_dir=Path(args.output_dir),
+        test_size=args.test_size,
+        random_state=args.random_state,
+        n_estimators=args.n_estimators,
+        max_depth=args.max_depth,
+        manual_only=not args.include_auto,
+        save_model=True,
+        verbose=True
+    )
 
 
 if __name__ == "__main__":

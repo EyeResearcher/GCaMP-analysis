@@ -135,16 +135,10 @@ def update_roi_features(roi_dict: dict) -> dict:
     n_spikes_preserved = 0
     
     for roi_key, roi_data in roi_dict.items():
-        smoothed_f_trace = roi_data.get('smoothed_f_trace')
-        if smoothed_f_trace is None:
-            # Support legacy format with smoothed_traces list
-            smoothed_traces = roi_data.get('smoothed_traces', [])
-            if len(smoothed_traces) < 1:
-                print(f"Warning: ROI {roi_key} missing smoothed trace, skipping")
-                continue
-            smoothed_f_trace = np.asarray(smoothed_traces[0])
-        else:
-            smoothed_f_trace = np.asarray(smoothed_f_trace)
+        smoothed_f_trace = roi_data.get('smoothed_trace', np.array([]))
+        if smoothed_f_trace.size == 0:
+            print(f"Skipping ROI {roi_key} due to missing smoothed trace.")
+            continue
         
         # Recompute ROI features
         features, validity = compute_roi_features(smoothed_f_trace)
@@ -162,8 +156,8 @@ def update_roi_features(roi_dict: dict) -> dict:
             n_spikes_preserved += len(spikes)
         
         updated_dict[roi_key] = {
-            'smoothed_f_trace': smoothed_f_trace,
-            'raw_traces': roi_data.get('raw_traces'),
+            'smoothed_trace': smoothed_f_trace,
+            'raw_trace': roi_data.get('raw_trace'),
             'features': features,
             'label': label_dict,
             'spikes': spikes
