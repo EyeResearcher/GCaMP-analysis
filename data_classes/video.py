@@ -84,9 +84,9 @@ class Video:
         self.sttc_groups : List[NeuronGroup] = []
         self.dtw_groups : List[NeuronGroup] = []
         self.grouping_stats = pd.DataFrame()
-        self.summary_df = None
+        self.summary_df = pd.DataFrame()
     
-    def process_fluorescence_traces(self) -> None:
+    def process_fluorescence_traces(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Normalize and smooth fluorescence traces.
             Args:
                 self: Video object
@@ -101,9 +101,12 @@ class Video:
 
         window_length, polyorder = get_savgol_params(self.suite2p_data['fs'], sensor_type='gcamp8s')
         self.norm_sg_f = savgol_filter(self.norm_f, window_length=window_length, polyorder=polyorder, axis=1)
-
-        cascade_prob = np.load(self.suite2p_path / 'cascade_spike_prob.npy')
-        self.sm_sp = gaussian_filter1d(cascade_prob, sigma=4.0, axis=1 )
+        try: 
+            cascade_prob = np.load(self.suite2p_path / 'cascade_spike_prob.npy')
+            self.sm_sp = gaussian_filter1d(cascade_prob, sigma=4.0, axis=1 )
+        except FileNotFoundError:
+            cascade_prob = np.array([])
+            self.sm_sp = np.array([])
         return cascade_prob, self.norm_sm_f, self.norm_sg_f, self.sm_sp
 
     def filter_rois(self, all_rois: List[ROI],
@@ -112,7 +115,7 @@ class Video:
 
 
         all_feats = Parallel(n_jobs=-1)(
-            delayed(roi.extract_features)(self.norm_sm_f[i, :], self.sm_sp[i, :])
+            delayed(roi.extract_features)(self.norm_sm_f[i, :])
             for i, roi in enumerate(all_rois)
         )
         feats_df = pd.DataFrame(all_feats)
@@ -144,7 +147,6 @@ class Video:
 
             preds = roi_classifier.predict(X)
             
-        print(f"Total passed: {np.sum(preds)} / {len(all_rois)}")
         good_roi_mask = np.asarray(preds).astype(bool)
 
 
@@ -246,7 +248,7 @@ class Video:
             n.filtered_index = i
         return neurons_with_spikes
     
-    def get_spike_statistics(self) -> None:
+    def get_spike_statistics(self) -> dict[int, dict]:
         # Run instantiation in parallel and assign returned Spike objects back
         inst_spikes = Parallel(n_jobs=-1)(
             delayed(n.instantiate_spikes)(self.norm_sm_f[n.index, :], self.norm_sg_f[n.index, :]) for n in self.neurons

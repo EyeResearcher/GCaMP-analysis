@@ -508,7 +508,7 @@ def save_filtered_suite2p(video_path: Path,
         logger.debug(f"Saved filtered stat: {len(suite2p_data['stat'])} -> {len(filtered_stat)}")
     
     # Save cascade probabilities if available
-    if cascade_prob is not None:
+    if cascade_prob is not None and len(cascade_prob) == len(good_roi_mask):
         filtered_cascade = cascade_prob[good_roi_mask]
         np.save(filtered_dir / 'cascade_spike_prob.npy', filtered_cascade)
         logger.debug(f"Saved filtered cascade_spike_prob: {cascade_prob.shape} -> {filtered_cascade.shape}")

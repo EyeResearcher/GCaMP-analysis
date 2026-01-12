@@ -38,12 +38,12 @@ class ROI:
     def __repr__(self):
         return f"ROI(index={self.index}, frames={len(self.f_trace)}, is_good={self.is_good})"
     
-    def extract_features(self, sm_norm_f: np.ndarray, sm_norm_sp: np.ndarray) -> dict:
+    def extract_features(self, sm_norm_f: np.ndarray) -> dict:
         """Extract features for this ROI using specified normalization."""
         # Detect candidate peaks from the smoothed spike-probability trace (not the F trace)
-        self.peaks, _ = find_peaks(sm_norm_sp)
+        self.peaks, _ = find_peaks(sm_norm_f)
         # Compute ROI-level features (returns features dict and validity flags)
-        self.features, validity = compute_roi_features(sm_norm_f, sm_norm_sp)
+        self.features, validity = compute_roi_features(sm_norm_f, mode="Inference")
         # Store validity flags for downstream inspection but do not auto-reject here;
         # classification model will decide based on available features.
         self.features_validity = validity

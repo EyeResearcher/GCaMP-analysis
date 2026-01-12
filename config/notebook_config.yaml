@@ -1,0 +1,14 @@
+models:
+  roi_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/trained_models_notebooks/roi_classifier/roi_classifier_20260108_125706.joblib"
+  spike_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/trained_models_notebooks/spike_classifier/spike_classifier_20260109_145607.joblib"  
+  cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
+  cascade_model_dir: "Cascade/Pretrained_models"
+
+grouping:
+  sttc:
+    time_window: .4       # 33ms, 50ms, 100ms, 200ms, 300ms
+    correlation_threshold: 0.1
+    linkage_method: "average"
+    distance_threshold: 0.2
+    min_group_size: 2
+  
