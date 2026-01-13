@@ -10,7 +10,7 @@ from pipeline.services.spike_service import SpikeService
 from pipeline.services.grouping_service import GroupingService
 
 # ---- Models/config
-from pipeline.io_handlers import load_config, load_models  # if you already have these
+from utils.io_utils import load_config, load_model
 
 # ---- Experiment tree + batch
 from experiments.tree import ExperimentTreeBuilder, is_video_dir
@@ -55,8 +55,10 @@ def main(
 
     # 1) Load config + models once
     config = load_config()
-    models = load_models(config)
-
+    models = {
+        "spike": load_model(config, which="spike"),
+        "roi": load_model(config, which="roi"),
+    }
     # 2) Build runner once
     runner = build_runner(config)
 
