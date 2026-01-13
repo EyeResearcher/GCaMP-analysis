@@ -368,7 +368,9 @@ def compare_groupings(sttc_groups: List[NeuronGroup],
         logger.info(f"    Agreement: n/a (DTW grouping skipped)")
         return {
             'n_sttc_groups': len(sttc_groups),
+            'sttc_groups' : sttc_groups,   
             'n_dtw_groups': 0,
+            'dtw_groups' : [],
             'agreement': 0.0,
             'combined_stats' : sttc_mean_stats
         }
@@ -396,7 +398,9 @@ def compare_groupings(sttc_groups: List[NeuronGroup],
     
     return {
         'n_sttc_groups': len(sttc_groups),
+        'sttc_groups' : sttc_groups,
         'n_dtw_groups': len(dtw_groups),
+        'dtw_groups' : dtw_groups,
         'agreement': agreement,
         'combined_stats': combined_stats
     }

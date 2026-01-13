@@ -162,7 +162,7 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
     
     logger.info(f"Saved neuron group visualization to {output_path}")
     
-    return output_path
+    return fig
 # ...existing code...
 def save_video_summary(results: Dict, output_dir: Path) -> pd.DataFrame:
     """Save video processing results."""
@@ -506,18 +506,14 @@ def save_filtered_suite2p(video_path: Path,
         filtered_stat = [suite2p_data['stat'][i] for i in np.where(good_roi_mask)[0]]
         np.save(filtered_dir / 'stat.npy', filtered_stat, allow_pickle=True)
         logger.debug(f"Saved filtered stat: {len(suite2p_data['stat'])} -> {len(filtered_stat)}")
-    
-    # Save cascade probabilities if available
-    if cascade_prob is not None and len(cascade_prob) == len(good_roi_mask):
-        filtered_cascade = cascade_prob[good_roi_mask]
-        np.save(filtered_dir / 'cascade_spike_prob.npy', filtered_cascade)
-        logger.debug(f"Saved filtered cascade_spike_prob: {cascade_prob.shape} -> {filtered_cascade.shape}")
-    
-    # Copy ops unchanged
+    else: 
+        raise FileNotFoundError(f"No stat data found in suite2p_data for video {video_path}")
+  
     if 'ops' in suite2p_data and suite2p_data['ops'] is not None:
         np.save(filtered_dir / 'ops.npy', suite2p_data['ops'], allow_pickle=True)
         logger.debug("Copied ops.npy unchanged")
-    
+    else: 
+        raise FileNotFoundError(f"No ops data found in suite2p_data for video {video_path}")
     # Save the indices of good and bad ROIs for reference
     good_indices = np.where(good_roi_mask)[0]
     bad_indices = np.where(~good_roi_mask)[0]
