@@ -110,7 +110,7 @@ class GroupingService:
         )
 
         # Overlay figure (existing)
-        fig, _ = visualize_neuron_groups(
+        fig = visualize_neuron_groups(
             neuron_groups=groups,
             stat=video.suite2p_data["stat"] if "stat" in video.suite2p_data else np.array([]),
             img_size=img_size,

@@ -265,7 +265,6 @@ class VideoStatisticsWriter:
             manifest["dtw_fig_png"] = str(dtw_png)
 
         if stats.sttc_heatmap is not None:
-            print("Saving STTC heatmap figure...")
             sttc_heatmap_png = out_dir / f"{base}_sttc_heatmap.png"
             stats.sttc_heatmap.savefig(sttc_heatmap_png, dpi=self.save_fig_dpi, bbox_inches=self.save_fig_bbox_inches)
             manifest["sttc_heatmap_png"] = str(sttc_heatmap_png)
