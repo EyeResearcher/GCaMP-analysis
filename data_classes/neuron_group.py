@@ -45,7 +45,7 @@ class NeuronGroup:
             Returns: mean_spike_stats dictionary
                 {}
                     """
-        rates = [n.raw_stats['spike_frequency'] for n in self.neurons]
+        rates = [n.summary_stats['spike_frequency'] for n in self.neurons]
         self.mean_spk_rate = np.mean(rates) if rates else 0.0
         self.mean_num_spikes = np.mean([len(n.spikes) for n in self.neurons]) if rates else 0.0
         mean_of_means = pd.DataFrame([n.summary_stats for n in self.neurons]).filter(like='mean_').mean()
