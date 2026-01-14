@@ -4,10 +4,11 @@ from typing import Protocol, Optional, Any
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
-
+import matplotlib.pyplot as plt
+from pathlib import Path
 from pipeline.neuron_grouping import group_neurons_by_sttc, group_neurons_by_dtw, compare_groupings
 from pipeline.reports import GroupingReport
-from utils.visualization import visualize_neuron_groups
+from utils.visualization import plot_matrix_heatmap, visualize_neuron_groups
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from data_classes.video import Video
@@ -67,13 +68,38 @@ class GroupingService:
                               n_groups= len(video.sttc_groups),
                               agreement= video.agreement)
 
-    def visualize(self, video: "Video", which: str = "sttc") -> Optional[Figure]:
+    def visualize(self, video: "Video", which: str = "sttc", include_heatmap: bool = True) -> Optional[Figure]:
         if which == "sttc":
             groups = video.sttc_groups
+            matrix = video.sttc_matrix
             label = "sttc_grouping"
         else:
             groups = video.dtw_groups
+            matrix = video.dtw_matrix
             label = "dtw_grouping"
+
+
+        if include_heatmap and isinstance(matrix, np.ndarray) and matrix.size > 0 and matrix.ndim == 2:
+            heat_fig, ax = plt.subplots(figsize=(6, 5))
+            if which == "sttc":
+                plot_matrix_heatmap(
+                    matrix,
+                    ax=ax,
+                    title="STTC matrix",
+                    cmap="coolwarm",
+                    vmin=-1,
+                    vmax=1,
+                )
+               
+                video.sttc_heatmap = heat_fig
+            else:
+                plot_matrix_heatmap(
+                    matrix,
+                    ax=ax,
+                    title="DTW matrix",
+                    cmap="magma",
+                )
+                video.dtw_heatmap = heat_fig
 
         if not groups:
             return None
@@ -82,6 +108,8 @@ class GroupingService:
             video.suite2p_data.get("ops", {}).get("Ly", 1024),
             video.suite2p_data.get("ops", {}).get("Lx", 1024),
         )
+
+        # Overlay figure (existing)
         fig, _ = visualize_neuron_groups(
             neuron_groups=groups,
             stat=video.suite2p_data["stat"] if "stat" in video.suite2p_data else np.array([]),
@@ -94,5 +122,5 @@ class GroupingService:
             video.sttc_fig = fig
         else:
             video.dtw_fig = fig
-
+       
         return fig

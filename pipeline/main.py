@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 # ---- Pipeline pieces
 from pipeline.video_runner import VideoPipelineRunner
@@ -109,7 +110,7 @@ def main(
 if __name__ == "__main__":
     # Example usage
     main(
-        experiment_root=Path(r"X:\data\Experiment337"),
+        experiment_root=Path(r"C:\Users\mzinn1\Desktop\test_tree\ex345"),
         output_root=None,   # defaults to experiment_root
         verbose=True,
     )

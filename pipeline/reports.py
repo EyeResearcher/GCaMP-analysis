@@ -19,6 +19,7 @@ class SpikeReport:
     n_neurons_out: int
     n_spikes_raw: int
     n_spikes_kept: int
+    mean_metrics: dict[str, float]
 
 @dataclass(frozen=True)
 class GroupingReport:

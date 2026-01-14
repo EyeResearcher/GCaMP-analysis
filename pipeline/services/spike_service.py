@@ -115,6 +115,20 @@ class SpikeService:
         per_neuron = {n.index: n.summarize_spike_statistics(video.suite2p_data["F"][n.index]) for n in video.neurons}
         video.summary_df = pd.DataFrame.from_dict(per_neuron, orient="index")
         return video.summary_df
+    
+    def _aggregate_summary_means(self, summary_df: pd.DataFrame) -> dict[str, float]:
+        if summary_df.empty:
+            return {}
+
+        numeric_cols = summary_df.select_dtypes(include=["number"]).columns
+
+        means = {}
+        for col in numeric_cols:
+            value = summary_df[col].mean()
+            if pd.notna(value):
+                means[f"mean_{col}"] = float(value)
+
+        return means
     def run(self, video: "Video", spike_model: Any) -> SpikeReport:
         """
         Populates on video:
@@ -131,18 +145,21 @@ class SpikeService:
         n_spikes_raw = sum(getattr(n, "n_peaks_raw", 0) for n in video.neurons)
 
         # Filter spikes + drop neurons with no spikes
-        spike_mask = self.filter_spikes(video, spk_feats_df, spike_model)
+        self.filter_spikes(video, spk_feats_df, spike_model)
 
         # Count kept spikes after filtering
         n_spikes_kept = sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons)
 
         # Compute per-neuron spike stats df (and attach spike objects)
-        self.compute_spike_statistics(video)
+        summary_df = self.compute_spike_statistics(video)
 
+        # Aggregate means of numeric columns
+        mean_metrics = self._aggregate_summary_means(summary_df)
         return SpikeReport(
             n_neurons_in=n_neurons_in,
             n_neurons_out=len(video.neurons),
             n_spikes_raw=int(n_spikes_raw),
             n_spikes_kept=int(n_spikes_kept),
+            mean_metrics=mean_metrics
         )
 
