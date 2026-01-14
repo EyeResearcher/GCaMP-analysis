@@ -10,7 +10,7 @@ from experiments.summary_utils import (
     combine_neuron_level_to_video,
     aggregate_children,
 )
-from data_classes.video import Video, VideoStatistics, VideoStatisticsWriter
+from data_classes.video import Video, VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
 from pipeline.video_runner import VideoPipelineRunner
 
 
@@ -54,8 +54,10 @@ class ExperimentProcessor:
         self.runner.run(video, models=self.models, config=self.config, verbose=verbose)
 
         stats = VideoStatistics.from_video(video)
-        writer = VideoStatisticsWriter()
-        writer.write(stats, output_root=video_dir)
+        stat_writer = VideoStatisticsWriter()
+        stat_writer.write(stats, output_root=video_dir)
+        figure_writer = VideoFiguresWriter()
+        figure_writer.write(video)
 
         n_rois_total = int(video.n_rois)
         n_rois_good = int(video.n_good_rois)

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Optional, Any, Literal, Tuple
 
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
-
+import matplotlib.pyplot as plt
 from utils.io_utils import load_suite2p_data
-
+from grouping_processing.visualization import visualize_grouping
 if TYPE_CHECKING:
     from data_classes.roi import ROI
     from data_classes.neuron import Neuron
@@ -253,24 +253,60 @@ class VideoStatisticsWriter:
         np.save(dtw_npy, stats.dtw_matrix)
         manifest["dtw_matrix_npy"] = str(dtw_npy)
 
-        # Figures (optional)
-        if stats.sttc_fig is not None:
-            sttc_png = out_dir / f"{base}_sttc_groups.png"
-            stats.sttc_fig.savefig(sttc_png, dpi=self.save_fig_dpi, bbox_inches=self.save_fig_bbox_inches)
-            manifest["sttc_fig_png"] = str(sttc_png)
 
-        if stats.dtw_fig is not None:
-            dtw_png = out_dir / f"{base}_dtw_groups.png"
-            stats.dtw_fig.savefig(dtw_png, dpi=self.save_fig_dpi, bbox_inches=self.save_fig_bbox_inches)
-            manifest["dtw_fig_png"] = str(dtw_png)
+        return manifest
+    
+    
+Which = Literal["sttc", "dtw"]
 
-        if stats.sttc_heatmap is not None:
-            sttc_heatmap_png = out_dir / f"{base}_sttc_heatmap.png"
-            stats.sttc_heatmap.savefig(sttc_heatmap_png, dpi=self.save_fig_dpi, bbox_inches=self.save_fig_bbox_inches)
-            manifest["sttc_heatmap_png"] = str(sttc_heatmap_png)
 
-        if stats.dtw_heatmap is not None:
-            dtw_heatmap_png = out_dir / f"{base}_dtw_heatmap.png"
-            stats.dtw_heatmap.savefig(dtw_heatmap_png, dpi=self.save_fig_dpi, bbox_inches=self.save_fig_bbox_inches)
-            manifest["dtw_heatmap_png"] = str(dtw_heatmap_png)
+@dataclass
+class VideoFiguresWriter:
+    dpi: int = 200
+    close_figs: bool = True
+
+    def save_fig(self, fig: Optional[Figure], path: Path) -> None:
+        if fig is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, dpi=self.dpi, bbox_inches="tight")
+        if self.close_figs:
+            plt.close(fig)
+
+    def write_grouping_figures(
+        self,
+        video: "Video",
+        *,
+        out_dir: Path,
+        which: Which = "sttc",
+        config_label: str | None = None,
+    ) -> Tuple[Optional[Path], Optional[Path]]:
+        overlay_fig, heatmap_fig = visualize_grouping(video, which=which, config_label=config_label)
+
+        base = video.path.name
+        overlay_path = out_dir / f"{base}_{which}_groups.png"
+        heatmap_path = out_dir / f"{base}_{which}_heatmap.png"
+
+        self.save_fig(overlay_fig, overlay_path)
+        self.save_fig(heatmap_fig, heatmap_path)
+
+        return (overlay_path if overlay_fig else None, heatmap_path if heatmap_fig else None)
+
+    def write(self, video: "Video") -> dict:
+        out_dir = video.path / "metrics"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        manifest: dict = {}
+
+        # STTC
+        sttc_overlay, sttc_heat = self.write_grouping_figures(video, out_dir=out_dir, which="sttc")
+        if sttc_overlay: manifest["sttc_overlay_png"] = str(sttc_overlay)
+        if sttc_heat: manifest["sttc_heatmap_png"] = str(sttc_heat)
+
+        # DTW (only if enabled / exists)
+        if getattr(video, "dtw_matrix", None) is not None and np.asarray(getattr(video, "dtw_matrix")).size > 0:
+            dtw_overlay, dtw_heat = self.write_grouping_figures(video, out_dir=out_dir, which="dtw")
+            if dtw_overlay: manifest["dtw_overlay_png"] = str(dtw_overlay)
+            if dtw_heat: manifest["dtw_heatmap_png"] = str(dtw_heat)
+
         return manifest

@@ -1,126 +1,97 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Protocol, Optional, Any
+from typing import TYPE_CHECKING, Optional
 import numpy as np
 import pandas as pd
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-from pathlib import Path
-from pipeline.neuron_grouping import group_neurons_by_sttc, group_neurons_by_dtw, compare_groupings
+
 from pipeline.reports import GroupingReport
-from utils.visualization import plot_matrix_heatmap, visualize_neuron_groups
-from typing import TYPE_CHECKING
+
+# NEW modular imports (your new framework)
+from grouping_processing.strategies.sttc_strategy import STTCStrategy
+from grouping_processing.strategies.dtw_strategy import DTWStrategy
+from grouping_processing.comparison import compare_groupings
+
 if TYPE_CHECKING:
     from data_classes.video import Video
 
-class GroupingStrategy(Protocol):
-    name: str
-    def compute(self, video: "Video", config: dict) -> dict:
-        ...
-
-@dataclass
-class STTCStrategy:
-    name: str = "sttc"
-    def compute(self, video: "Video", config: dict) -> dict:
-        tw = config.get("time_window", 0.4)
-        dt = config.get("distance_threshold", 0.2)
-        groups, matrix = group_neurons_by_sttc(video.neurons, video.n_frames, time_window=tw, distance_threshold=dt)
-        return {"groups": groups, "matrix": matrix, "config_label": f"sttc_tw{tw}_dt{dt}"}
-
-@dataclass
-class DTWStrategy:
-    name: str = "dtw"
-    def compute(self, video: "Video", config: dict) -> dict:
-        groups, matrix = group_neurons_by_dtw(video.neurons, **config)
-        return {"groups": groups, "matrix": matrix, "config_label": "dtw"}
 
 @dataclass
 class GroupingService:
-    enable_dtw: bool = False  # you currently have DTW commented out :contentReference[oaicite:7]{index=7}
+    """
+    Compute-only grouping service.
 
-    def run(self, video: "Video", grouping_cfg: dict) -> GroupingReport:
+    Side effects on `video`:
+      - sttc_groups, sttc_matrix
+      - dtw_groups, dtw_matrix (if enabled)
+      - agreement
+      - grouping_stats (DataFrame)
+
+    NOTE: Visualization is intentionally NOT handled here anymore.
+    Use VideoFiguresWriter to render and save figures.
+    """
+    enable_dtw: bool = False
+
+    def run(self, video: "Video", grouping_cfg: dict) -> Optional[GroupingReport]:
         if len(video.neurons) < 2:
+            # Keep fields consistent so downstream writers don't crash
+            video.sttc_groups, video.sttc_matrix = [], np.asarray([])
+            video.dtw_groups, video.dtw_matrix = [], np.asarray([])
+            video.agreement = None
             video.grouping_stats = pd.DataFrame()
-            return
-
-        sttc_cfg = grouping_cfg.get("sttc", {})
-        dtw_cfg = grouping_cfg.get("dtw", {})
-
-        sttc_res = STTCStrategy().compute(video, sttc_cfg)
-        video.sttc_groups = sttc_res["groups"]
-        video.sttc_matrix = sttc_res["matrix"]
-
-        if self.enable_dtw:
-            dtw_res = DTWStrategy().compute(video, dtw_cfg)
-            video.dtw_groups = dtw_res["groups"]
-            video.dtw_matrix = dtw_res["matrix"]
-        else:
-            video.dtw_groups, video.dtw_matrix = [], np.ndarray([])
-
-        # Combine/compare like your current logic
-        grouping_summary = compare_groupings(video.sttc_groups, video.dtw_groups, video.sttc_matrix, video.dtw_matrix, video.neurons)
-
-        video.sttc_groups = grouping_summary["sttc_groups"]
-        video.dtw_groups = grouping_summary["dtw_groups"]
-        video.agreement = grouping_summary["agreement"]
-        video.grouping_stats = pd.DataFrame([grouping_summary["combined_stats"]])
-        return GroupingReport(method = "sttc" + ("+dtw" if self.enable_dtw else ""),
-                              n_groups= len(video.sttc_groups),
-                              agreement= video.agreement)
-
-    def visualize(self, video: "Video", which: str = "sttc", include_heatmap: bool = True) -> Optional[Figure]:
-        if which == "sttc":
-            groups = video.sttc_groups
-            matrix = video.sttc_matrix
-            label = "sttc_grouping"
-        else:
-            groups = video.dtw_groups
-            matrix = video.dtw_matrix
-            label = "dtw_grouping"
-
-
-        if include_heatmap and isinstance(matrix, np.ndarray) and matrix.size > 0 and matrix.ndim == 2:
-            heat_fig, ax = plt.subplots(figsize=(6, 5))
-            if which == "sttc":
-                plot_matrix_heatmap(
-                    matrix,
-                    ax=ax,
-                    title="STTC matrix",
-                    cmap="coolwarm",
-                    vmin=-1,
-                    vmax=1,
-                )
-               
-                video.sttc_heatmap = heat_fig
-            else:
-                plot_matrix_heatmap(
-                    matrix,
-                    ax=ax,
-                    title="DTW matrix",
-                    cmap="magma",
-                )
-                video.dtw_heatmap = heat_fig
-
-        if not groups:
             return None
 
-        img_size = (
-            video.suite2p_data.get("ops", {}).get("Ly", 1024),
-            video.suite2p_data.get("ops", {}).get("Lx", 1024),
-        )
+        sttc_cfg = grouping_cfg.get("sttc", {}) or {}
+        dtw_cfg = grouping_cfg.get("dtw", {}) or {}
 
-        # Overlay figure (existing)
-        fig = visualize_neuron_groups(
-            neuron_groups=groups,
-            stat=video.suite2p_data["stat"] if "stat" in video.suite2p_data else np.array([]),
-            img_size=img_size,
-            video_path=video.path,
-            config_label=label,
-        )
+        # 1) compute STTC grouping
+        sttc_res = STTCStrategy().compute(video, sttc_cfg)
+        video.sttc_groups = sttc_res.get("groups", [])
+        video.sttc_matrix = sttc_res.get("matrix", np.asarray([]))
+        sttc_label = sttc_res.get("config_label", "sttc")
 
-        if which == "sttc":
-            video.sttc_fig = fig
+        # 2) compute DTW grouping (optional)
+        if self.enable_dtw:
+            dtw_res = DTWStrategy().compute(video, dtw_cfg)
+            video.dtw_groups = dtw_res.get("groups", [])
+            video.dtw_matrix = dtw_res.get("matrix", np.asarray([]))
+            dtw_label = dtw_res.get("config_label", "dtw")
         else:
-            video.dtw_fig = fig
-       
-        return fig
+            video.dtw_groups, video.dtw_matrix = [], np.asarray([])
+            dtw_label = "dtw_disabled"
+
+        # 3) compare / combine summaries
+        grouping_summary = compare_groupings(
+            sttc_groups=video.sttc_groups,
+            dtw_groups=video.dtw_groups,
+            sttc_matrix=video.sttc_matrix if isinstance(video.sttc_matrix, np.ndarray) else None,
+            dtw_matrix=video.dtw_matrix if isinstance(video.dtw_matrix, np.ndarray) else None,
+            neurons=video.neurons,
+        )
+
+        # Preserve the same outputs your pipeline expects
+        video.sttc_groups = grouping_summary.get("sttc_groups", video.sttc_groups)
+        video.dtw_groups = grouping_summary.get("dtw_groups", video.dtw_groups)
+        video.agreement = grouping_summary.get("agreement", None)
+
+        combined_stats = grouping_summary.get("combined_stats", None)
+
+        # Your old code wrapped combined_stats in a single-row df.
+        # In the new modular version, combined_stats may be a list of rows.
+        if combined_stats is None:
+            video.grouping_stats = pd.DataFrame()
+        elif isinstance(combined_stats, list):
+            video.grouping_stats = pd.DataFrame(combined_stats)
+        elif isinstance(combined_stats, dict):
+            video.grouping_stats = pd.DataFrame([combined_stats])
+        else:
+            video.grouping_stats = pd.DataFrame()
+
+        method = "sttc" + ("+dtw" if self.enable_dtw else "")
+        n_groups = len(video.sttc_groups) if video.sttc_groups else 0
+
+        return GroupingReport(
+            method=method,
+            n_groups=n_groups,
+            agreement=video.agreement,
+        )
