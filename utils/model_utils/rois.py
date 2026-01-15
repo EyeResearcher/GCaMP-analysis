@@ -216,17 +216,17 @@ def compute_roi_features(smoothed_f_trace: np.ndarray,
         )
 
     features = {
-        "derivative_skew": float(deriv_skew),
-        "derivative_asymmetry": float(deriv_asym),
-        "spike_prom_mean": float(spike_prom_mean),
-        "spike_prom_skew": float(spike_prom_skew),
-        "range_trace": trace_range,
-        "var_of_var": float(var_of_var),
-        "ac_decay": float(ac_decay),
-        "snr_estimate": float(snr),
-        "peak_density": float(peak_density),
-        "median_spike_prom": float(median_spike_prom),
-    }
+                "derivative_skew": float(deriv_skew),
+                "derivative_asymmetry": float(deriv_asym),
+                "spike_prom_mean": float(spike_prom_mean),
+                "spike_prom_skew": float(spike_prom_skew),
+                "range_trace": trace_range,
+                "var_of_var": float(var_of_var),
+                "ac_decay": float(ac_decay),
+                "snr_estimate": float(snr),
+                "peak_density": float(peak_density),
+                "median_spike_prom": float(median_spike_prom),
+                }
 
     validity = {
         "valid_deriv_skew": bool(valid_deriv_skew),

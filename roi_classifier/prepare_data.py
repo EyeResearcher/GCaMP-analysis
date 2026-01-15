@@ -84,12 +84,12 @@ def process_roi(smoothed_f_trace: np.ndarray,
     label = {'value': 0, 'source': 'auto'} if not critical_valid else {'value': -1, 'source': 'unlabeled'}
     
     return {
-        'smoothed_trace': smoothed_f_trace,
-        'raw_trace': raw_trace,
-        'features': features,
-        'label': label,
-        'spikes': {}  # Initialize empty spikes dict for later annotation
-    }
+            'smoothed_trace': smoothed_f_trace,
+            'raw_trace': raw_trace,
+            'features': features,
+            'label': label,
+            'spikes': {} 
+            }
 
 
 def process_video(video_path: Path) -> list:
@@ -155,13 +155,12 @@ def update_roi_features(roi_dict: dict) -> dict:
         if spikes:
             n_spikes_preserved += len(spikes)
         
-        updated_dict[roi_key] = {
-            'smoothed_trace': smoothed_f_trace,
-            'raw_trace': roi_data.get('raw_trace'),
-            'features': features,
-            'label': label_dict,
-            'spikes': spikes
-        }
+        updated_dict[roi_key] = {'smoothed_trace': smoothed_f_trace,
+                                'raw_trace': roi_data.get('raw_trace'),
+                                'features': features,
+                                'label': label_dict,
+                                'spikes': spikes
+                                }
         
         n_rois_processed += 1
     

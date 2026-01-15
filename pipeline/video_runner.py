@@ -81,5 +81,5 @@ class VideoPipelineRunner:
                 print(f"  Grouping ({gr.method}): {gr.n_groups} groups")
             else:
                 print(f"  Grouping ({gr.method}): {gr.n_groups} groups | agreement={gr.agreement:.2f}")
-        self.grouping.visualize(video, which="sttc")
+
 
