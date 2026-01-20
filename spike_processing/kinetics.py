@@ -5,7 +5,7 @@ from typing import Dict, Optional
 import numpy as np
 
 from .decay_estimators import DecayEstimator, LegacyTimeTo1eDecayEstimator
-from archive.utils.spike_utils import compute_spike_constants as compute_spike_constants_legacy
+from utils.feature_utils import compute_spike_constants as compute_spike_constants_legacy
 
 
 def half_max_width_legacy(window: np.ndarray, peak_idx_in_window: int, fs: float = 30.0) -> float:

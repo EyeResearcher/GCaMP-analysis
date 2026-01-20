@@ -1,0 +1,180 @@
+{
+  "model_type": "Random Forest",
+  "transform": "raw",
+  "feature_names": [
+    "dominance_score",
+    "prom_gap",
+    "spike_prom"
+  ],
+  "n_features": 3,
+  "selected_features": [
+    "dominance_score",
+    "prom_gap",
+    "spike_prom"
+  ],
+  "test_accuracy": 0.559322033898305,
+  "roc_auc": 0.5910138248847927,
+  "cv_accuracy": 0.46382978723404256,
+  "n_train": 235,
+  "n_test": 59,
+  "feature_ranking": [
+    [
+      "spike_prom",
+      0.37366088408712145
+    ],
+    [
+      "dominance_score",
+      0.3178646501225895
+    ],
+    [
+      "prom_gap",
+      0.30847446579028903
+    ]
+  ],
+  "all_results": [
+    {
+      "model": "Random Forest",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.46382978723404256,
+      "test_acc": 0.559322033898305,
+      "roc_auc": 0.5910138248847927
+    },
+    {
+      "model": "Random Forest",
+      "transform": "log",
+      "n_features": 3,
+      "cv_acc": 0.4595744680851063,
+      "test_acc": 0.5254237288135594,
+      "roc_auc": 0.5898617511520737
+    },
+    {
+      "model": "Random Forest",
+      "transform": "sqrt",
+      "n_features": 3,
+      "cv_acc": 0.4595744680851063,
+      "test_acc": 0.4915254237288136,
+      "roc_auc": 0.5881336405529953
+    },
+    {
+      "model": "Random Forest",
+      "transform": "square",
+      "n_features": 3,
+      "cv_acc": 0.45957446808510644,
+      "test_acc": 0.5423728813559322,
+      "roc_auc": 0.5766129032258065
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "log",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "sqrt",
+      "n_features": 3,
+      "cv_acc": 0.5191489361702128,
+      "test_acc": 0.4745762711864407,
+      "roc_auc": 0.4642857142857143
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "square",
+      "n_features": 3,
+      "cv_acc": 0.49787234042553197,
+      "test_acc": 0.4915254237288136,
+      "roc_auc": 0.43663594470046085
+    },
+    {
+      "model": "Random Forest",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.45957446808510644,
+      "test_acc": 0.5423728813559322,
+      "roc_auc": 0.5679723502304147
+    },
+    {
+      "model": "Random Forest",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.45957446808510644,
+      "test_acc": 0.5423728813559322,
+      "roc_auc": 0.5679723502304147
+    },
+    {
+      "model": "Random Forest",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.45957446808510644,
+      "test_acc": 0.5423728813559322,
+      "roc_auc": 0.5679723502304147
+    },
+    {
+      "model": "Random Forest",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.45957446808510644,
+      "test_acc": 0.5423728813559322,
+      "roc_auc": 0.5679723502304147
+    },
+    {
+      "model": "Random Forest",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.45957446808510644,
+      "test_acc": 0.5423728813559322,
+      "roc_auc": 0.5679723502304147
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    },
+    {
+      "model": "Logistic Regression",
+      "transform": "raw",
+      "n_features": 3,
+      "cv_acc": 0.5148936170212767,
+      "test_acc": 0.5084745762711864,
+      "roc_auc": 0.4412442396313364
+    }
+  ]
+}

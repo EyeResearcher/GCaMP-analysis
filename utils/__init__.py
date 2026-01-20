@@ -3,12 +3,12 @@ Utility functions for GCaMP analysis pipeline.
 """
 
 # I/O utilities
-from .io_utils import (
+"""from .io_utils import (
     load_npy_file,
     find_suite2p_folders,
     load_experiment_structure,
     SummaryFiles
-)
+)"""
 
 # Cascade utilities
 """from archive.cascade_utils import (
