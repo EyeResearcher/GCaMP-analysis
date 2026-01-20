@@ -1,6 +1,6 @@
 """Spike class for detected events."""
 from __future__ import annotations
-from archive.utils.spike_utils import compute_spike_constants
+
 import numpy as np
 from typing import Optional, Tuple
 from utils.feature_utils import (
