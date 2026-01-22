@@ -52,6 +52,9 @@ def filter_unlabeled_rois(npy_dict: dict) -> list[str]:
     """Return keys of ROIs with label value == -1."""
     return [k for k in npy_dict.keys() if get_label_value(npy_dict[k]['label']) == -1]
 
+def filter_labeled_rois(npy_dict: dict) -> list[str]:
+    """Return keys of ROIs with label value != -1."""
+    return [k for k in npy_dict.keys() if get_label_value(npy_dict[k]['label']) != -1]
 
 def filter_non_manual_rois(npy_dict: dict) -> list[str]:
     """Return keys of ROIs that haven't been manually verified."""
@@ -62,7 +65,8 @@ def select_rois_for_annotation(
     npy_dict: dict,
     n_samples: int,
     unlabeled_only: bool = False,
-    manual_only: bool = False
+    manual_only: bool = False,
+    labeled_only: bool = False
 ) -> list[str]:
     """
     Select ROIs for annotation based on filtering criteria.
@@ -72,7 +76,7 @@ def select_rois_for_annotation(
         n_samples: Maximum number of ROIs to select
         unlabeled_only: Only select ROIs with label == -1
         manual_only: Only select ROIs not yet manually verified
-    
+        labeled_only: Only select ROIs that have been labeled
     Returns:
         List of selected ROI keys
     
@@ -87,6 +91,9 @@ def select_rois_for_annotation(
     elif manual_only:
         candidate_keys = filter_non_manual_rois(npy_dict)
         filter_desc = "non-manual"
+    elif labeled_only:
+        candidate_keys = filter_labeled_rois(npy_dict)
+        filter_desc = "labeled"
     else:
         candidate_keys = all_keys
         filter_desc = "all"
@@ -202,6 +209,7 @@ def annotate_rois(
     n_annotations: int = 1000,
     unlabeled_only: bool = False,
     manual_only: bool = False,
+    labeled_only: bool = False,
     checkpoint_interval: int = 30
 ) -> dict:
     """
@@ -212,6 +220,7 @@ def annotate_rois(
         n_annotations: Number of ROIs to annotate
         unlabeled_only: Only annotate unlabeled ROIs
         manual_only: Only annotate ROIs without manual verification
+        labeled_only: Only annotate ROIs that have been labeled
         checkpoint_interval: Save every N annotations
     
     Returns:
@@ -227,7 +236,8 @@ def annotate_rois(
             npy_dict,
             n_samples=n_annotations,
             unlabeled_only=unlabeled_only,
-            manual_only=manual_only
+            manual_only=manual_only,
+            labeled_only=labeled_only
         )
     except ValueError as e:
         print(f"❌ {e}")
@@ -272,6 +282,7 @@ class AnnotationSession:
         self.checkpoint_interval = checkpoint_interval
         
         self.current_idx = 0
+        self.actions: dict[int, dict] = {}
         self.stats = {
             'total': len(roi_data_list),
             'labeled': 0,
@@ -343,6 +354,20 @@ class AnnotationSession:
         Button(quit_frame, text="Save & Quit (Q)", command=self._save_and_quit,
                bg='orange', fg='white', font=('Arial', 12, 'bold'), width=20, height=2
                ).pack()
+        
+        nav_frame = Frame(controls_frame)
+        nav_frame.pack(pady=8)
+
+        Button(
+            nav_frame,
+            text="Previous (Left)",
+            command=self._prev_roi,
+            bg="lightblue",
+            fg="black",
+            font=("Arial", 11, "bold"),
+            width=18,
+            height=2,
+        ).pack(side="left", padx=10)
     
     def _create_plot(self):
         """Create the matplotlib figure."""
@@ -359,7 +384,16 @@ class AnnotationSession:
         self.root.bind('q', lambda e: self._save_and_quit())
         self.root.bind('Q', lambda e: self._save_and_quit())
         self.root.bind('<Escape>', lambda e: self._save_and_quit())
-    
+        self.root.bind('<Left>', lambda e: self._prev_roi())
+
+    def _prev_roi(self):
+        """Go back to the previous ROI (does not change labels by itself)."""
+        if self.current_idx <= 0:
+            print("⏮️ Already at the first ROI.")
+            return
+        self.current_idx -= 1
+        self._update_display()
+
     def _get_current_roi(self) -> dict:
         """Get the current ROI data."""
         return self.roi_data_list[self.current_idx]
@@ -429,32 +463,47 @@ class AnnotationSession:
     def _label_roi(self, label: int):
         """Apply a label to the current ROI and move to next."""
         roi = self._get_current_roi()
-        roi_key = roi['key']
-        
-        changed = update_roi_label(self.npy_dict, roi_key, label)
-        
+        roi_key = roi["key"]
+
+        # Determine "changed" relative to the label currently shown in the session
+        prev_label = self.roi_data_list[self.current_idx]["current_label"]
+        changed = (label != prev_label)
+
+        # Update the underlying npy dict (this is what you save)
+        update_roi_label(self.npy_dict, roi_key, label)
+
+        # Update the current_label in our local session cache
+        self.roi_data_list[self.current_idx]["current_label"] = label
+
+        # Record/overwrite latest action for this ROI
+        self.actions[self.current_idx] = {
+            "type": "label",
+            "label": label,
+            "changed": changed,
+        }
+        self._recompute_stats()
+
         if changed:
-            self.stats['updated'] += 1
-            label_name = 'Good' if label == 1 else 'Bad'
+            label_name = "Good" if label == 1 else "Bad"
             print(f"[{self.current_idx + 1}/{self.stats['total']}] Updated: {roi_key} → {label_name}")
         else:
-            self.stats['confirmed'] += 1
             print(f"[{self.current_idx + 1}/{self.stats['total']}] Confirmed: {roi_key}")
-        
-        self.stats['labeled'] += 1
-        
-        # Update the current_label in our local data
-        self.roi_data_list[self.current_idx]['current_label'] = label
-        
+
         self._checkpoint_if_needed()
         self._next_roi()
     
     def _skip_roi(self):
         """Skip the current ROI and move to next."""
         roi = self._get_current_roi()
-        self.stats['skipped'] += 1
+
+        self.actions[self.current_idx] = {
+            "type": "skip",
+            "label": None,
+            "changed": False,
+        }
+        self._recompute_stats()
+
         print(f"[{self.current_idx + 1}/{self.stats['total']}] Skipped: {roi['key']}")
-        
         self._next_roi()
     
     def _next_roi(self):
@@ -466,7 +515,28 @@ class AnnotationSession:
             self._finish()
         else:
             self._update_display()
-    
+
+    def _recompute_stats(self) -> None:
+        updated = 0
+        confirmed = 0
+        skipped = 0
+        labeled = 0
+
+        for a in self.actions.values():
+            if a["type"] == "skip":
+                skipped += 1
+            elif a["type"] == "label":
+                labeled += 1
+                if a.get("changed", False):
+                    updated += 1
+                else:
+                    confirmed += 1
+
+        self.stats["updated"] = updated
+        self.stats["confirmed"] = confirmed
+        self.stats["skipped"] = skipped
+        self.stats["labeled"] = labeled
+
     def _checkpoint_if_needed(self):
         """Save checkpoint if interval reached."""
         if self.stats['labeled'] % self.checkpoint_interval == 0:

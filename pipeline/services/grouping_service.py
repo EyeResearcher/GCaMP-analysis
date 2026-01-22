@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+from data_classes import video
 import numpy as np
 import pandas as pd
 
@@ -10,6 +11,7 @@ from pipeline.reports import GroupingReport
 # NEW modular imports (your new framework)
 from grouping_processing.strategies.sttc_strategy import STTCStrategy
 from grouping_processing.strategies.dtw_strategy import DTWStrategy
+from grouping_processing.strategies.corr_strategy import CorrelationStrategy
 from grouping_processing.comparison import compare_groupings
 
 if TYPE_CHECKING:
@@ -43,11 +45,15 @@ class GroupingService:
 
         sttc_cfg = grouping_cfg.get("sttc", {}) or {}
         dtw_cfg = grouping_cfg.get("dtw", {}) or {}
-
+        #0) Compute correlatin grouping
+        corr_cfg = grouping_cfg.get("corr", grouping_cfg.get("sttc", {})) or {}
+        corr_res = CorrelationStrategy().compute(video, corr_cfg)
+        video.sttc_groups = corr_res.get("groups", [])
+        video.sttc_matrix = corr_res.get("matrix", np.asarray([]))
         # 1) compute STTC grouping
         sttc_res = STTCStrategy().compute(video, sttc_cfg)
-        video.sttc_groups = sttc_res.get("groups", [])
-        video.sttc_matrix = sttc_res.get("matrix", np.asarray([]))
+        #video.sttc_groups = sttc_res.get("groups", [])
+        #video.sttc_matrix = sttc_res.get("matrix", np.asarray([]))
         sttc_label = sttc_res.get("config_label", "sttc")
 
         # 2) compute DTW grouping (optional)
@@ -87,7 +93,7 @@ class GroupingService:
         else:
             video.grouping_stats = pd.DataFrame()
 
-        method = "sttc" + ("+dtw" if self.enable_dtw else "")
+        method = "corr" + ("+dtw" if self.enable_dtw else "")
         n_groups = len(video.sttc_groups) if video.sttc_groups else 0
 
         return GroupingReport(

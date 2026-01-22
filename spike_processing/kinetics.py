@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 import numpy as np
 
-from .decay_estimators import DecayEstimator, LegacyTimeTo1eDecayEstimator
+from .decay_estimators import DecayEstimator, ExpOffsetDecayEstimator, LegacyTimeTo1eDecayEstimator
 from utils.feature_utils import compute_spike_constants as compute_spike_constants_legacy
 
 

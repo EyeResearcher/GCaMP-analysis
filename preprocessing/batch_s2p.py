@@ -5,7 +5,7 @@ import subprocess
 # ---------------------------------------------------------------------
 # WHERE YOUR REAL GUI OPS LIVE (we'll read from here only)
 # ---------------------------------------------------------------------
-GUI_OPS_PATH = Path(r"C:\Users\mzinn1\.suite2p\ops\ops.npy")
+GUI_OPS_PATH = Path(r"C:\Users\mzinn1\.suite2p\ops\ops_user.npy")
 GUI_DB_PATH  = Path(r"C:\Users\mzinn1\.suite2p\ops\db.npy")
 
 # folder where we will write per-run temp ops/db
@@ -14,8 +14,7 @@ TMP_DIR = Path(r"C:\Users\mzinn1\Desktop\s2p_temp")
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 ROOTS = [
-    r"C:\Users\mzinn1\Desktop\MORGAN 12-16-25\GCaMP6s_EX345_AP5\Week 2",
-    r"C:\Users\mzinn1\Desktop\MORGAN 12-16-25\GCaMP6s_EX345_GABA\Week 1"
+    r"C:\Users\mzinn1\Desktop\Morgan 1-20-26"
 
 ]
 
@@ -74,11 +73,10 @@ GUI_DEFAULT_OPS = {
     "high_pass": 5.0,
     "spatial_hp_detect": 30.0,
 
-    "anatomical_only": 2,
-    "diameter": 10,
+    "anatomical_only": 1,
     "cellprob_threshold": 0.0,
     "flow_threshold": 0.5,
-    "pretrained_model": "cyto3",
+    "pretrained_model": "invitro_rgcs_max",
     "spatial_hp_cp": 0.0,
 
     "neuropil_extract": 1,
