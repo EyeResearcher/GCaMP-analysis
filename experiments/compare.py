@@ -27,6 +27,7 @@ class BasicSiblingComparator:
                 "child": child.name,
                 "n_videos": child.n_videos,
                 "n_neurons": child.n_neurons,
+                "n_groups": child.n_groups,
             }
 
             # ---- Add kinetic stats (unweighted + weighted)

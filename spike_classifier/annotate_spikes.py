@@ -1,20 +1,55 @@
 """
-Spike annotation module with persistent GUI for labeling spikes.
+ROI-centric spike annotation module.
 
-Provides a clean entry point `annotate_spikes()` that handles all data loading,
-selection, and annotation in a single call.
+What this module does
+- Loads your existing spike-training .npy dict + the companion *_spike_keys.csv
+- Presents one ROI at a time
+- Lets the user label ALL candidate spikes for that ROI (good/bad), while seeing:
+  - the full trace (raw + smoothed)
+  - all spike peak locations
+  - the current spike window highlight
+  - the current stored label (so you can quickly "skip" if it’s already correct)
+- Supports:
+  - Previous/Next spike within an ROI
+  - Previous/Next ROI
+  - "Label all remaining as bad" for the current ROI
+  - unlabeled_only and labeled_only filtering modes
+  - checkpoint saving every N labeled spikes
+
+Data format assumptions (matches your current annotate_spikes.py):
+npy_dict = {
+  "<roi_key>": {
+    "raw_trace": np.ndarray,
+    "smoothed_trace": np.ndarray,
+    "spikes": {
+      <spike_idx:int>: {
+        "label": int,                # -1 unlabeled, 0 bad, 1 good
+        "features": dict | any,
+        "windows": dict              # contains window indices (see safe access in code)
+      },
+      ...
+    }
+  },
+  ...
+}
+
+CSV format:
+  columns: spike_key,label
+  spike_key looks like: "<roi_key>-<spike_idx>"
 """
 
 from __future__ import annotations
 
 import argparse
-import random
+from dataclasses import dataclass
 from pathlib import Path
-from tkinter import Tk, Frame, Label, Button
+from typing import Any, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+
+from tkinter import Tk, Frame, Label, Button, Listbox, Scrollbar, StringVar, END, SINGLE
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
@@ -22,618 +57,783 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # Data I/O
 # =============================================================================
 
-def load_spike_data(npy_path: Path) -> tuple[dict, dict, Path]:
-    """
-    Load spike data from .npy and corresponding CSV.
-    
-    Args:
-        npy_path: Path to ROI data .npy file
-    
-    Returns:
-        Tuple of (npy_dict, key_labels dict, csv_path)
-    """
+def load_spike_data(npy_path: Path) -> tuple[dict, dict[str, int], Path]:
     if not npy_path.exists():
-        raise FileNotFoundError(f"ROI data file not found: {npy_path}")
-    
+        raise FileNotFoundError(f"Spike .npy not found: {npy_path}")
+
     npy_dict = np.load(npy_path, allow_pickle=True).item()
-    
+
     csv_path = npy_path.parent / f"{npy_path.stem}_spike_keys.csv"
     if not csv_path.exists():
         raise FileNotFoundError(f"Spike keys CSV not found: {csv_path}")
-    
+
     df = pd.read_csv(csv_path)
-    key_labels = dict(zip(df['spike_key'], df['label']))
-    
+    if "spike_key" not in df.columns or "label" not in df.columns:
+        raise ValueError(f"CSV must have columns ['spike_key','label'], got: {list(df.columns)}")
+
+    key_labels = dict(zip(df["spike_key"].astype(str), df["label"].astype(int)))
     return npy_dict, key_labels, csv_path
 
 
-def save_spike_data(npy_dict: dict, key_labels: dict, npy_path: Path) -> None:
-    """
-    Save spike data to .npy and CSV files.
-    
-    Args:
-        npy_dict: ROI dictionary with spike data
-        key_labels: Dictionary mapping spike_key -> label
-        npy_path: Path to save .npy file
-    """
+def save_spike_data(npy_dict: dict, key_labels: dict[str, int], npy_path: Path) -> None:
     npy_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Save .npy
     np.save(npy_path, npy_dict, allow_pickle=True)
-    
+
     # Save CSV
     csv_path = npy_path.parent / f"{npy_path.stem}_spike_keys.csv"
-    df = pd.DataFrame(list(key_labels.items()), columns=['spike_key', 'label'])
+    df = pd.DataFrame(list(key_labels.items()), columns=["spike_key", "label"])
     df.to_csv(csv_path, index=False)
-    
-    print(f"Saved to {npy_path}")
+
+    print(f"Saved: {npy_path}")
+    print(f"Saved: {csv_path}")
 
 
 # =============================================================================
-# Spike Selection / Filtering
+# Keys + label updates
 # =============================================================================
 
-def filter_unlabeled_spikes(key_labels: dict) -> list[str]:
-    """Return spike keys with label == -1."""
-    return [k for k, v in key_labels.items() if v == -1]
+def parse_spike_key(spike_key: str) -> tuple[str, int]:
+    roi_key, spike_idx_str = spike_key.rsplit("-", 1)
+    return roi_key, int(spike_idx_str)
 
 
-def filter_non_manual_spikes(key_labels: dict) -> list[str]:
-    """Return spike keys that haven't been manually verified (label == -1 or auto)."""
-    return [k for k, v in key_labels.items() if v == -1]
+def make_spike_key(roi_key: str, spike_idx: int) -> str:
+    return f"{roi_key}-{int(spike_idx)}"
 
 
-def select_spikes_for_annotation(
-    key_labels: dict,
-    n_samples: int,
-    unlabeled_only: bool = False
-) -> list[str]:
+def update_spike_label(npy_dict: dict, key_labels: dict[str, int], roi_key: str, spike_idx: int, new_label: int) -> bool:
     """
-    Select spikes for annotation based on filtering criteria.
-    
-    Args:
-        key_labels: Dictionary mapping spike_key -> label
-        n_samples: Maximum number of spikes to select
-        unlabeled_only: Only select spikes with label == -1
-    
-    Returns:
-        List of selected spike keys
-    
-    Raises:
-        ValueError: If no spikes match the filtering criteria
+    Updates BOTH:
+      - npy_dict[roi_key]['spikes'][spike_idx]['label']
+      - key_labels["roi_key-spike_idx"]
+    Returns True if changed.
     """
-    all_keys = list(key_labels.keys())
-    
-    if unlabeled_only:
-        candidate_keys = filter_unlabeled_spikes(key_labels)
-        filter_desc = "unlabeled"
-    else:
-        candidate_keys = all_keys
-        filter_desc = "all"
-    
-    print(f"Filtering for {filter_desc} spikes: {len(candidate_keys)}/{len(all_keys)} available")
-    
-    if len(candidate_keys) == 0:
-        raise ValueError(f"No {filter_desc} spikes found!")
-    
-    n_to_sample = min(n_samples, len(candidate_keys))
-    selected = random.sample(candidate_keys, n_to_sample)
-    print(f"Selected {n_to_sample} spikes for annotation")
-    
-    return selected
+    spike_idx = int(spike_idx)
+    spike_key = make_spike_key(roi_key, spike_idx)
 
+    current_label = int(npy_dict[roi_key]["spikes"][spike_idx].get("label", -1))
+    changed = (int(new_label) != current_label)
 
-# =============================================================================
-# Label Update Logic
-# =============================================================================
+    npy_dict[roi_key]["spikes"][spike_idx]["label"] = int(new_label)
+    key_labels[spike_key] = int(new_label)
 
-def update_spike_label(npy_dict: dict, key_labels: dict, spike_key: str, new_label: int) -> bool:
-    """
-    Update a single spike's label in both dictionaries.
-    
-    Args:
-        npy_dict: ROI dictionary (modified in place)
-        key_labels: Spike key labels dict (modified in place)
-        spike_key: Key of the spike to update (format: "roi_key-spike_idx")
-        new_label: New label value (0 or 1)
-    
-    Returns:
-        True if label value changed, False otherwise
-    """
-    roi_key, spike_idx_str = spike_key.rsplit('-', 1)
-    spike_idx = int(spike_idx_str)
-    
-    current_label = npy_dict[roi_key]['spikes'][spike_idx]['label']
-    changed = (new_label != current_label)
-    
-    # Update both dictionaries
-    npy_dict[roi_key]['spikes'][spike_idx]['label'] = new_label
-    key_labels[spike_key] = new_label
-    
     return changed
 
 
+def label_to_text(label: int) -> str:
+    if label == 1:
+        return "good"
+    if label == 0:
+        return "bad"
+    return "unlabeled"
+
+
 # =============================================================================
-# Spike Data Extraction
+# ROI selection
 # =============================================================================
 
-def extract_spike_data(npy_dict: dict, spike_key: str) -> dict:
+def _spike_matches_mode(label: int, *, unlabeled_only: bool, labeled_only: bool) -> bool:
+    if unlabeled_only and labeled_only:
+        raise ValueError("Choose at most one of unlabeled_only or labeled_only.")
+
+    if unlabeled_only:
+        return int(label) == -1
+    if labeled_only:
+        return int(label) != -1
+    return True
+
+
+def collect_candidate_rois(
+    npy_dict: dict,
+    *,
+    unlabeled_only: bool = False,
+    labeled_only: bool = False,
+) -> list[str]:
     """
-    Extract all data needed to display a spike for annotation.
-    
-    Args:
-        npy_dict: ROI dictionary
-        spike_key: Spike key (format: "roi_key-spike_idx")
-    
-    Returns:
-        Dictionary with spike data for the annotator
+    Returns ROI keys that have at least one spike matching the mode.
     """
-    roi_key, spike_idx_str = spike_key.rsplit('-', 1)
-    spike_idx = int(spike_idx_str)
-    
-    roi_data = npy_dict[roi_key]
-    spike_data = roi_data['spikes'][spike_idx]
-    
-    # Get all spike indices for context
-    all_spike_indices = list(roi_data['spikes'].keys())
-    
-    return {
-        'spike_key': spike_key,
-        'roi_key': roi_key,
-        'spike_idx': spike_idx,
-        'raw_f': roi_data['raw_trace'],
-        'smoothed_f': roi_data['smoothed_trace'],
-        'features': spike_data['features'],
-        'windows': spike_data['windows'],
-        'current_label': spike_data['label'],
-        'all_spike_indices': all_spike_indices
-    }
+    roi_keys: list[str] = []
+    for roi_key, roi_data in npy_dict.items():
+        spikes = roi_data.get("spikes", {})
+        if not isinstance(spikes, dict) or len(spikes) == 0:
+            continue
+
+        keep_any = False
+        for spk_idx, spk_data in spikes.items():
+            try:
+                lbl = int(spk_data.get("label", -1))
+            except Exception:
+                lbl = -1
+            if _spike_matches_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
+                keep_any = True
+                break
+
+        if keep_any:
+            roi_keys.append(str(roi_key))
+
+    return roi_keys
+
+
+def collect_candidate_spike_indices(
+    npy_dict: dict,
+    roi_key: str,
+    *,
+    unlabeled_only: bool = False,
+    labeled_only: bool = False,
+) -> list[int]:
+    spikes = npy_dict[roi_key].get("spikes", {})
+    if not isinstance(spikes, dict) or len(spikes) == 0:
+        return []
+
+    idxs: list[int] = []
+    for spk_idx, spk_data in spikes.items():
+        try:
+            lbl = int(spk_data.get("label", -1))
+        except Exception:
+            lbl = -1
+        if _spike_matches_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
+            idxs.append(int(spk_idx))
+
+    idxs.sort()
+    return idxs
 
 
 # =============================================================================
-# Session Summary
+# Plot helpers
 # =============================================================================
 
-def print_session_summary(key_labels: dict, stats: dict) -> None:
-    """Print summary statistics after annotation session."""
-    total_good = sum(1 for v in key_labels.values() if v == 1)
-    total_bad = sum(1 for v in key_labels.values() if v == 0)
-    total_unlabeled = sum(1 for v in key_labels.values() if v == -1)
-    
-    print("\n" + "=" * 50)
-    print("=== Annotation Complete ===")
-    print(f"Spikes processed: {stats['total']}")
-    print(f"  Updated:   {stats['updated']}")
-    print(f"  Confirmed: {stats['confirmed']}")
-    print(f"  Skipped:   {stats['skipped']}")
-    print(f"\nDataset Summary:")
-    print(f"  Total spikes:  {len(key_labels)}")
-    print(f"  Good:          {total_good}")
-    print(f"  Bad:           {total_bad}")
-    print(f"  Unlabeled:     {total_unlabeled}")
+def _safe_window_get(windows: Any, key: str, default: Optional[int] = None) -> Optional[int]:
+    """
+    windows is expected to be dict-like, but we guard because older saved data can vary.
+    """
+    if isinstance(windows, dict):
+        v = windows.get(key, default)
+        try:
+            return int(v) if v is not None else default
+        except Exception:
+            return default
+    return default
+
+
+def _plot_trace_with_context(
+    ax: plt.Axes,
+    y: np.ndarray,
+    *,
+    spike_idx: int,
+    all_spike_indices: list[int],
+    title: str,
+    y_label: str,
+    windows: Any,
+) -> None:
+    """
+    Full-trace plot with:
+      - all spikes marked (gray dashed)
+      - current spike marked (red)
+      - optional shaded large window + thicker small window if indices exist
+    """
+    y = np.asarray(y, dtype=float)
+    x = np.arange(len(y), dtype=float)
+
+    ax.clear()
+    ax.plot(x, y, linewidth=1)
+
+    # Try to use your stored window indices (names match your current annotate_spikes usage)
+    left_base = _safe_window_get(windows, "left_base", None)
+    right_base = _safe_window_get(windows, "right_base", None)
+    prev_min = _safe_window_get(windows, "prev_min", None)
+    next_min = _safe_window_get(windows, "next_min", None)
+
+    # Shade "large window" if available
+    if left_base is not None and right_base is not None:
+        lb = max(0, min(left_base, len(y) - 1))
+        rb = max(0, min(right_base, len(y)))
+        if rb > lb:
+            ax.fill_between(x[lb:rb], y[lb:rb], alpha=0.15)
+
+    # Thicken "small window" if available (prev_min -> next_min)
+    if prev_min is not None and next_min is not None:
+        pm = max(0, min(prev_min, len(y) - 1))
+        nm = max(0, min(next_min, len(y)))
+        if nm > pm:
+            ax.plot(x[pm:nm], y[pm:nm], linewidth=2)
+
+    # Mark all spike peaks
+    y_lim = ax.get_ylim()
+    y_bottom = y_lim[0]
+    for other_idx in all_spike_indices:
+        oi = int(other_idx)
+        if 0 <= oi < len(y):
+            ax.plot([oi, oi], [y_bottom, y[oi]], color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+
+    # Mark current spike peak
+    si = int(spike_idx)
+    if 0 <= si < len(y):
+        ax.plot([si, si], [y_bottom, y[si]], color="red", linestyle="-", linewidth=2, label="Current spike")
+
+    ax.set_title(title)
+    ax.set_xlabel("Frame")
+    ax.set_ylabel(y_label)
+    ax.set_xlim(0, len(y))
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper right")
 
 
 # =============================================================================
-# Main Entry Point
+# Session state
 # =============================================================================
 
-def annotate_spikes(
-    data_path: Path,
-    n_annotations: int = 100,
-    unlabeled_only: bool = True,
+@dataclass
+class SessionConfig:
+    data_path: Path
+    unlabeled_only: bool = False
+    labeled_only: bool = False
     checkpoint_interval: int = 30
-) -> dict:
-    """
-    Main function to run spike annotation.
-    
-    Args:
-        data_path: Path to .npy file containing ROI/spike data
-        n_annotations: Number of spikes to annotate
-        unlabeled_only: Only annotate unlabeled spikes
-        checkpoint_interval: Save every N annotations
-    
-    Returns:
-        Updated ROI dictionary
-    """
-    # Load data
-    npy_dict, key_labels, csv_path = load_spike_data(data_path)
-    print(f"Loaded {len(key_labels)} spikes from {data_path}")
-    
-    # Select spikes
-    try:
-        selected_keys = select_spikes_for_annotation(
-            key_labels,
-            n_samples=n_annotations,
-            unlabeled_only=unlabeled_only
-        )
-    except ValueError as e:
-        print(f"❌ {e}")
-        return npy_dict
-    
-    # Build spike data list for session
-    spike_data_list = [extract_spike_data(npy_dict, key) for key in selected_keys]
-    
-    # Run annotation session
-    session = SpikeAnnotationSession(
-        spike_data_list=spike_data_list,
-        npy_dict=npy_dict,
-        key_labels=key_labels,
-        save_path=data_path,
-        checkpoint_interval=checkpoint_interval
-    )
-    stats = session.run()
-    
-    # Print summary
-    print_session_summary(key_labels, stats)
-    
-    return npy_dict
+    max_rois: Optional[int] = None
+
+
+@dataclass
+class SessionStats:
+    rois_total: int = 0
+    rois_done: int = 0
+    spikes_total_in_session: int = 0
+    spikes_labeled: int = 0
+    spikes_updated: int = 0
+    spikes_confirmed: int = 0
+    spikes_skipped: int = 0
 
 
 # =============================================================================
-# GUI Annotation Session (Persistent Window)
+# GUI
 # =============================================================================
 
-class SpikeAnnotationSession:
-    """Persistent annotation GUI that stays open while cycling through spikes."""
-    
-    def __init__(self, spike_data_list: list[dict], npy_dict: dict, key_labels: dict,
-                 save_path: Path, checkpoint_interval: int = 30):
-        """
-        Initialize the annotation session.
-        
-        Args:
-            spike_data_list: List of spike data dicts from extract_spike_data()
-            npy_dict: Reference to the full ROI dictionary (modified in place)
-            key_labels: Reference to spike key labels (modified in place)
-            save_path: Path to save checkpoints
-            checkpoint_interval: Save every N annotations
-        """
-        self.spike_data_list = spike_data_list
+class SpikeAnnotationByROISession:
+    """
+    Persistent GUI:
+      - selects ROIs based on mode
+      - within each ROI, iterates its candidate spikes
+      - lets user relabel with full ROI context
+    """
+
+    def __init__(self, npy_dict: dict, key_labels: dict[str, int], cfg: SessionConfig):
         self.npy_dict = npy_dict
         self.key_labels = key_labels
-        self.save_path = save_path
-        self.checkpoint_interval = checkpoint_interval
-        
-        self.current_idx = 0
-        self.stats = {
-            'total': len(spike_data_list),
-            'labeled': 0,
-            'updated': 0,
-            'skipped': 0,
-            'confirmed': 0
-        }
-        
-        # Build the GUI
+        self.cfg = cfg
+
+        self.roi_keys_all = collect_candidate_rois(
+            self.npy_dict,
+            unlabeled_only=cfg.unlabeled_only,
+            labeled_only=cfg.labeled_only,
+        )
+        if cfg.max_rois is not None:
+            self.roi_keys_all = self.roi_keys_all[: int(cfg.max_rois)]
+
+        self.stats = SessionStats()
+        self.stats.rois_total = len(self.roi_keys_all)
+
+        # Indices into roi list + spike list
+        self.roi_pos = 0
+        self.spike_pos = 0
+
+        # Current ROI spike indices (filtered by mode)
+        self.current_spike_indices: list[int] = []
+
+        # GUI
         self.root = Tk()
-        self.root.title("Spike Annotation")
+        self.root.title("Spike Annotation (ROI-centric)")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        
-        self._create_info_panel()
-        self._create_controls()
-        self._create_plot()
+
+        self._build_layout()
         self._bind_shortcuts()
-        
-        # Load first spike
-        self._update_display()
-    
-    def _create_info_panel(self):
-        """Create the info panel with labels that can be updated."""
+
+        # Matplotlib figure
+        self.fig = plt.Figure(figsize=(10, 6), dpi=100)
+        self.ax_raw = self.fig.add_subplot(211)
+        self.ax_smooth = self.fig.add_subplot(212)
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        # Load first ROI
+        if self.stats.rois_total == 0:
+            self._set_status_text("No ROIs match the current filter settings.")
+        else:
+            self._load_roi(self.roi_pos)
+
+    # ----- layout -----
+
+    def _build_layout(self) -> None:
+        # Top info
         self.info_frame = Frame(self.root)
-        self.info_frame.pack(side="top", pady=10)
-        
-        self.progress_label = Label(self.info_frame, text="", font=('Arial', 14, 'bold'))
+        self.info_frame.pack(side="top", fill="x", pady=8)
+
+        self.progress_var = StringVar(value="")
+        self.progress_label = Label(self.info_frame, textvariable=self.progress_var, font=("Arial", 12, "bold"))
         self.progress_label.pack()
-        
-        self.spike_key_label = Label(self.info_frame, text="", font=('Arial', 12, 'bold'))
-        self.spike_key_label.pack()
-        
-        self.current_label_label = Label(self.info_frame, text="", font=('Arial', 10))
-        self.current_label_label.pack()
-        
-        # Feature labels
-        self.feature_frame = Frame(self.info_frame)
-        self.feature_frame.pack(pady=5)
-        
-        self.prom_label = Label(self.feature_frame, text="", font=('Arial', 9))
-        self.prom_label.pack(side="left", padx=10)
-        
-        self.isolation_label = Label(self.feature_frame, text="", font=('Arial', 9))
-        self.isolation_label.pack(side="left", padx=10)
-        
-        self.distance_label = Label(self.feature_frame, text="", font=('Arial', 9))
-        self.distance_label.pack(side="left", padx=10)
-        
-        self.stats_label = Label(self.info_frame, text="", font=('Arial', 9), fg='gray')
-        self.stats_label.pack(pady=5)
-    
-    def _create_controls(self):
-        """Create the control buttons."""
-        controls_frame = Frame(self.root)
-        controls_frame.pack(pady=10)
-        
-        Label(controls_frame, text="Label this spike:", font=('Arial', 12, 'bold')).pack()
-        
-        button_frame = Frame(controls_frame)
-        button_frame.pack()
-        
-        Button(button_frame, text="Good (1)", command=lambda: self._label_spike(1),
-               bg='green', fg='white', font=('Arial', 12, 'bold'), width=15, height=2
-               ).pack(side="left", padx=10)
-        Button(button_frame, text="Bad (0)", command=lambda: self._label_spike(0),
-               bg='red', fg='white', font=('Arial', 12, 'bold'), width=15, height=2
-               ).pack(side="left", padx=10)
-        Button(button_frame, text="Skip (Space)", command=self._skip_spike,
-               bg='gray', fg='white', font=('Arial', 12, 'bold'), width=15, height=2
-               ).pack(side="left", padx=10)
-        
-        # Save & Quit button
-        quit_frame = Frame(controls_frame)
-        quit_frame.pack(pady=10)
-        
-        Button(quit_frame, text="Save & Quit (Q)", command=self._save_and_quit,
-               bg='orange', fg='white', font=('Arial', 12, 'bold'), width=20, height=2
-               ).pack()
-    
-    def _create_plot(self):
-        """Create the matplotlib figure."""
-        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(14, 9))
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
-        self.canvas.get_tk_widget().pack(fill='both', expand=True)
-    
-    def _bind_shortcuts(self):
-        """Bind keyboard shortcuts."""
-        self.root.bind('1', lambda e: self._label_spike(1))
-        self.root.bind('0', lambda e: self._label_spike(0))
-        self.root.bind('<space>', lambda e: self._skip_spike())
-        self.root.bind('<Right>', lambda e: self._skip_spike())
-        self.root.bind('q', lambda e: self._save_and_quit())
-        self.root.bind('Q', lambda e: self._save_and_quit())
-        self.root.bind('<Escape>', lambda e: self._save_and_quit())
-    
-    def _get_current_spike(self) -> dict:
-        """Get the current spike data."""
-        return self.spike_data_list[self.current_idx]
-    
-    def _update_display(self):
-        """Update the display with the current spike."""
-        spike = self._get_current_spike()
-        
-        # Parse keys
-        roi_key = spike['roi_key']
-        spike_idx = spike['spike_idx']
-        parts = roi_key.rsplit('_', 1)
-        video_name = parts[0] if len(parts) > 1 else roi_key
-        roi_idx = parts[1] if len(parts) > 1 else "0"
-        
-        current_label = spike['current_label']
-        features = spike['features']
-        
-        # Update labels
-        self.progress_label.config(
-            text=f"Spike {self.current_idx + 1} / {self.stats['total']}"
+
+        self.roi_var = StringVar(value="")
+        self.roi_label = Label(self.info_frame, textvariable=self.roi_var, font=("Arial", 11))
+        self.roi_label.pack()
+
+        self.spike_var = StringVar(value="")
+        self.spike_label = Label(self.info_frame, textvariable=self.spike_var, font=("Arial", 10))
+        self.spike_label.pack()
+
+        self.features_var = StringVar(value="")
+        self.features_label = Label(self.info_frame, textvariable=self.features_var, font=("Arial", 9), fg="gray")
+        self.features_label.pack(pady=2)
+
+        self.status_var = StringVar(value="")
+        self.status_label = Label(self.info_frame, textvariable=self.status_var, font=("Arial", 9), fg="gray")
+        self.status_label.pack(pady=2)
+
+        # Middle controls
+        self.controls_frame = Frame(self.root)
+        self.controls_frame.pack(side="top", fill="x", pady=6)
+
+        # Spike labeling buttons
+        btn_row1 = Frame(self.controls_frame)
+        btn_row1.pack(pady=2)
+
+        Button(btn_row1, text="Good (1)", width=18, command=lambda: self._label_current_spike(1)).pack(side="left", padx=6)
+        Button(btn_row1, text="Bad (0)", width=18, command=lambda: self._label_current_spike(0)).pack(side="left", padx=6)
+        Button(btn_row1, text="Skip spike", width=18, command=self._skip_current_spike).pack(side="left", padx=6)
+
+        btn_row2 = Frame(self.controls_frame)
+        btn_row2.pack(pady=2)
+
+        Button(btn_row2, text="Prev spike", width=18, command=self._prev_spike).pack(side="left", padx=6)
+        Button(btn_row2, text="Next spike", width=18, command=self._next_spike).pack(side="left", padx=6)
+        Button(btn_row2, text="Label all remaining as bad", width=24, command=self._label_all_remaining_bad).pack(side="left", padx=6)
+
+        btn_row3 = Frame(self.controls_frame)
+        btn_row3.pack(pady=2)
+
+        Button(btn_row3, text="Prev ROI", width=18, command=self._prev_roi).pack(side="left", padx=6)
+        Button(btn_row3, text="Next ROI", width=18, command=self._next_roi).pack(side="left", padx=6)
+        Button(btn_row3, text="Save", width=18, command=self._save).pack(side="left", padx=6)
+        Button(btn_row3, text="Save & Quit", width=18, command=self._save_and_quit).pack(side="left", padx=6)
+
+        # Spike listbox
+        self.list_frame = Frame(self.root)
+        self.list_frame.pack(side="left", fill="y", padx=8, pady=8)
+
+        Label(self.list_frame, text="Spikes in ROI (filtered):", font=("Arial", 10, "bold")).pack()
+
+        self.scrollbar = Scrollbar(self.list_frame)
+        self.scrollbar.pack(side="right", fill="y")
+
+        self.spike_listbox = Listbox(self.list_frame, width=34, height=20, selectmode=SINGLE, yscrollcommand=self.scrollbar.set)
+        self.spike_listbox.pack(side="left", fill="y")
+        self.scrollbar.config(command=self.spike_listbox.yview)
+
+        self.spike_listbox.bind("<<ListboxSelect>>", self._on_listbox_select)
+
+        # Plot frame
+        self.plot_frame = Frame(self.root)
+        self.plot_frame.pack(side="right", fill="both", expand=True, padx=8, pady=8)
+
+    def _bind_shortcuts(self) -> None:
+        # Spike labels
+        self.root.bind("g", lambda _e: self._label_current_spike(1))
+        self.root.bind("b", lambda _e: self._label_current_spike(0))
+        self.root.bind("s", lambda _e: self._skip_current_spike())
+
+        # Navigation
+        self.root.bind("<Left>", lambda _e: self._prev_spike())
+        self.root.bind("<Right>", lambda _e: self._next_spike())
+        self.root.bind("<Up>", lambda _e: self._prev_roi())
+        self.root.bind("<Down>", lambda _e: self._next_roi())
+
+        # Bulk
+        self.root.bind("x", lambda _e: self._label_all_remaining_bad())
+
+        # Save
+        self.root.bind("<Control-s>", lambda _e: self._save())
+
+    # ----- state helpers -----
+
+    def _set_status_text(self, msg: str) -> None:
+        self.status_var.set(msg)
+
+    def _current_roi_key(self) -> str:
+        return self.roi_keys_all[self.roi_pos]
+
+    def _current_spike_idx(self) -> int:
+        return self.current_spike_indices[self.spike_pos]
+
+    def _get_spike_data(self, roi_key: str, spike_idx: int) -> dict:
+        return self.npy_dict[roi_key]["spikes"][int(spike_idx)]
+
+    def _get_current_label(self, roi_key: str, spike_idx: int) -> int:
+        try:
+            return int(self._get_spike_data(roi_key, spike_idx).get("label", -1))
+        except Exception:
+            return -1
+
+    def _checkpoint_if_needed(self) -> None:
+        if self.cfg.checkpoint_interval <= 0:
+            return
+        if self.stats.spikes_labeled > 0 and (self.stats.spikes_labeled % self.cfg.checkpoint_interval == 0):
+            self._save()
+            self._set_status_text(f"Checkpoint saved ({self.stats.spikes_labeled} labeled spikes).")
+
+    # ----- ROI loading -----
+
+    def _load_roi(self, roi_pos: int) -> None:
+        self.roi_pos = max(0, min(int(roi_pos), len(self.roi_keys_all) - 1))
+        roi_key = self._current_roi_key()
+
+        self.current_spike_indices = collect_candidate_spike_indices(
+            self.npy_dict,
+            roi_key,
+            unlabeled_only=self.cfg.unlabeled_only,
+            labeled_only=self.cfg.labeled_only,
         )
-        self.spike_key_label.config(
-            text=f"Spike {spike_idx} from ROI {roi_idx} in Video {video_name}"
+
+        # If filter produced an empty ROI, skip forward until you find something or stop.
+        if len(self.current_spike_indices) == 0:
+            self._set_status_text(f"ROI {roi_key} has no spikes matching current filters. Skipping.")
+            self._auto_advance_roi()
+            return
+
+        # Update ROI-level stats
+        self.stats.rois_done = max(self.stats.rois_done, self.roi_pos)
+
+        # Reset spike position to first spike for this ROI
+        self.spike_pos = 0
+
+        # Fill listbox
+        self._refresh_spike_listbox()
+
+        # Select first item
+        self.spike_listbox.selection_clear(0, END)
+        self.spike_listbox.selection_set(0)
+        self.spike_listbox.activate(0)
+
+        # Render
+        self._update_display()
+
+    def _auto_advance_roi(self) -> None:
+        # Move forward until we find an ROI with spikes; else end.
+        start = self.roi_pos
+        for rp in range(start + 1, len(self.roi_keys_all)):
+            roi_key = self.roi_keys_all[rp]
+            idxs = collect_candidate_spike_indices(
+                self.npy_dict, roi_key,
+                unlabeled_only=self.cfg.unlabeled_only,
+                labeled_only=self.cfg.labeled_only,
+            )
+            if len(idxs) > 0:
+                self._load_roi(rp)
+                return
+
+        # none found
+        self._finish()
+
+    # ----- listbox -----
+
+    def _refresh_spike_listbox(self) -> None:
+        self.spike_listbox.delete(0, END)
+        roi_key = self._current_roi_key()
+
+        for spk_idx in self.current_spike_indices:
+            lbl = self._get_current_label(roi_key, spk_idx)
+            self.spike_listbox.insert(END, f"spike {spk_idx:>4} | {label_to_text(lbl)}")
+
+    def _update_listbox_row(self, spike_pos: int) -> None:
+        if not (0 <= spike_pos < len(self.current_spike_indices)):
+            return
+        roi_key = self._current_roi_key()
+        spk_idx = self.current_spike_indices[spike_pos]
+        lbl = self._get_current_label(roi_key, spk_idx)
+
+        self.spike_listbox.delete(spike_pos)
+        self.spike_listbox.insert(spike_pos, f"spike {spk_idx:>4} | {label_to_text(lbl)}")
+
+    def _on_listbox_select(self, _event: Any) -> None:
+        sel = self.spike_listbox.curselection()
+        if not sel:
+            return
+        self.spike_pos = int(sel[0])
+        self._update_display()
+
+    # ----- display update -----
+
+    def _update_display(self) -> None:
+        if self.stats.rois_total == 0:
+            return
+
+        roi_key = self._current_roi_key()
+        spk_idx = self._current_spike_idx()
+
+        roi_data = self.npy_dict[roi_key]
+        raw_f = np.asarray(roi_data.get("raw_trace", []), dtype=float)
+        smooth_f = np.asarray(roi_data.get("smoothed_trace", []), dtype=float)
+
+        spike_data = self._get_spike_data(roi_key, spk_idx)
+        windows = spike_data.get("windows", {})
+        features = spike_data.get("features", {})
+
+        # All spikes for context (regardless of filter) so user sees everything in ROI
+        all_spike_indices = sorted([int(k) for k in roi_data.get("spikes", {}).keys()])
+
+        # Info panel
+        self.progress_var.set(
+            f"ROI {self.roi_pos + 1}/{self.stats.rois_total} | "
+            f"Spike {self.spike_pos + 1}/{len(self.current_spike_indices)}"
         )
-        
-        label_text = {1: 'Good', 0: 'Bad', -1: 'Unlabeled'}.get(current_label, 'Unknown')
-        label_color = {'Good': 'green', 'Bad': 'red', 'Unlabeled': 'gray'}.get(label_text, 'black')
-        self.current_label_label.config(
-            text=f"Current Label: {label_text}",
-            fg=label_color
-        )
-        
-        self.prom_label.config(text=f"Prominence: {features.get('spike_prom', 0):.4f}")
-        self.isolation_label.config(text=f"Isolation: {features.get('isolation', 0):.4f}")
-        self.distance_label.config(text=f"Distance: {features.get('distance', 0):.4f}")
-        
-        self.stats_label.config(
-            text=f"Session: {self.stats['updated']} updated | {self.stats['confirmed']} confirmed | {self.stats['skipped']} skipped"
-        )
-        
-        # Update plots
-        self._update_plots(spike)
-    
-    def _update_plots(self, spike: dict):
-        """Update the matplotlib plots."""
-        self.ax1.clear()
-        self.ax2.clear()
-        
-        windows = spike['windows']
-        left_base, right_base = windows['large_window']['bounds']
-        prev_min, next_min = windows['small_window']['bounds']
-        
-        # Raw fluorescence plot
-        _highlight_windows(
-            self.ax1,
-            np.arange(len(spike['raw_f'])),
-            spike['raw_f'],
-            color="C0",
-            left_base=left_base,
-            right_base=right_base,
-            prev_min=prev_min,
-            next_min=next_min,
-            spike_idx=spike['spike_idx'],
-            all_spike_indices=spike['all_spike_indices'],
-            title="Raw Fluorescence",
-            y_label="F",
-        )
-        
-        # Spike probability plot
-        _highlight_windows(
-            self.ax2,
-            np.arange(len(spike['smoothed_f'])),
-            spike['smoothed_f'],
-            color="C1",
-            left_base=left_base,
-            right_base=right_base,
-            prev_min=prev_min,
-            next_min=next_min,
-            spike_idx=spike['spike_idx'],
-            all_spike_indices=spike['all_spike_indices'],
-            title="Smoothed Fluorescence",
-            y_label="Smoothed F",
-        )
-        
+        self.roi_var.set(f"ROI key: {roi_key}")
+
+        current_label = self._get_current_label(roi_key, spk_idx)
+        self.spike_var.set(f"Current spike: {spk_idx} | current label: {label_to_text(current_label)}")
+
+        # Feature summary (robust to dict / non-dict)
+        if isinstance(features, dict) and len(features) > 0:
+            # Prefer these if they exist, else show first few items
+            preferred = ["prominence", "isolation", "distance", "width", "height"]
+            parts = []
+            for k in preferred:
+                if k in features:
+                    parts.append(f"{k}={features[k]}")
+            if not parts:
+                # fallback: show up to 4 items
+                for i, (k, v) in enumerate(features.items()):
+                    if i >= 4:
+                        break
+                    parts.append(f"{k}={v}")
+            self.features_var.set(" | ".join(parts))
+        else:
+            self.features_var.set("")
+
+        # Plots
+        if raw_f.size > 0:
+            _plot_trace_with_context(
+                self.ax_raw,
+                raw_f,
+                spike_idx=spk_idx,
+                all_spike_indices=all_spike_indices,
+                title="Raw trace",
+                y_label="F",
+                windows=windows,
+            )
+        else:
+            self.ax_raw.clear()
+            self.ax_raw.set_title("Raw trace (missing)")
+
+        if smooth_f.size > 0:
+            _plot_trace_with_context(
+                self.ax_smooth,
+                smooth_f,
+                spike_idx=spk_idx,
+                all_spike_indices=all_spike_indices,
+                title="Smoothed trace",
+                y_label="F (smoothed)",
+                windows=windows,
+            )
+        else:
+            self.ax_smooth.clear()
+            self.ax_smooth.set_title("Smoothed trace (missing)")
+
         self.fig.tight_layout()
         self.canvas.draw()
-    
-    def _label_spike(self, label: int):
-        """Apply a label to the current spike and move to next."""
-        spike = self._get_current_spike()
-        spike_key = spike['spike_key']
-        
-        changed = update_spike_label(self.npy_dict, self.key_labels, spike_key, label)
-        
+
+    # ----- actions -----
+
+    def _label_current_spike(self, label: int) -> None:
+        roi_key = self._current_roi_key()
+        spk_idx = self._current_spike_idx()
+
+        changed = update_spike_label(self.npy_dict, self.key_labels, roi_key, spk_idx, int(label))
+        self.stats.spikes_labeled += 1
+
         if changed:
-            self.stats['updated'] += 1
-            label_name = 'Good' if label == 1 else 'Bad'
-            print(f"[{self.current_idx + 1}/{self.stats['total']}] Updated: {spike_key} → {label_name}")
+            self.stats.spikes_updated += 1
         else:
-            self.stats['confirmed'] += 1
-            print(f"[{self.current_idx + 1}/{self.stats['total']}] Confirmed: {spike_key}")
-        
-        self.stats['labeled'] += 1
-        
-        # Update the current_label in our local data
-        self.spike_data_list[self.current_idx]['current_label'] = label
-        
+            self.stats.spikes_confirmed += 1
+
+        # Update listbox row + display text
+        self._update_listbox_row(self.spike_pos)
+        self._set_status_text(f"Labeled spike {spk_idx} as {label_to_text(label)} (changed={changed}).")
+
         self._checkpoint_if_needed()
+
+        # Auto-advance within ROI
         self._next_spike()
-    
-    def _skip_spike(self):
-        """Skip the current spike and move to next."""
-        spike = self._get_current_spike()
-        self.stats['skipped'] += 1
-        print(f"[{self.current_idx + 1}/{self.stats['total']}] Skipped: {spike['spike_key']}")
-        
+
+    def _skip_current_spike(self) -> None:
+        self.stats.spikes_skipped += 1
+        roi_key = self._current_roi_key()
+        spk_idx = self._current_spike_idx()
+        self._set_status_text(f"Skipped spike {spk_idx} in ROI {roi_key}.")
         self._next_spike()
-    
-    def _next_spike(self):
-        """Move to the next spike or finish if done."""
-        self.current_idx += 1
-        
-        if self.current_idx >= len(self.spike_data_list):
-            print("\n✅ All spikes processed!")
+
+    def _label_all_remaining_bad(self) -> None:
+        """
+        Labels current spike + all later spikes in this ROI as bad (0).
+        """
+        roi_key = self._current_roi_key()
+        start_pos = self.spike_pos
+
+        n_changed = 0
+        n_total = 0
+        for pos in range(start_pos, len(self.current_spike_indices)):
+            spk_idx = self.current_spike_indices[pos]
+            changed = update_spike_label(self.npy_dict, self.key_labels, roi_key, spk_idx, 0)
+            n_total += 1
+            self.stats.spikes_labeled += 1
+            if changed:
+                n_changed += 1
+                self.stats.spikes_updated += 1
+            else:
+                self.stats.spikes_confirmed += 1
+
+        self._refresh_spike_listbox()
+        self._set_status_text(f"Labeled {n_total} remaining spikes as bad (changed={n_changed}).")
+
+        self._checkpoint_if_needed()
+        # Move to next ROI after bulk labeling
+        self._next_roi()
+
+    def _prev_spike(self) -> None:
+        if len(self.current_spike_indices) == 0:
+            return
+        self.spike_pos = max(0, self.spike_pos - 1)
+        self.spike_listbox.selection_clear(0, END)
+        self.spike_listbox.selection_set(self.spike_pos)
+        self.spike_listbox.activate(self.spike_pos)
+        self._update_display()
+
+    def _next_spike(self) -> None:
+        if len(self.current_spike_indices) == 0:
+            return
+        self.spike_pos += 1
+        if self.spike_pos >= len(self.current_spike_indices):
+            # finished ROI
+            self._next_roi()
+            return
+
+        self.spike_listbox.selection_clear(0, END)
+        self.spike_listbox.selection_set(self.spike_pos)
+        self.spike_listbox.activate(self.spike_pos)
+        self._update_display()
+
+    def _prev_roi(self) -> None:
+        if self.stats.rois_total == 0:
+            return
+        new_pos = max(0, self.roi_pos - 1)
+        self._load_roi(new_pos)
+
+    def _next_roi(self) -> None:
+        if self.stats.rois_total == 0:
+            return
+        new_pos = self.roi_pos + 1
+        if new_pos >= self.stats.rois_total:
             self._finish()
-        else:
-            self._update_display()
-    
-    def _checkpoint_if_needed(self):
-        """Save checkpoint if interval reached."""
-        if self.stats['labeled'] % self.checkpoint_interval == 0:
-            save_spike_data(self.npy_dict, self.key_labels, self.save_path)
-            print(f"📦 Checkpoint: Saved progress ({self.stats['labeled']} processed)")
-    
-    def _save_and_quit(self):
-        """Save progress and close the session."""
-        print("\n⏹️ Session ended by user. Saving progress...")
-        save_spike_data(self.npy_dict, self.key_labels, self.save_path)
+            return
+        self._load_roi(new_pos)
+
+    def _save(self) -> None:
+        save_spike_data(self.npy_dict, self.key_labels, self.cfg.data_path)
+
+    def _save_and_quit(self) -> None:
+        self._save()
         self._finish()
-    
-    def _on_close(self):
-        """Handle window close button."""
+
+    def _on_close(self) -> None:
+        # Default to saving on close
         self._save_and_quit()
-    
-    def _finish(self):
-        """Clean up and close the window."""
-        save_spike_data(self.npy_dict, self.key_labels, self.save_path)
-        plt.close(self.fig)
+
+    def _finish(self) -> None:
+        try:
+            self._save()
+        except Exception as e:
+            print(f"Save failed during finish: {e}")
+
+        try:
+            plt.close(self.fig)
+        except Exception:
+            pass
+
         self.root.quit()
         self.root.destroy()
-    
-    def run(self) -> dict:
-        """Run the annotation session and return stats."""
+
+    # ----- public -----
+
+    def run(self) -> SessionStats:
         self.root.mainloop()
         return self.stats
 
 
 # =============================================================================
-# Plot Helper
+# Public entry point
 # =============================================================================
 
-def _highlight_windows(
-    ax: plt.Axes,
-    x: np.ndarray,
-    y: np.ndarray,
+def annotate_spikes_by_roi(
+    data_path: Path,
     *,
-    color: str,
-    left_base: int,
-    right_base: int,
-    prev_min: int,
-    next_min: int,
-    spike_idx: int,
-    all_spike_indices: list,
-    title: str,
-    y_label: str,
-) -> None:
-    """Plot a trace with shaded large window and thick small window, showing all spikes."""
-    ax.plot(x, y, color=color, linewidth=1)
-    
-    # Shade large window
-    ax.fill_between(
-        x[left_base:right_base],
-        y[left_base:right_base],
-        color=color,
-        alpha=0.2,
+    max_rois: Optional[int] = None,
+    unlabeled_only: bool = False,
+    labeled_only: bool = False,
+    checkpoint_interval: int = 30,
+) -> SessionStats:
+    """
+    ROI-centric spike annotation.
+
+    Parameters
+    ----------
+    data_path:
+        Path to your ROI/spike .npy file.
+    max_rois:
+        If set, only annotate the first N candidate ROIs (after filtering).
+    unlabeled_only:
+        Only include spikes with label == -1.
+    labeled_only:
+        Only include spikes with label != -1 (lets you review/spot-check labels).
+    checkpoint_interval:
+        Auto-save after every N labeled spikes.
+    """
+    npy_dict, key_labels, _csv_path = load_spike_data(data_path)
+
+    cfg = SessionConfig(
+        data_path=data_path,
+        unlabeled_only=unlabeled_only,
+        labeled_only=labeled_only,
+        checkpoint_interval=checkpoint_interval,
+        max_rois=max_rois,
     )
-    
-    # Highlight small window with thicker line
-    ax.plot(
-        x[prev_min:next_min],
-        y[prev_min:next_min],
-        color=color,
-        linewidth=3,
+
+    session = SpikeAnnotationByROISession(npy_dict=npy_dict, key_labels=key_labels, cfg=cfg)
+    stats = session.run()
+
+    print(
+        f"Done. ROIs: {stats.rois_total}. "
+        f"Labeled spikes: {stats.spikes_labeled} "
+        f"(updated={stats.spikes_updated}, confirmed={stats.spikes_confirmed}, skipped={stats.spikes_skipped})."
     )
-    
-    # Auto-scale y-axis
-    ax.set_xlim(0, len(x))
-    ax.relim()
-    ax.autoscale_view(scalex=False, scaley=True)
-    y_lim = ax.get_ylim()
-    y_bottom = y_lim[0]
-    
-    # Mark the current spike with a red line
-    if spike_idx < len(y):
-        ax.plot([spike_idx, spike_idx], [y_bottom, y[spike_idx]], 
-                color="red", linestyle="-", linewidth=2, label="Current Spike")
-    
-    # Mark all other spikes with thin gray lines
-    for other_idx in all_spike_indices:
-        if other_idx != spike_idx and other_idx < len(y):
-            ax.plot([other_idx, other_idx], [y_bottom, y[other_idx]], 
-                    color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-    
-    ax.set_title(title)
-    ax.set_xlabel("Frame")
-    ax.set_ylabel(y_label)
-    ax.set_xlim(0, len(x))
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper right')
+    return stats
 
 
 # =============================================================================
-# CLI Entry Point
+# CLI
 # =============================================================================
 
-def main():
-    parser = argparse.ArgumentParser(description="Annotate spike data")
-    parser.add_argument("--data_path", type=str,
-                        default="training_data/roi_filtering/all_roi_features.npy",
-                        help="Path to ROI data file")
-    parser.add_argument("--number_annotations", '-n', type=int, default=100,
-                        help="Number of spikes to annotate")
-    parser.add_argument("--unlabeled_only", action='store_true',
-                        help="Only annotate spikes with label=-1")
-    parser.add_argument("--checkpoint_interval", type=int, default=30,
-                        help="Save checkpoint every N annotations")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="ROI-centric spike annotation GUI")
+    parser.add_argument("--data_path", type=str, required=True, help="Path to spike .npy file")
+    parser.add_argument("--max_rois", type=int, default=None, help="Annotate at most N ROIs")
+    parser.add_argument("--unlabeled_only", action="store_true", help="Only annotate label == -1 spikes")
+    parser.add_argument("--labeled_only", action="store_true", help="Only show already-labeled spikes")
+    parser.add_argument("--checkpoint_interval", type=int, default=30, help="Auto-save every N labeled spikes")
     args = parser.parse_args()
 
-    annotate_spikes(
+    annotate_spikes_by_roi(
         data_path=Path(args.data_path),
-        n_annotations=args.number_annotations,
+        max_rois=args.max_rois,
         unlabeled_only=args.unlabeled_only,
-        checkpoint_interval=args.checkpoint_interval
+        labeled_only=args.labeled_only,
+        checkpoint_interval=args.checkpoint_interval,
     )
 
 

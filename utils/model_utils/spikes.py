@@ -3,7 +3,7 @@ import numpy as np
 from scipy.stats import skew
 from typing import Dict, Optional
 from utils.feature_utils import compute_spike_constants, _create_large_window, _create_small_window
-from scipy.signal import peak_prominences
+from scipy.signal import peak_prominences, peak_widths
 def area_asymmetry(window: np.ndarray, zero_index: int) -> float:
     """
     Compute the Area-Asymmetry Index (AAI) of a 1D signal relative to a given zero index.
@@ -429,7 +429,8 @@ def _compute_spike_features(
     absolute_prev_min: int,
     hierarchy: dict,
     i: int,
-    top3 = False
+    top3 = False,
+    trace_range: float = 1.0,
 ) -> dict:
     """
     Compute all features for a detected spike.
@@ -449,24 +450,28 @@ def _compute_spike_features(
     rise_slope, decay_tau = compute_spike_constants(
         small_window, 
         peak_in_large_window, 
-        fs=30.0
+        fs=15.0
     )
     decay_shape = compute_decay_shape_features(
         small_window, 
         peak_in_large_window, 
-        fs=30.0
+        fs=15.0
     )
     additional_decay = compute_additional_decay_features(
         small_window, 
         peak_in_large_window
     )
+
+    mini_prom = large_window[peak_in_large_window] - small_window[0]
     if top3:
         return {
-            "spike_prom": float(spike_prom),
+            "spike_prom": float(spike_prom)/trace_range,
             "dominance_score": float(hierarchy["dominance_score"][i]),
-            "prom_gap": float(hierarchy["prom_gap"][i]),}
+            #"prom_gap": float(hierarchy["prom_gap"][i]),
+            "mini_prom": float(mini_prom)/trace_range,
+            "distance": int(len(small_window)),}
     return {
-        "spike_prom": float(spike_prom),
+        "spike_prom": float(spike_prom)/trace_range,
         "isolation": int(len(large_window)),
         "distance": int(len(small_window)),
         "iso_skew": float(skew(large_window)) if large_window.size else 0.0,
@@ -491,14 +496,16 @@ def _compute_spike_features(
     
     }
 
-def get_all_spike_features(smoothed_f, peaks, mode = "train", roi_idx = None) -> list[str]:
+def get_all_spike_features(smoothed_f, peaks, props : dict, mode = "train", roi_idx = None) -> list[str]:
     """Return list of all spike feature names."""
+    trace_range = np.ptp(smoothed_f) if smoothed_f.size > 0 else 1.0
     prominences, left_bases, right_bases = peak_prominences(
         smoothed_f, peaks
     )
 
-    widths = right_bases - left_bases
-
+    widths = peak_widths(
+        smoothed_f, peaks)
+    widths = widths[0]  # extract widths array
     hierarchy = compute_peak_hierarchy_features(
     peaks=peaks,
     prominences=prominences,
@@ -512,6 +519,8 @@ def get_all_spike_features(smoothed_f, peaks, mode = "train", roi_idx = None) ->
     windows_list = []
     features_list = []
     labels_list = []
+  
+    
     for i, peak in enumerate(peaks):
         large_window_f, absolute_left_base, absolute_right_base, spike_prom = _create_large_window(
             smoothed_f, peak, left_bases[i], right_bases[i]
@@ -526,9 +535,9 @@ def get_all_spike_features(smoothed_f, peaks, mode = "train", roi_idx = None) ->
         features = _compute_spike_features(
             large_window_f, small_window_f, spike_prom,
             peak, left_bases[i], absolute_prev_min, hierarchy, i,
-            top3=True
+            top3=True, trace_range=trace_range
         )
-       
+
         # Ensure the small window is non-empty and ordered.
         
         spike_key = peak if roi_idx is None else f"{roi_idx}_{peak}"

@@ -106,7 +106,7 @@ class ExperimentProcessor:
                 if isinstance(node.payload, VideoRunRecord):
                     node.n_videos = 1
                     node.n_neurons = node.payload.n_neurons
-
+                    node.n_groups = node.payload.n_groups
                     # For comparisons, define:
                     # - kin_unweighted: unweighted across neurons inside the video
                     # - kin_weighted: spike-weighted across neurons inside the video
@@ -121,7 +121,7 @@ class ExperimentProcessor:
             # internal node: counts
             node.n_videos = sum(ch.n_videos for ch in node.children.values())
             node.n_neurons = sum(ch.n_neurons for ch in node.children.values())
-
+            node.n_groups = sum(ch.n_groups for ch in node.children.values())
             kids = list(node.children.values())
 
             # Unweighted: each immediate child counts equally

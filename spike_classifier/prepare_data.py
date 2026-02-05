@@ -39,13 +39,13 @@ def define_candidate_fluor_events(smoothed_f: np.ndarray = None,
     
     
     # Detect peaks in the valid region
-    peaks, _ = find_peaks(smoothed_f) if peaks is None else (peaks, None)
+    peaks, props = find_peaks(smoothed_f, distance=30) if peaks is None else (peaks, None)
     if peaks.size == 0:
         return {}, []
 
 
     spike_data, spike_keys = get_all_spike_features(
-        smoothed_f, peaks, mode=mode, roi_idx=roi_idx
+        smoothed_f, peaks, props, mode=mode, roi_idx=roi_idx
     )   
     return spike_data, spike_keys
 
