@@ -20,6 +20,8 @@ The extracted features, along with the smoothed trace, are stored in a dictionar
 The output is saved as a .npy file only (no JSON to avoid corruption issues)."""
 import sys
 from pathlib import Path
+
+from traitlets import Any
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 import argparse
@@ -27,7 +29,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from utils.model_utils.rois import compute_roi_features
 from utils.preprocessing import normalize_minmax
-
+from roi_classifier.utils import get_label_value
 
 # =============================================================================
 # Label Format Utilities
@@ -56,11 +58,7 @@ def normalize_label_format(label_value) -> dict:
         return {'value': -1, 'source': 'unlabeled'}
 
 
-def get_label_value(label) -> int:
-    """Extract numeric label value from either dict or int format."""
-    if isinstance(label, dict):
-        return label.get('value', -1)
-    return label
+
 
 
 
@@ -126,7 +124,7 @@ def process_video(video_path: Path) -> list:
 # Update Existing Data
 # =============================================================================
 
-def update_roi_features(roi_dict: dict) -> dict:
+def update_roi_features(roi_dict: dict[str, dict[str, Any ]]) -> dict:
     """Update ROI features while preserving spike data and labels."""
     updated_dict = {}
     
@@ -144,7 +142,7 @@ def update_roi_features(roi_dict: dict) -> dict:
         features, validity = compute_roi_features(smoothed_f_trace)
         
         # Normalize label to new dict format
-        existing_label = roi_data.get('label', -1)
+        existing_label = get_label_value(roi_data.get('label', -1))
         label_dict = normalize_label_format(existing_label)
         
         if label_dict['value'] in [0, 1] and label_dict['source'] == 'manual':

@@ -1,72 +1,19 @@
 from tkinter import Button, Tk, Label, Frame
+from typing import Any
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import random
 from pathlib import Path
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
-
-# =============================================================================
-# Label Utilities
-# =============================================================================
-
-def get_label_value(label) -> int:
-    """Extract numeric label value from either dict or int format."""
-    return label['value'] if isinstance(label, dict) else label
-
-
-def get_label_source(label) -> str:
-    """Extract label source from dict format, or 'unknown' for int format."""
-    return label.get('source', 'unknown') if isinstance(label, dict) else 'unknown'
-
-
-def create_label_dict(value: int, source: str = 'manual') -> dict:
-    """Create a standardized label dictionary."""
-    return {'value': value, 'source': source}
-
-
-# =============================================================================
-# Data I/O
-# =============================================================================
-
-def load_roi_data(npy_path: Path) -> dict:
-    """Load ROI data from .npy file."""
-    if not npy_path.exists():
-        raise FileNotFoundError(f"ROI data file not found: {npy_path}")
-    return np.load(npy_path, allow_pickle=True).item()
-
-
-def save_roi_data(npy_dict: dict, npy_path: Path) -> None:
-    """Save ROI data to .npy file."""
-    npy_path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(npy_path, npy_dict, allow_pickle=True)
-    print(f"Saved to {npy_path}")
-
-
-# =============================================================================
-# ROI Selection / Filtering
-# =============================================================================
-
-def filter_unlabeled_rois(npy_dict: dict) -> list[str]:
-    """Return keys of ROIs with label value == -1."""
-    return [k for k in npy_dict.keys() if get_label_value(npy_dict[k]['label']) == -1]
-
-def filter_labeled_rois(npy_dict: dict) -> list[str]:
-    """Return keys of ROIs with label value != -1."""
-    return [k for k in npy_dict.keys() if get_label_value(npy_dict[k]['label']) != -1]
-
-def filter_non_manual_rois(npy_dict: dict) -> list[str]:
-    """Return keys of ROIs that haven't been manually verified."""
-    return [k for k in npy_dict.keys() if get_label_source(npy_dict[k]['label']) != 'manual']
-
+from roi_classifier.utils import get_label_value, get_label_source, load_roi_data, save_roi_data, create_label_dict, get_keys
 
 def select_rois_for_annotation(
     npy_dict: dict,
     n_samples: int,
     unlabeled_only: bool = False,
-    manual_only: bool = False,
-    labeled_only: bool = False
+    labeled_only: bool = False,
+    verbose: bool = True
 ) -> list[str]:
     """
     Select ROIs for annotation based on filtering criteria.
@@ -83,65 +30,27 @@ def select_rois_for_annotation(
     Raises:
         ValueError: If no ROIs match the filtering criteria
     """
-    all_keys = list(npy_dict.keys())
-    
-    if unlabeled_only:
-        candidate_keys = filter_unlabeled_rois(npy_dict)
-        filter_desc = "unlabeled"
-    elif manual_only:
-        candidate_keys = filter_non_manual_rois(npy_dict)
-        filter_desc = "non-manual"
-    elif labeled_only:
-        candidate_keys = filter_labeled_rois(npy_dict)
-        filter_desc = "labeled"
-    else:
-        candidate_keys = all_keys
-        filter_desc = "all"
-    
-    print(f"Filtering for {filter_desc} ROIs: {len(candidate_keys)}/{len(all_keys)} available")
-    
-    if len(candidate_keys) == 0:
-        raise ValueError(f"No {filter_desc} ROIs found!")
-    
-    n_to_sample = min(n_samples, len(candidate_keys))
-    selected = random.sample(candidate_keys, n_to_sample)
-    print(f"Selected {n_to_sample} ROIs for annotation")
+    roi_keys = get_keys(
+        npy_dict,
+        unlabeled_only=unlabeled_only,
+        labeled_only=labeled_only,
+        verbose=verbose
+    )
+
+    n_to_sample = min(n_samples, len(roi_keys))
+    selected = random.sample(roi_keys, n_to_sample)
+
+    if verbose: 
+        print(f"Selected {n_to_sample} ROIs for annotation")
     
     return selected
 
-
-# =============================================================================
-# Label Update Logic
-# =============================================================================
-
-def update_roi_label(npy_dict: dict, roi_key: str, new_label: int) -> bool:
-    """
-    Update a single ROI's label in the dictionary.
-    
-    Args:
-        npy_dict: Dictionary of ROI data (modified in place)
-        roi_key: Key of the ROI to update
-        new_label: New label value (0 or 1)
-    
-    Returns:
-        True if label value changed, False if only source updated
-    """
-    current_label = get_label_value(npy_dict[roi_key]['label'])
-    changed = (new_label != current_label)
-    
-    npy_dict[roi_key]['label'] = create_label_dict(new_label, source='manual')
-    
-    return changed
-
-
-# =============================================================================
-# Annotation Session
-# =============================================================================
 def run_annotation_session(
     npy_dict: dict,
     roi_keys: list[str],
     save_path: Path,
-    checkpoint_interval: int = 30
+    checkpoint_interval: int = 30,
+    verbose: bool = True
 ) -> dict:
     """
     Run an interactive annotation session for the given ROIs.
@@ -172,7 +81,8 @@ def run_annotation_session(
         roi_data_list=roi_data_list,
         npy_dict=npy_dict,
         save_path=save_path,
-        checkpoint_interval=checkpoint_interval
+        checkpoint_interval=checkpoint_interval,
+        verbose=verbose
     )
     stats = labeler.run()
     
@@ -208,9 +118,9 @@ def annotate_rois(
     data_path: Path,
     n_annotations: int = 1000,
     unlabeled_only: bool = False,
-    manual_only: bool = False,
     labeled_only: bool = False,
-    checkpoint_interval: int = 30
+    checkpoint_interval: int = 30,
+    verbose: bool = True
 ) -> dict:
     """
     Main function to run ROI annotation.
@@ -227,32 +137,30 @@ def annotate_rois(
         Updated ROI dictionary
     """
     # Load data
-    npy_dict = load_roi_data(data_path)
-    print(f"Loaded {len(npy_dict)} ROIs from {data_path}")
+    npy_dict = load_roi_data(data_path, verbose=verbose)
+    
     
     # Select ROIs
-    try:
-        selected_keys = select_rois_for_annotation(
-            npy_dict,
-            n_samples=n_annotations,
-            unlabeled_only=unlabeled_only,
-            manual_only=manual_only,
-            labeled_only=labeled_only
-        )
-    except ValueError as e:
-        print(f"❌ {e}")
-        return npy_dict
+    selected_keys = select_rois_for_annotation(
+        npy_dict,
+        n_samples=n_annotations,
+        unlabeled_only=unlabeled_only,
+        labeled_only=labeled_only,
+        verbose=verbose
+    )
+    
     
     # Run annotation session
     stats = run_annotation_session(
         npy_dict=npy_dict,
         roi_keys=selected_keys,
         save_path=data_path,
-        checkpoint_interval=checkpoint_interval
+        checkpoint_interval=checkpoint_interval,
+        verbose=verbose
     )
     
-    # Print summary
-    print_session_summary(npy_dict, stats)
+    if verbose:
+        print_session_summary(npy_dict, stats)
     
     return npy_dict
 
@@ -265,7 +173,7 @@ class AnnotationSession:
     """Persistent annotation GUI that stays open while cycling through ROIs."""
     
     def __init__(self, roi_data_list: list[dict], npy_dict: dict, 
-                 save_path: Path, checkpoint_interval: int = 30):
+                 save_path: Path, checkpoint_interval: int = 30, verbose : bool = True):
         """
         Initialize the annotation session.
         
@@ -280,7 +188,7 @@ class AnnotationSession:
         self.npy_dict = npy_dict
         self.save_path = save_path
         self.checkpoint_interval = checkpoint_interval
-        
+        self.verbose = verbose
         self.current_idx = 0
         self.actions: dict[int, dict] = {}
         self.stats = {
@@ -452,13 +360,28 @@ class AnnotationSession:
         self.ax1.grid(True, alpha=0.3)
         
         self.ax2.plot(roi['smoothed_trace'], color='red', linewidth=1)
-        self.ax2.set_title(f"Smoothed Trace - {title}")
+        self.ax2.set_title(f"Smoothed F Trace - {title}")
         self.ax2.set_xlabel("Frame #")
-        self.ax2.set_ylabel("Smoothed")
+        self.ax2.set_ylabel("Smoothed F")
         self.ax2.grid(True, alpha=0.3)
         
         self.fig.tight_layout()
         self.canvas.draw()
+
+    def _update_roi_dict(self, roi_key: str, new_label: int) -> bool:
+        """
+        Update a single ROI's label in the dictionary.
+        
+        Args:
+            roi_key: Key of the ROI to update
+            new_label: New label value (0 or 1)
+        
+        Returns:
+            True if label value changed, False if only source updated
+        """
+        self.npy_dict[roi_key]['label'] = create_label_dict(new_label, source='manual')
+        
+
     
     def _label_roi(self, label: int):
         """Apply a label to the current ROI and move to next."""
@@ -470,7 +393,7 @@ class AnnotationSession:
         changed = (label != prev_label)
 
         # Update the underlying npy dict (this is what you save)
-        update_roi_label(self.npy_dict, roi_key, label)
+        self._update_roi_dict(roi_key, label)
 
         # Update the current_label in our local session cache
         self.roi_data_list[self.current_idx]["current_label"] = label
@@ -482,12 +405,12 @@ class AnnotationSession:
             "changed": changed,
         }
         self._recompute_stats()
-
-        if changed:
-            label_name = "Good" if label == 1 else "Bad"
-            print(f"[{self.current_idx + 1}/{self.stats['total']}] Updated: {roi_key} → {label_name}")
-        else:
-            print(f"[{self.current_idx + 1}/{self.stats['total']}] Confirmed: {roi_key}")
+        if self.verbose: 
+            if changed:
+                label_name = "Good" if label == 1 else "Bad"
+                print(f"[{self.current_idx + 1}/{self.stats['total']}] Updated: {roi_key} → {label_name}")
+            else:
+                print(f"[{self.current_idx + 1}/{self.stats['total']}] Confirmed: {roi_key}")
 
         self._checkpoint_if_needed()
         self._next_roi()
@@ -503,7 +426,8 @@ class AnnotationSession:
         }
         self._recompute_stats()
 
-        print(f"[{self.current_idx + 1}/{self.stats['total']}] Skipped: {roi['key']}")
+        if self.verbose: 
+            print(f"[{self.current_idx + 1}/{self.stats['total']}] Skipped: {roi['key']}")
         self._next_roi()
     
     def _next_roi(self):
@@ -511,7 +435,8 @@ class AnnotationSession:
         self.current_idx += 1
         
         if self.current_idx >= len(self.roi_data_list):
-            print("\n✅ All ROIs processed!")
+            if self.verbose:
+                print("\nAnnotation session complete.")
             self._finish()
         else:
             self._update_display()
@@ -541,11 +466,13 @@ class AnnotationSession:
         """Save checkpoint if interval reached."""
         if self.stats['labeled'] % self.checkpoint_interval == 0:
             save_roi_data(self.npy_dict, self.save_path)
-            print(f"📦 Checkpoint: Saved progress ({self.stats['labeled']} processed)")
+            if self.verbose:
+                print(f"\nCheckpoint saved at {self.stats['labeled']} annotations.\n")
     
     def _save_and_quit(self):
         """Save progress and close the session."""
-        print("\n⏹️ Session ended by user. Saving progress...")
+        if self.verbose:
+            print("\nSession ended by user. Saving progress...")
         save_roi_data(self.npy_dict, self.save_path)
         self._finish()
     
@@ -556,6 +483,8 @@ class AnnotationSession:
     def _finish(self):
         """Clean up and close the window."""
         save_roi_data(self.npy_dict, self.save_path)
+        if self.verbose:
+            print("\nAnnotation session complete. Progress saved.")
         plt.close(self.fig)
         self.root.quit()
         self.root.destroy()
@@ -564,128 +493,6 @@ class AnnotationSession:
         """Run the annotation session and return stats."""
         self.root.mainloop()
         return self.stats
-
-
-# Legacy Labeler class for single-ROI use (kept for backwards compatibility)
-class Labeler:
-    def __init__(self, roi_key: str, raw_f: np.ndarray, smoothed_sp: np.ndarray, 
-                 features: dict, current_label: int):
-        self.roi_key = roi_key
-        self.f_trace = raw_f
-        self.spike_prob = smoothed_sp
-        self.features = features
-        self.current_label = current_label
-        self.selected_label = None
-        self.quit_session = False  # Flag to exit entire session
-
-        parts = roi_key.rsplit('_', 1)
-        self.video_name = parts[0]
-        self.roi_idx = parts[1]
-        
-        self.root = Tk()
-        self.title = f"ROI {self.roi_idx} from Video {self.video_name}"
-        self.root.title(self.title)
-
-        self._create_info_panel()
-        self._create_controls()
-        self._create_plot()
-        self._bind_shortcuts()
-        self.plot_traces()
-    
-    def _create_info_panel(self):
-        info_frame = Frame(self.root)
-        info_frame.pack(side="top", pady=10)
-        
-        Label(info_frame, text=f"ROI Key: {self.roi_key}", font=('Arial', 12, 'bold')).pack()
-        label_text = {1: 'Good', 0: 'Bad', -1: 'Unlabeled'}.get(self.current_label, 'Unknown')
-        Label(info_frame, text=f"Current Label: {self.current_label} ({label_text})", 
-              font=('Arial', 10)).pack()
-        Label(info_frame, text=f"Derivative Skew: {self.features['derivative_skew']:.4f}", 
-              font=('Arial', 10)).pack()
-        Label(info_frame, text=f"Spike Prom Mean: {self.features['spike_prom_mean']:.4f}", 
-              font=('Arial', 10)).pack()
-    
-    def _create_controls(self):
-        controls_frame = Frame(self.root)
-        controls_frame.pack(pady=10)
-        
-        Label(controls_frame, text="Label this ROI:", font=('Arial', 12, 'bold')).pack()
-        
-        button_frame = Frame(controls_frame)
-        button_frame.pack()
-        
-        Button(button_frame, text="Active (1)", command=lambda: self.label_roi(1),
-               bg='green', fg='white', font=('Arial', 12, 'bold'), width=15, height=2
-               ).pack(side="left", padx=10)
-        Button(button_frame, text="Inactive (0)", command=lambda: self.label_roi(0),
-               bg='red', fg='white', font=('Arial', 12, 'bold'), width=15, height=2
-               ).pack(side="left", padx=10)
-        Button(button_frame, text="Skip", command=self.skip_roi,
-               bg='gray', fg='white', font=('Arial', 12, 'bold'), width=15, height=2
-               ).pack(side="left", padx=10)
-        
-        # Save & Quit button
-        quit_frame = Frame(controls_frame)
-        quit_frame.pack(pady=10)
-        
-        Button(quit_frame, text="Save & Quit (Q)", command=self.save_and_quit,
-               bg='orange', fg='white', font=('Arial', 12, 'bold'), width=20, height=2
-               ).pack()
-    
-    def _create_plot(self):
-        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(12, 8))
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
-        self.canvas.get_tk_widget().pack(fill='both', expand=True)
-    
-    def _bind_shortcuts(self):
-        self.root.bind('1', lambda e: self.label_roi(1))
-        self.root.bind('0', lambda e: self.label_roi(0))
-        self.root.bind('<space>', lambda e: self.skip_roi())
-        self.root.bind('<Right>', lambda e: self.skip_roi())
-        self.root.bind('q', lambda e: self.save_and_quit())
-        self.root.bind('Q', lambda e: self.save_and_quit())
-        self.root.bind('<Escape>', lambda e: self.save_and_quit())
-        
-    def plot_traces(self):
-        self.ax1.clear()
-        self.ax2.clear()
-        
-        self.ax1.plot(self.f_trace, color='blue', linewidth=1)
-        self.ax1.set_title(f"Raw F Trace - {self.title}")
-        self.ax1.set_xlabel("Frame #")
-        self.ax1.set_ylabel("Raw F")
-        self.ax1.grid(True, alpha=0.3)
-        
-        self.ax2.plot(self.spike_prob, color='red', linewidth=1)
-        self.ax2.set_title(f"Smoothed Trace - {self.title}")
-        self.ax2.set_xlabel("Frame #")
-        self.ax2.set_ylabel("Smoothed")
-        self.ax2.grid(True, alpha=0.3)
-        
-        self.fig.tight_layout()
-        self.canvas.draw()
-    
-    def label_roi(self, label):
-        self.selected_label = label
-        self.root.quit()
-        self.root.destroy()
-    
-    def skip_roi(self):
-        self.selected_label = -1
-        self.root.quit()
-        self.root.destroy()
-    
-    def save_and_quit(self):
-        """Exit the annotation session and save progress."""
-        self.selected_label = None
-        self.quit_session = True
-        self.root.quit()
-        self.root.destroy()
-    
-    def show(self):
-        self.root.mainloop()
-        return self.selected_label, self.quit_session
-
 
 
 def main():
@@ -701,14 +508,16 @@ def main():
                        help="Only annotate ROIs without manual verification")
     parser.add_argument("--checkpoint_interval", type=int, default=30,
                        help="Save checkpoint every N annotations")
+    parser.add_argument("-v", "--verbose", action='store_true',
+                       help="Enable verbose output")
     args = parser.parse_args()
 
     annotate_rois(
         data_path=Path(args.data_path),
         n_annotations=args.number_annotations,
         unlabeled_only=args.unlabeled_only,
-        manual_only=args.manual_only,
-        checkpoint_interval=args.checkpoint_interval
+        checkpoint_interval=args.checkpoint_interval,
+        verbose=args.verbose
     )
 
 
