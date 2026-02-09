@@ -20,22 +20,28 @@ class DataSplit:
 class ClassifierDataset:
     def __init__(self):
 
-        self.x_train = None
-        self.x_test = None
-        self.y_train = None
-        self.y_test = None
-    
-    def build(self, splits: list[np.ndarray]):
-        self.x_train = DataSplit(splits[0])
-        self.x_test = DataSplit(splits[1])
-        self.y_train = DataSplit(splits[2])
-        self.y_test = DataSplit(splits[3])
+        self.x_train : DataSplit = None
+        self.x_test : DataSplit = None
+        self.y_train : DataSplit = None
+        self.y_test : DataSplit = None
+
+        self.feature_names : list[str] = None
         
+    @classmethod
+    def build(cls, splits: list[np.ndarray], feature_names : list[str] = None) -> "ClassifierDataset":
+        instance = cls()
+        instance.x_train = DataSplit(splits[0])
+        instance.x_test = DataSplit(splits[1])
+        instance.y_train = DataSplit(splits[2])
+        instance.y_test = DataSplit(splits[3])
+        instance.feature_names = feature_names
+        return instance
+    
     def transform_x(self):
         self.x_train.collect_transforms()
         self.x_test.collect_transforms()
     
     def transform_data(self):
         self.transform_x()
-        return self.x_train, self.x_test, self.y_train, self.y_test
+        
     

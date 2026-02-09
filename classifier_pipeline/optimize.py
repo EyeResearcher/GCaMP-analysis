@@ -6,13 +6,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.metrics import roc_auc_score, confusion_matrix, classification_report
 from typing import Any, Dict, Tuple, List
-from classifier_pipeline.datasets import DataSplit
-from classifier_pipeline.utils import get_model, merge_dicts, train
-from spike_classifier.train_classifier import get_feature_importance
+from classifier_pipeline.datasets import ClassifierDataset, DataSplit
+from classifier_pipeline.utils import get_model, merge_dicts, get_feature_importance, train
 
-def test_feature_selection(model_class, model_name, X_train : DataSplit, X_test: DataSplit, y_train: DataSplit, y_test: DataSplit,
-                          feature_names, importance_df : pd.DataFrame, transform_name, verbose=True,
-                          **hp_kwargs) -> tuple[list[dict], float, dict[str, Any]]:
+def test_feature_selection(model_class : str, dataset : ClassifierDataset, 
+                           importance_df : pd.DataFrame, transform_name, 
+                           verbose=True, **hp_kwargs) -> tuple[list[dict], float, dict[str, Any]]:
     """
     Test model with top N features based on importance.
     
@@ -34,18 +33,22 @@ def test_feature_selection(model_class, model_name, X_train : DataSplit, X_test:
     results : list
         Results for different feature subset sizes
     """
-    
+    X_train, X_test = dataset.x_train, dataset.x_test
+    y_train, y_test = dataset.y_train, dataset.y_test
+    feature_names = dataset.feature_names
+
     data_transformed = merge_dicts(X_train.transformed_data, X_test.transformed_data)
     X_train_transformed = data_transformed[transform_name][0]
     X_test_transformed = data_transformed[transform_name][1]
     
-    results = []
+
     feature_subsets = [3, 5, len(feature_names)]  # Top 3, Top 5, All features
     best = 0 
-    best_config = None   
+    best_features = []  
+
     for n_features in feature_subsets:
         
-        top_features : list[str]= importance_df.head(n_features)['feature'].tolist()
+        top_features : list[str] = importance_df.head(n_features)['feature'].tolist()
     
         feature_indices = [feature_names.index(f) for f in top_features]
         X_train_subset = X_train_transformed[:, feature_indices]
@@ -53,79 +56,63 @@ def test_feature_selection(model_class, model_name, X_train : DataSplit, X_test:
 
         model = get_model(model_class, **hp_kwargs)
         
-        result = train(model, X_train_subset, y_train.raw, X_test_subset, y_test.raw, top_features, model_name, transform_name)
-        results.append(result)
+        acc = train(model, X_train_subset, y_train.raw, X_test_subset, y_test.raw)
         
-        if result['test_acc'] > best:
-            best = result['test_acc']
-            best_config = result
-    return results, best, best_config
+        
+        if acc > best:
+            best = acc
+            best_features = top_features
+    return best_features
 
-def test_model_with_transforms(model_class, model_name, X_train : DataSplit, X_test: DataSplit, y_train: DataSplit, y_test: DataSplit, 
-                               feature_names, verbose = True, **hp_kwargs) -> tuple[list[dict], float, str]:
+def test_model_with_transforms(model_class : str , dataset : ClassifierDataset, verbose = True, **hp_kwargs) -> dict[str, Any]:
     """
     Test a model with different feature transformations.
     
-    Parameters
-    ----------
-    model_class : sklearn model class
-        Either RandomForestClassifier or LogisticRegression
-    model_name : str
-        Name of the model for display
-    X_train, X_test, y_train, y_test : arrays of shape (n_samples, n_features)
-        Train/test split data
-    feature_names : list
-        Feature names
-    n_estimators : int
-        For Random Forest only
-    max_depth : int or None
-        For Random Forest only
-    random_state : int
-        Random seed
-    
-    Returns
-    -------
-    results : list
-        List of result dicts
-    best : dict
-        Best configuration
+    Args:
+        model_class: str
+            - RF: Random Forest
+            - LR: Logistic Regression
+            - SVM: Support Vector Machine
+        dataset: ClassifierDataset
+        verbose: bool
+        **hp_kwargs: hyperparameters for the model
+    Returns: 
+        dict[str, Any]
+            - 'acc': best test accuracy
+            - 'model_type': model class
+            - 'transform': best transform
+            - 'feature_importance': feature importance DataFrame
+
     """
+    X_train, X_test = dataset.x_train, dataset.x_test
+    y_train, y_test = dataset.y_train, dataset.y_test
+    feature_names = dataset.feature_names
+
     data_transformed = merge_dicts(X_train.transformed_data, X_test.transformed_data)
     
-    results = []
     best = 0
     best_transform = None
-    best_config = None
     for transform, (X_train_var, X_test_var) in data_transformed.items():
         
         model = get_model(model_class, **hp_kwargs)
-        result = train(model, X_train_var, y_train.raw, X_test_var, y_test.raw, feature_names, model_name, transform)
+        acc= train(model, X_train_var, y_train.raw, X_test_var, y_test.raw)
 
-        results.append(result)
-
-        if result['test_acc'] > best:
-            best = result['test_acc']
+        if acc > best:
+            best = acc
             best_transform = transform
-            best_config = result
+            feat_importance = get_feature_importance(model, feature_names)
     
-    return results, best, best_transform, best_config
+    return best_transform, feat_importance
 
-def test_configurations(X_train, X_test, y_train, y_test, feature_names, n_estimators, max_depth, random_state, verbose=True):
+def get_best_model(model_type : str, dataset : ClassifierDataset): 
+    transform, feat_importance = test_model_with_transforms(model_type, dataset)
+
+
+def test_configurations(dataset : ClassifierDataset, verbose=True):
     
-    rf_results, rf_best, rf_transform, rf_best_transform = test_model_with_transforms(
-        RandomForestClassifier, "Random Forest",
-        X_train, X_test, y_train, y_test, feature_names,
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        random_state=random_state
-    )
-    
-    # Test Logistic Regression
-    lr_results, lr_best, lr_transform, lr_best_transform = test_model_with_transforms(
-        LogisticRegression, "Logistic Regression",
-        X_train, X_test, y_train, y_test, feature_names,
-        random_state=random_state
-    )
+    rf_transform_results = test_model_with_transforms("RF", dataset, verbose=verbose)
+
+    lr_transform_results = test_model_with_transforms("LR", dataset, verbose=verbose)
     
     
     # Test feature selection for both models

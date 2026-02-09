@@ -19,7 +19,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
 import joblib
-from roi_classifier.utils import ClassifierDataset, DataSplit, get_label_value, get_label_source, load_roi_data, merge_dicts, print_dataset_summary, print_split_summary, print_tuned_summary
+from classifier_pipeline.datasets import ClassifierDataset, DataSplit
+from classifier_pipeline.utils import get_label_value, get_label_source, merge_dicts, get_model, train, get_feature_importance
+from classifier_pipeline.verbose_utils import print_dataset_summary, print_split_summary, print_tuned_summary
+from classifier_pipeline.optimize import test_configurations, test_feature_selection, tune_hyperparameters
+from classifier_pipeline.io_utils import load_roi_data, load_labeled_roi_data, save_model_and_config
 
 
 
@@ -108,11 +112,11 @@ def train_roi_classifier(
     splits = train_test_split(
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
-    X_train, X_test, y_train, y_test = ClassifierDataset.transform_data(splits)
+    dataset = ClassifierDataset.build(splits, feature_names)
     if verbose:
-        print_split_summary(y_train.raw, y_test.raw)
+        print_split_summary(dataset.y_train.raw, dataset.y_test.raw)
 
-    best_config = test_configurations(X_train, X_test, y_train, y_test, feature_names, n_estimators, max_depth, random_state, verbose=verbose)
+    best_config = test_configurations(dataset, verbose=verbose)
     
     best_config_tuned = tune_hyperparameters(best_config, hp_config)
     
@@ -123,8 +127,8 @@ def train_roi_classifier(
             tuned_config=best_config_tuned,
             feature_names=feature_names,
             output_dir=output_dir,
-            n_train=len(y_train.raw),
-            n_test=len(y_test.raw),
+            n_train=len(dataset.y_train.raw),
+            n_test=len(dataset.y_test.raw),
             manual_only=manual_only
         )
     best_config_tuned['model_path'] = model_path

@@ -6,37 +6,20 @@ from typing import Any
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 import pandas as pd
+from enum import Enum
 
-def train(model, X_train_var : np.ndarray, y_train : np.ndarray, X_test_var: np.ndarray, y_test: np.ndarray, feature_names, model_name, transform):
-    cv_scores = cross_val_score(model, X_train_var, y_train, cv=5, scoring='accuracy', n_jobs=-1)
-    cv_acc = cv_scores.mean()
-    cv_std = cv_scores.std()
+def train(model : RandomForestClassifier | LogisticRegression | SVC,
+           X_train_var : np.ndarray, y_train : np.ndarray, X_test_var: np.ndarray, y_test: np.ndarray, 
+           ) -> float:
+    
   
     model.fit(X_train_var, y_train)
     test_acc = model.score(X_test_var, y_test)
     y_pred_proba = model.predict_proba(X_test_var)[:, 1]
     roc_auc = roc_auc_score(y_test, y_pred_proba)
     
-    importance_df = get_feature_importance(model, feature_names)
     
-    result = {
-        'model': model_name,
-        'transform': transform,
-        'n_features' : len(feature_names),
-        'cv_acc': cv_acc,
-        'cv_std': cv_std,
-        'test_acc': test_acc,
-        'roc_auc': roc_auc,
-        'model_instance': model,
-        'model_type': type(model),
-        'X_train': X_train_var,
-        'X_test': X_test_var,
-        'y_train': y_train,
-        'y_test': y_test,
-        'features': {name: transform for name in feature_names},
-        'feature_importance': importance_df
-    }
-    return result
+    return roc_auc
 def get_feature_importance(model, feature_names: list) -> pd.DataFrame:
     """
     Extract feature importance from a trained model.
@@ -62,11 +45,18 @@ def get_feature_importance(model, feature_names: list) -> pd.DataFrame:
     }).sort_values('importance', ascending=False)
     
     return importance_df
-def get_model(model_class : RandomForestClassifier | LogisticRegression | SVC, **hp_kwargs) -> RandomForestClassifier | LogisticRegression | SVC:
+class ModelClass(Enum): 
+    RF = RandomForestClassifier
+    LR = LogisticRegression
+    SVM = SVC
+
+def get_model(model_class : str, **hp_kwargs) -> RandomForestClassifier | LogisticRegression | SVC:
     """Create model instance based on class and hyperparameters.
      Args:
-        model_class: sklearn model class 
-            - RandomForestClassifier, LogisticRegression, SVM
+        model_class: str 
+            - RF: Random Forest
+            - LR: Logistic Regression
+            - SVM: Support Vector Machine
         **hp_kwargs: hyperparameters for the model
             - For Random Forest: n_estimators, max_depth, random_state, class_weight, n_jobs
             - For Logistic Regression: random_state, max_iter, class_weight
@@ -74,6 +64,7 @@ def get_model(model_class : RandomForestClassifier | LogisticRegression | SVC, *
     Returns:
         model: instance of the specified model class
     """
+    model_class = ModelClass[model_class].value
     model = model_class(**hp_kwargs)
     return model
 
