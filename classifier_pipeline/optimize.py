@@ -62,7 +62,7 @@ def test_feature_selection(model_class : str, dataset : ClassifierDataset,
         if acc > best:
             best = acc
             best_features = top_features
-    return best_features
+    return best_features, best
 
 def test_model_with_transforms(model_class : str , dataset : ClassifierDataset, verbose = True, **hp_kwargs) -> dict[str, Any]:
     """
@@ -104,59 +104,54 @@ def test_model_with_transforms(model_class : str , dataset : ClassifierDataset, 
     
     return best_transform, feat_importance
 
-def get_best_model(model_type : str, dataset : ClassifierDataset): 
-    transform, feat_importance = test_model_with_transforms(model_type, dataset)
+def get_best_version(model_type : str, dataset : ClassifierDataset, verbose=True): 
+    transform, feat_importance = test_model_with_transforms(model_type, dataset, verbose=verbose)
+    best_features, best = test_feature_selection(model_type, dataset, transform, feat_importance, verbose=verbose)
+    return best_features, best, transform
+def get_best_model(dataset : ClassifierDataset, verbose=True):
+    """This function takes a dataset and returns the best model type and configuration based on accuracy.
+    Args: 
+        dataset (ClassifierDataset) : the dataset with all x and y data
+    Returns:
+        best_type (str) : the best model type based on accuracy
+        best_features (str) : feature names to be used 
+        best_accuracy (float) : the best accuracy achieved
+        transform (str) : the best feature transform used
+        """
+    models = ["RF", "LR"]
+    best_acc = 0
+    best_type = None
+    best_config = None
+
+    for model in models:
+        results = get_best_version(model, dataset, verbose=verbose)
+        if results[1] > best_acc:
+            best_acc = results[1]   
+            best_type = model
+            best_config = results
+    best_features, best_accuracy, transform = best_config
+
+    return best_type, best_features, best_accuracy, transform
 
 
-def test_configurations(dataset : ClassifierDataset, verbose=True):
+def tune_hyperparameters(best_type, dataset : ClassifierDataset, best_features, transform, base_model, hp_grid):
     
-    rf_transform_results = test_model_with_transforms("RF", dataset, verbose=verbose)
-
-    lr_transform_results = test_model_with_transforms("LR", dataset, verbose=verbose)
-    
-    
-    # Test feature selection for both models
-    rf_feature_results, rf_best_acc, rf_best_config = test_feature_selection(
-        RandomForestClassifier, "Random Forest",
-        X_train, X_test, y_train, y_test, feature_names,
-        rf_best_transform['feature_importance'], rf_best_transform['transform'],
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        random_state=random_state
-    )
-    
-    lr_feature_results, lr_best_acc, lr_best_config = test_feature_selection(
-        LogisticRegression, "Logistic Regression",
-        X_train, X_test, y_train, y_test, feature_names,
-        lr_best_transform['feature_importance'], lr_best_transform['transform'],
-        random_state=random_state
-    )
-    results = [rf_best_config, lr_best_config]
-    best_acc = [rf_best_acc, lr_best_acc]
-    best_config = results[np.argmax(best_acc)]
-    return best_config
-
-def tune_hyperparameters(best_config, hp_config):
-    best_type = best_config['model_type']
-    X_train, X_test, y_train, y_test = best_config['X_train'], best_config['X_test'], best_config['y_train'], best_config['y_test']
-
-    base_config = hp_config.get('base_model', '')[best_type.__name__]
-    base_model = get_model(best_type, **base_config)
-    hp_grid = hp_config.get(best_config['model_type'].__name__, '') 
+    y_train, y_test = dataset.y_train, dataset.y_test
+    x_train, x_test = dataset.get_subset(best_features, transform)
 
     search = GridSearchCV(base_model, hp_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    search.fit(X_train, y_train)
+    search.fit(x_train, y_train)
 
     best_model = search.best_estimator_
     best_params = search.best_params_
     cv_score = search.best_score_
-    test_acc = best_model.score(X_test, y_test)
+    test_acc = best_model.score(x_test, y_test)
 
-    y_pred_proba = best_model.predict_proba(X_test)[:, 1]
+    y_pred_proba = best_model.predict_proba(x_test)[:, 1]
     roc_auc = roc_auc_score(y_test, y_pred_proba)
 
-    cm = confusion_matrix(y_test, best_model.predict(X_test))
-    report = classification_report(y_test, best_model.predict(X_test), output_dict=True)['weighted avg']
+    cm = confusion_matrix(y_test, best_model.predict(x_test))
+    report = classification_report(y_test, best_model.predict(x_test), output_dict=True)['weighted avg']
     return {
         'model' : best_model,
         'best_params': best_params,
@@ -167,6 +162,6 @@ def tune_hyperparameters(best_config, hp_config):
         'f1' : report['f1-score'],
         'precision' : report['precision'],
         'recall' : report['recall'],
-        'features': best_config['features'],
-        'transform': best_config['transform']
+        'features': best_features,
+        'transform': transform
     }

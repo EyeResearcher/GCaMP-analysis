@@ -27,6 +27,7 @@ class ClassifierDataset:
 
         self.feature_names : list[str] = None
         
+
     @classmethod
     def build(cls, splits: list[np.ndarray], feature_names : list[str] = None) -> "ClassifierDataset":
         instance = cls()
@@ -43,5 +44,11 @@ class ClassifierDataset:
     
     def transform_data(self):
         self.transform_x()
-        
-    
+
+    def get_subset(self, top, transform_name):
+        train = self.x_train.transformed_data[transform_name]
+        test = self.x_test.transformed_data[transform_name]
+        feat_idx = [self.feature_names.index(f) for f in top]
+        train_subset = train[:, feat_idx]
+        test_subset = test[:, feat_idx]
+        return train_subset, test_subset
