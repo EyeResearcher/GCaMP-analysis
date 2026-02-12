@@ -29,12 +29,13 @@ class ClassifierDataset:
         
 
     @classmethod
-    def build(cls, splits: list[np.ndarray], feature_names : list[str] = None) -> "ClassifierDataset":
+    def build(cls, data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], feature_names : list[str] = None) -> "ClassifierDataset":
         instance = cls()
-        instance.x_train = DataSplit(splits[0])
-        instance.x_test = DataSplit(splits[1])
-        instance.y_train = DataSplit(splits[2])
-        instance.y_test = DataSplit(splits[3])
+        
+        instance.x_train = DataSplit(data[0])
+        instance.x_test = DataSplit(data[1])
+        instance.y_train = DataSplit(data[2])
+        instance.y_test = DataSplit(data[3])
         instance.feature_names = feature_names
         return instance
     
@@ -45,7 +46,11 @@ class ClassifierDataset:
     def transform_data(self):
         self.transform_x()
 
-    def get_subset(self, top, transform_name):
+    def get_subset(self, top=None, transform_name='raw'):
+
+        if top is None:
+            top = self.feature_names
+    
         train = self.x_train.transformed_data[transform_name]
         test = self.x_test.transformed_data[transform_name]
         feat_idx = [self.feature_names.index(f) for f in top]
