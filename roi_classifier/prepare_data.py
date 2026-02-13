@@ -17,6 +17,7 @@ sys.path.insert(0, str(project_root))
 from utils.model_utils.rois import compute_roi_features
 from utils.preprocessing import normalize_minmax
 from utils.label_utils import get_label_value, create_label_dict, normalize_label_format
+from utils.io_utils import create_backup
 
 
 # =============================================================================
@@ -78,7 +79,11 @@ def process_video(video_path: Path, sigma: float = 4.0) -> list[tuple[str, dict]
         return []
     
     f = np.load(fluorescence_file)
-    scaled_f = normalize_minmax(f, scaled_f_file) if not scaled_f_file.exists() else np.load(scaled_f_file)
+    if scaled_f_file.exists():
+        scaled_f = np.load(scaled_f_file)
+    else:
+        scaled_f = normalize_minmax(f)
+        np.save(scaled_f_file, scaled_f)
     smoothed_f = gaussian_filter1d(scaled_f, sigma=sigma, axis=1)
     
     return [
@@ -173,29 +178,6 @@ def process_dataset(dataset_root: Path, verbose: bool = True) -> dict:
                 print(f"Processed {video_path.name}: {len(video_rois)} ROIs")
     
     return dict(all_rois)
-
-
-def create_backup(input_path: Path) -> Path:
-    """
-    Create timestamped backup of a file.
-    
-    Parameters
-    ----------
-    input_path : Path
-        Path to file to backup
-    
-    Returns
-    -------
-    backup_path : Path
-        Path to created backup
-    """
-    import shutil
-    from datetime import datetime
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = input_path.with_suffix(f'.backup_{timestamp}.npy')
-    shutil.copy(input_path, backup_path)
-    return backup_path
 
 
 def prepare_roi_data(

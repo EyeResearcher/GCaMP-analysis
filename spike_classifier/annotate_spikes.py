@@ -60,39 +60,6 @@ from classifier_pipeline.io_utils import load_roi_data, save_roi_data
 
 
 # =============================================================================
-# Data I/O
-# =============================================================================
-
-def load_spike_data(npy_path: Path) -> dict:
-    """Load spike data from .npy file.
-    
-    Parameters
-    ----------
-    npy_path : Path
-        Path to the .npy file containing ROI/spike data.
-    
-    Returns
-    -------
-    npy_dict : dict
-        Dictionary of ROI data with nested spike dicts.
-    """
-    return load_roi_data(npy_path, verbose=True)
-
-
-def save_spike_data(npy_dict: dict, npy_path: Path) -> None:
-    """Save spike data to .npy file.
-    
-    Parameters
-    ----------
-    npy_dict : dict
-        Dictionary of ROI data with nested spike dicts.
-    npy_path : Path
-        Path to save the .npy file.
-    """
-    save_roi_data(npy_dict, npy_path, verbose=True)
-
-
-# =============================================================================
 # Keys + label updates
 # =============================================================================
 
@@ -690,7 +657,7 @@ class SpikeAnnotationByROISession:
         self._load_roi(new_pos)
 
     def _save(self) -> None:
-        save_spike_data(self.npy_dict, self.cfg.data_path)
+        save_roi_data(self.npy_dict, self.cfg.data_path, verbose=True)
 
     def _save_and_quit(self) -> None:
         self._save()
@@ -749,7 +716,7 @@ def annotate_spikes_by_roi(
     checkpoint_interval:
         Auto-save after every N labeled spikes.
     """
-    npy_dict = load_spike_data(data_path)
+    npy_dict = load_roi_data(data_path, verbose=True)
 
     cfg = SessionConfig(
         data_path=data_path,

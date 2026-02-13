@@ -108,3 +108,26 @@ def load_model(models_config: Dict, which: str) -> tuple:
             logger.warning("%s config not found at %s — continuing without it.", which, config_path)
 
     return model, model_cfg
+
+
+def create_backup(input_path: Path) -> Path:
+    """
+    Create timestamped backup of a file.
+
+    Parameters
+    ----------
+    input_path : Path
+        Path to file to backup
+
+    Returns
+    -------
+    backup_path : Path
+        Path to created backup
+    """
+    import shutil
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = input_path.with_suffix(f'.backup_{timestamp}.npy')
+    shutil.copy(input_path, backup_path)
+    return backup_path

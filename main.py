@@ -95,10 +95,23 @@ def main(
 
 
 if __name__ == "__main__":
-    # Example usage
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run GCaMP analysis pipeline")
+    parser.add_argument("experiment_root", type=Path, help="Root directory of the experiment")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/pipeline_config.yaml"),
+        help="Path to pipeline config YAML (default: config/pipeline_config.yaml)",
+    )
+    parser.add_argument("--output", type=Path, default=None, help="Output root (defaults to experiment_root)")
+    parser.add_argument("--quiet", action="store_true", help="Suppress verbose output")
+    args = parser.parse_args()
+
     main(
-        experiment_root=Path(r"C:\Users\mzinn1\Desktop\test_tree\ex345"),
-        config_path=Path(r"C:\Users\mzinn1\Desktop\Scripts\GCaMP-analysis\config\pipeline_config.yaml"),
-        output_root=None,   # defaults to experiment_root
-        verbose=False,
+        experiment_root=args.experiment_root,
+        config_path=args.config,
+        output_root=args.output,
+        verbose=not args.quiet,
     )

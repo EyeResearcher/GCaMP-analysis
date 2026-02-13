@@ -31,28 +31,6 @@ def print_dataset_summary(feature_names, y_train, y_test, manual_only=True):
     print(f"\nTraining on: {'Manual labels only' if manual_only else 'Manual + Auto labels'}")
 
 
-def print_split_summary(y_train, y_test):
-    """
-    Print summary of train/test split.
-    
-    Parameters
-    ----------
-    y_train : np.ndarray
-        Training labels
-    y_test : np.ndarray
-        Testing labels
-    """
-    print(f"Train/Test Split Summary")
-    print(f"Total training samples: {len(y_train)}")
-    print(f"Total testing samples: {len(y_test)}")
-    print(f"Training label distribution:")
-    print(f"  - Bad (0):  {(y_train == 0).sum()}")
-    print(f"  - Good (1): {(y_train == 1).sum()}")
-    print(f"Testing label distribution:")
-    print(f"  - Bad (0):  {(y_test == 0).sum()}")
-    print(f"  - Good (1): {(y_test == 1).sum()}")
-
-
 def print_tuned_summary(results: OptimizationResults) -> None:
     """
     Print summary of the tuned model results.

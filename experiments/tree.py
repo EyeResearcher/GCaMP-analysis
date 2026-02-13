@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from posixpath import sep
 from typing import Callable, Optional, Any
 
 from experiments.summary_utils import StatSummary
