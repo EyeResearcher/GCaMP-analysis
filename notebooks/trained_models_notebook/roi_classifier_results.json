@@ -1,0 +1,39 @@
+{
+  "best_params": {
+    "class_weight": "balanced",
+    "max_depth": 10,
+    "min_samples_leaf": 2,
+    "min_samples_split": 10,
+    "n_estimators": 50
+  },
+  "cv_acc": 0.9730333295926383,
+  "test_acc": 0.9580838323353293,
+  "roc_auc": 0.9945072190834903,
+  "confusion_matrix": [
+    [
+      56,
+      3
+    ],
+    [
+      4,
+      104
+    ]
+  ],
+  "f1": 0.9581624712271762,
+  "precision": 0.9583151454101143,
+  "recall": 0.9580838323353293,
+  "features": [
+    "peak_density",
+    "ac_decay",
+    "range_trace",
+    "derivative_skew",
+    "var_of_var",
+    "spike_prom_skew",
+    "snr_estimate",
+    "median_spike_prom",
+    "spike_prom_mean",
+    "derivative_asymmetry"
+  ],
+  "transform": "raw",
+  "model_type": "RandomForestClassifier"
+}

@@ -23,7 +23,7 @@ def train_spike_classifier(config_path : Path, data_path: Path,
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
 
     runner = PipelineRunner(config, verbose=verbose)    
-    results = runner.run([x_train, x_test, y_train, y_test])
+    results = runner.run(x_train, x_test, y_train, y_test)
     if verbose:
         print_tuned_summary(results)
     

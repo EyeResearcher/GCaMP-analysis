@@ -18,13 +18,13 @@ def train_roi_classifier(config_path : Path, data_path: Path,
                         overwrite: bool) -> OptimizationResults:
 
     config = load_config(config_path)
-    data = load_roi_data(data_path, manual_only=manual_only)
+    data = load_roi_data(data_path, verbose=verbose)
     x, y = load_labeled_roi_data(data, manual_only=manual_only)
     
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
 
     runner = PipelineRunner(config, verbose=verbose)    
-    results = runner.run([x_train, x_test, y_train, y_test])
+    results = runner.run(x_train, x_test, y_train, y_test)
     if verbose:
         print_tuned_summary(results)
     

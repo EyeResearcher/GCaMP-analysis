@@ -1,0 +1,28 @@
+{
+  "best_params": {},
+  "cv_acc": 0.9670407361687803,
+  "test_acc": 0.9580838323353293,
+  "roc_auc": 0.9920747018204645,
+  "confusion_matrix": [
+    [
+      56,
+      3
+    ],
+    [
+      4,
+      104
+    ]
+  ],
+  "f1": 0.9581624712271762,
+  "precision": 0.9583151454101143,
+  "recall": 0.9580838323353293,
+  "features": [
+    "peak_density",
+    "ac_decay",
+    "derivative_skew",
+    "range_trace",
+    "var_of_var"
+  ],
+  "transform": "log",
+  "model_type": "RandomForestClassifier"
+}
