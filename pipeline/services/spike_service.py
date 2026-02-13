@@ -29,7 +29,7 @@ class SpikeService:
     factory: SpikeFactory = field(default_factory=SpikeFactory)
     summarizer: NeuronSpikeSummary = field(default_factory=NeuronSpikeSummary)
 
-    def extract_spike_features(self, video: "Video") -> pd.DataFrame:
+    def extract_spike_features(self, video: "Video", dist: int = 20) -> pd.DataFrame:
         """
         Populates on each neuron:
           - spk_features (list[dict])
@@ -37,13 +37,14 @@ class SpikeService:
           - n_peaks_raw (int)
         Returns flattened feature dataframe for inference.
         """
-        results = Parallel(n_jobs=self.n_jobs)(
-            delayed(self.detector.extract_candidate_features)(
-                video.norm_sm_f[neuron.index, :],
-                roi_idx=int(neuron.index),
-            )
-            for neuron in video.neurons
-        )
+        f = video.norm_sm_f
+        all_n = video.neurons
+        results = Parallel(
+                    n_jobs=self.n_jobs)(delayed(
+                    self.detector.get_feats)(f[n.index, :],
+                                             int(n.index),
+                                            dist=dist)
+                                                      for n in all_n)
 
         spike_features_flat: list[dict] = []
         for neuron, (feats_list, peaks) in zip(video.neurons, results):

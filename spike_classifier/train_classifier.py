@@ -1,61 +1,52 @@
-"""
-Train ROI classifiers (Random Forest and Logistic Regression).
+"""Train spike classifier.
 
-Tests different feature transformations and compares model performance.
-Only trains on manually labeled ROIs.
+Thin wrapper around the generic ``classifier_pipeline.main.train_classifier``
+with ``classifier_type="spike"``.
 """
 import argparse
 from pathlib import Path
-from classifier_pipeline.run_pipeline import PipelineRunner
-from classifier_pipeline.io_utils import load_config, load_roi_data, load_labeled_spike_data, save_optimization_outputs
-from sklearn.model_selection import train_test_split
-from classifier_pipeline.verbose_utils import print_tuned_summary
+
+from classifier_pipeline.main import train_classifier
 from classifier_pipeline.optimize import OptimizationResults
 
-def train_spike_classifier(config_path : Path, data_path: Path, 
-                          name : str, output_dir: Path, verbose: bool,
-                          manual_only: bool) -> OptimizationResults:    
 
-    config = load_config(config_path)
-    data = load_roi_data(data_path, verbose=verbose)
-    x, y = load_labeled_spike_data(data, manual_only=manual_only)
-    
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+def train_spike_classifier(
+    config_path: Path,
+    data_path: Path,
+    name: str,
+    output_dir: Path = None,
+    verbose: bool = True,
+    manual_only: bool = True,
+    **kwargs,
+) -> OptimizationResults:
+    """Train a spike classifier. See :func:`classifier_pipeline.main.train_classifier`."""
+    return train_classifier(
+        config_path=config_path,
+        data_path=data_path,
+        name=name,
+        classifier_type="spike",
+        output_dir=output_dir,
+        verbose=verbose,
+        manual_only=manual_only,
+    )
 
-    runner = PipelineRunner(config, verbose=verbose)    
-    results = runner.run(x_train, x_test, y_train, y_test)
-    if verbose:
-        print_tuned_summary(results)
-    
-    if output_dir is not None:
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        save_optimization_outputs(results, output_dir, name, verbose=verbose)
-        
-        if verbose:
-            print(f"Saved results to {output_dir}")
-    
-    return results
 
 def main():
-    parser = argparse.ArgumentParser(description="Train ROI classifier with feature transformation testing")
+    parser = argparse.ArgumentParser(description="Train spike classifier")
     parser.add_argument("--config", type=str, default=None,
                        help="Path to configuration file")
-    parser.add_argument("--data_path", type=str, 
+    parser.add_argument("--data_path", type=str,
                        default="training_data/roi_filtering/all_roi_features.npy",
-                       help="Path to ROI data file")
+                       help="Path to data file")
     parser.add_argument("--output_dir", type=str,
-                       default="roi_classifier/models",
+                       default="spike_classifier/models",
                        help="Directory to save models")
     parser.add_argument("--name", type=str, default=None,
                        help="Name for the model")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable verbose output", default=True)
     parser.add_argument("-m", "--manual_only", action="store_true",
-                        help="Use only manually labeled ROIs", default=True)
-    parser.add_argument("-o", "--overwrite", action="store_true",
-                        help="Overwrite existing models of the same name", default=True)
+                        help="Use only manually labeled spikes", default=True)
     args = parser.parse_args()
 
     train_spike_classifier(
@@ -65,7 +56,6 @@ def main():
         output_dir=Path(args.output_dir),
         verbose=args.verbose,
         manual_only=args.manual_only,
-        overwrite=args.overwrite
     )
 
 

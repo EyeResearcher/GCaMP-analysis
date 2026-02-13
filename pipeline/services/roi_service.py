@@ -16,24 +16,6 @@ from pipeline.reports import ROIReport
 if TYPE_CHECKING:
     from data_classes.video import Video
 
-from dataclasses import dataclass
-from typing import List, Optional, Any
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-import numpy as np
-import pandas as pd
-from joblib import Parallel, delayed
-
-from classifier_pipeline.datasets import apply_transform
-from data_classes.roi import ROI
-from data_classes.neuron import Neuron
-from typing import TYPE_CHECKING
-
-from pipeline.reports import ROIReport
-if TYPE_CHECKING:
-    from data_classes.video import Video
-
 
 def _get_feature_names(model: Any) -> list[str]:
     """
