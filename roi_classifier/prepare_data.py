@@ -1,234 +1,337 @@
-"""Process fluorescence data from multiple videos to extract ROI features for classifier training.
+"""
+Prepare ROI features from Suite2p fluorescence data.
 
-This script extracts all video paths from a specified dataset root directory. For each video, it computes the 
-Cascade spike probabilities using a pre-trained model and normalizes the fluorescence traces using Min-Max scaling.
-Both the normalized fluorescence and spike probabilities are smoothed using a Gaussian filter with sigma = 4. 
-
-For each ROI in each video, comprehensive features are extracted including:
-- Derivative-based: skewness and asymmetry of trace derivatives
-- Spike prominence: mean and skew of left-based peak prominences
-- Trace dynamics: rolling variance-of-variance, autocorrelation decay
-- Signal quality: SNR estimate, peak density, median spike prominence
-
-The extracted features, along with the smoothed trace, are stored in a dictionary format:
-    {roi_key: {'smoothed_f_trace': smoothed_f_trace,
-               'raw_traces': [raw_f_trace, raw_spike_prob],
-               'features': {...comprehensive feature dict...}, 
-               'label': {'value': -1, 'source': 'unlabeled'},
-               'spikes': {}}}
-
-The output is saved as a .npy file only (no JSON to avoid corruption issues)."""
-import sys
-from pathlib import Path
-
-from traitlets import Any
-project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
+Extracts comprehensive ROI features from fluorescence traces and saves to .npy file.
+Supports both processing raw videos and updating existing feature files.
+"""
 import argparse
+from pathlib import Path
+from typing import Any
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+
+import sys
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
+
 from utils.model_utils.rois import compute_roi_features
 from utils.preprocessing import normalize_minmax
-from roi_classifier.utils import get_label_value
+from classifier_pipeline.utils import get_label_value, create_label_dict
+
 
 # =============================================================================
-# Label Format Utilities
+# Label Utilities
 # =============================================================================
 
 def normalize_label_format(label_value) -> dict:
     """
     Convert old label format (int) to new format (dict).
     
-    Args:
-        label_value: Either int (-1/0/1) or dict with 'value' and 'source' keys
+    Parameters
+    ----------
+    label_value : int | dict
+        Either int (-1/0/1) or dict with 'value' and 'source' keys
     
-    Returns:
-        dict: {'value': -1/0/1, 'source': 'manual'/'classifier'/'unlabeled'/'auto'}
+    Returns
+    -------
+    label : dict
+        Standardized label dict with 'value' and 'source' keys
     """
-    if isinstance(label_value, dict):
-        if 'value' in label_value and 'source' in label_value:
-            return label_value
-        return {'value': -1, 'source': 'unlabeled'}
+    if isinstance(label_value, dict) and 'value' in label_value and 'source' in label_value:
+        return label_value
     
-    if label_value == -1:
-        return {'value': -1, 'source': 'unlabeled'}
-    elif label_value in [0, 1]:
-        return {'value': int(label_value), 'source': 'auto'}
-    else:
-        return {'value': -1, 'source': 'unlabeled'}
+    if label_value in [0, 1]:
+        return create_label_dict(int(label_value), 'auto')
+    return create_label_dict(-1, 'unlabeled')
 
 
+# =============================================================================
+# ROI Processing
+# =============================================================================
 
-
-
-
-
-def process_roi(smoothed_f_trace: np.ndarray, 
-                raw_trace: np.ndarray) -> dict:
-    """Process a single ROI and extract comprehensive features, auto-label if necessary.
-    Args: 
-        smoothed_f_trace: Smoothed fluorescence trace (1D array)
-        raw_trace: Raw fluorescence trace (1D array)  
-    Returns:
-        dict: Dictionary containing processed ROI data including features, label, and traces:
-            {'smoothed_f_trace': smoothed_f_trace,
-             'raw_traces': [raw_trace],
-             'features': {...comprehensive feature dict...},
-                'label': {'value': -1/0/1, 'source': 'unlabeled'/'auto'},
+def process_roi(smoothed_f_trace: np.ndarray, raw_trace: np.ndarray) -> dict:
     """
-
+    Process a single ROI and extract features.
+    
+    Parameters
+    ----------
+    smoothed_f_trace : np.ndarray
+        Smoothed fluorescence trace (1D)
+    raw_trace : np.ndarray
+        Raw fluorescence trace (1D)
+    
+    Returns
+    -------
+    roi_data : dict
+        Dictionary with traces, features, label, and spikes
+    """
     features, validity = compute_roi_features(smoothed_f_trace)
+    
+    # Auto-label as bad if critical features are invalid
     critical_valid = validity.get('valid_deriv_skew', True) and validity.get('valid_prom', True)
-    label = {'value': 0, 'source': 'auto'} if not critical_valid else {'value': -1, 'source': 'unlabeled'}
+    label = create_label_dict(0, 'auto') if not critical_valid else create_label_dict(-1, 'unlabeled')
     
     return {
-            'smoothed_trace': smoothed_f_trace,
-            'raw_trace': raw_trace,
-            'features': features,
-            'label': label,
-            'spikes': {} 
-            }
+        'smoothed_trace': smoothed_f_trace,
+        'raw_trace': raw_trace,
+        'features': features,
+        'label': label,
+        'spikes': {}
+    }
 
 
-def process_video(video_path: Path) -> list:
-    """Process a video and extract ROI features.
-    Args:
-        video_path: Path to the video directory containing Suite2p outputs
-    Returns:
-        list: List of tuples (roi_key, roi_data_dict) for each ROI in the video
+def process_video(video_path: Path, sigma: float = 4.0) -> list[tuple[str, dict]]:
+    """
+    Process a video and extract ROI features.
+    
+    Parameters
+    ----------
+    video_path : Path
+        Path to video directory containing Suite2p outputs
+    sigma : float, optional
+        Gaussian smoothing sigma, by default 4.0
+    
+    Returns
+    -------
+    video_rois : list[tuple[str, dict]]
+        List of (roi_key, roi_data) tuples
     """
     fluorescence_file = video_path / 'suite2p' / 'plane0' / 'F.npy'
     scaled_f_file = video_path / 'suite2p' / 'plane0' / 'F_minmax.npy'
     
     if not fluorescence_file.exists():
-        print(f"Fluorescence file not found for video: {video_path}")
+        print(f"Warning: F.npy not found in {video_path}")
         return []
     
-    f: np.ndarray = np.load(fluorescence_file)
+    f = np.load(fluorescence_file)
     scaled_f = normalize_minmax(f, scaled_f_file) if not scaled_f_file.exists() else np.load(scaled_f_file)
-    smoothed_scaled_f = gaussian_filter1d(scaled_f, sigma=4.0, axis=1)
+    smoothed_f = gaussian_filter1d(scaled_f, sigma=sigma, axis=1)
     
-    video_rois = []
-    for roi_idx in range(f.shape[0]):
-        roi_data = process_roi(
-            smoothed_f_trace=smoothed_scaled_f[roi_idx],
-            raw_trace=f[roi_idx]
-        )
-        roi_key = f"{video_path.name}_{roi_idx}"
-        video_rois.append((roi_key, roi_data))
-    
-    return video_rois
+    return [
+        (f"{video_path.name}_{idx}", process_roi(smoothed_f[idx], f[idx]))
+        for idx in range(f.shape[0])
+    ]
 
 
 # =============================================================================
 # Update Existing Data
 # =============================================================================
 
-def update_roi_features(roi_dict: dict[str, dict[str, Any ]]) -> dict:
-    """Update ROI features while preserving spike data and labels."""
-    updated_dict = {}
+def update_roi_features(roi_dict: dict[str, dict[str, Any]], verbose: bool = True) -> dict:
+    """
+    Update ROI features while preserving labels and spike data.
     
-    n_rois_processed = 0
-    n_labels_preserved = 0
-    n_spikes_preserved = 0
+    Parameters
+    ----------
+    roi_dict : dict[str, dict[str, Any]]
+        Existing ROI dictionary
+    verbose : bool, optional
+        Whether to print summary, by default True
+    
+    Returns
+    -------
+    updated_dict : dict
+        Updated ROI dictionary with recomputed features
+    """
+    updated_dict = {}
+    stats = {'processed': 0, 'labels_preserved': 0, 'spikes_preserved': 0}
     
     for roi_key, roi_data in roi_dict.items():
-        smoothed_f_trace = roi_data.get('smoothed_trace', np.array([]))
-        if smoothed_f_trace.size == 0:
-            print(f"Skipping ROI {roi_key} due to missing smoothed trace.")
+        smoothed_trace = roi_data.get('smoothed_trace', np.array([]))
+        if smoothed_trace.size == 0:
+            print(f"Warning: Skipping {roi_key} - missing smoothed trace")
             continue
         
-        # Recompute ROI features
-        features, validity = compute_roi_features(smoothed_f_trace)
-        
-        # Normalize label to new dict format
-        existing_label = get_label_value(roi_data.get('label', -1))
-        label_dict = normalize_label_format(existing_label)
-        
-        if label_dict['value'] in [0, 1] and label_dict['source'] == 'manual':
-            n_labels_preserved += 1
-        
-        # Preserve all spike data
+        features, _ = compute_roi_features(smoothed_trace)
+        label = normalize_label_format(roi_data.get('label', -1))
         spikes = roi_data.get('spikes', {})
-        if spikes:
-            n_spikes_preserved += len(spikes)
         
-        updated_dict[roi_key] = {'smoothed_trace': smoothed_f_trace,
-                                'raw_trace': roi_data.get('raw_trace'),
-                                'features': features,
-                                'label': label_dict,
-                                'spikes': spikes
-                                }
+        # Track preserved data
+        if label['value'] in [0, 1] and label['source'] == 'manual':
+            stats['labels_preserved'] += 1
+        stats['spikes_preserved'] += len(spikes)
         
-        n_rois_processed += 1
+        updated_dict[roi_key] = {
+            'smoothed_trace': smoothed_trace,
+            'raw_trace': roi_data.get('raw_trace'),
+            'features': features,
+            'label': label,
+            'spikes': spikes
+        }
+        stats['processed'] += 1
     
-    print(f"\n✅ Updated {n_rois_processed} ROIs")
-    print(f"  - Preserved {n_labels_preserved} manual ROI labels")
-    print(f"  - Preserved {n_spikes_preserved} spikes")
+    if verbose:
+        print(f"\nUpdated {stats['processed']} ROIs")
+        print(f"  - Preserved {stats['labels_preserved']} manual labels")
+        print(f"  - Preserved {stats['spikes_preserved']} spikes")
     
     return updated_dict
 
 
 # =============================================================================
-# Main Entry Points
+# Main Pipeline Functions
+# =============================================================================
+
+def process_dataset(dataset_root: Path, verbose: bool = True) -> dict:
+    """
+    Process all videos in a dataset directory.
+    
+    Parameters
+    ----------
+    dataset_root : Path
+        Root directory containing video folders
+    verbose : bool, optional
+        Whether to print progress, by default True
+    
+    Returns
+    -------
+    roi_dict : dict
+        Dictionary of all ROIs from all videos
+    """
+    video_paths = [p for p in dataset_root.iterdir() if p.is_dir()]
+    all_rois = []
+    
+    for video_path in video_paths:
+        video_rois = process_video(video_path)
+        if video_rois:
+            all_rois.extend(video_rois)
+            if verbose:
+                print(f"Processed {video_path.name}: {len(video_rois)} ROIs")
+    
+    return dict(all_rois)
+
+
+def create_backup(input_path: Path) -> Path:
+    """
+    Create timestamped backup of a file.
+    
+    Parameters
+    ----------
+    input_path : Path
+        Path to file to backup
+    
+    Returns
+    -------
+    backup_path : Path
+        Path to created backup
+    """
+    import shutil
+    from datetime import datetime
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = input_path.with_suffix(f'.backup_{timestamp}.npy')
+    shutil.copy(input_path, backup_path)
+    return backup_path
+
+
+def prepare_roi_data(
+    dataset_root: Path = None,
+    input_file: Path = None,
+    output_file: Path = None,
+    update: bool = False,
+    backup: bool = True,
+    verbose: bool = True
+) -> dict:
+    """
+    Prepare ROI data by processing videos or updating existing file.
+    
+    Parameters
+    ----------
+    dataset_root : Path, optional
+        Root directory for raw video processing
+    input_file : Path, optional
+        Input file for update mode
+    output_file : Path, optional
+        Output file path
+    update : bool, optional
+        Whether to update existing file, by default False
+    backup : bool, optional
+        Whether to create backup in update mode, by default True
+    verbose : bool, optional
+        Whether to print progress, by default True
+    
+    Returns
+    -------
+    roi_dict : dict
+        Processed ROI dictionary
+    
+    Raises
+    ------
+    ValueError
+        If required paths are not provided
+    """
+    if update:
+        if input_file is None or not input_file.exists():
+            raise ValueError(f"Input file required for update mode: {input_file}")
+        
+        if backup:
+            backup_path = create_backup(input_file)
+            if verbose:
+                print(f"Created backup: {backup_path}")
+        
+        roi_dict = np.load(input_file, allow_pickle=True).item()
+        
+        if verbose:
+            _print_data_summary(roi_dict)
+        
+        roi_dict = update_roi_features(roi_dict, verbose=verbose)
+    else:
+        if dataset_root is None or not dataset_root.exists():
+            raise ValueError(f"Dataset root required for processing: {dataset_root}")
+        
+        roi_dict = process_dataset(dataset_root, verbose=verbose)
+    
+    if output_file is not None:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        np.save(output_file, roi_dict)
+        if verbose:
+            print(f"\nSaved {len(roi_dict)} ROIs to {output_file}")
+    
+    return roi_dict
+
+
+def _print_data_summary(roi_dict: dict) -> None:
+    """Print summary of existing ROI data."""
+    n_good = sum(1 for r in roi_dict.values() if get_label_value(r.get('label')) == 1)
+    n_bad = sum(1 for r in roi_dict.values() if get_label_value(r.get('label')) == 0)
+    n_unlabeled = sum(1 for r in roi_dict.values() if get_label_value(r.get('label')) == -1)
+    total_spikes = sum(len(r.get('spikes', {})) for r in roi_dict.values())
+    
+    print(f"\nCurrent Data:")
+    print(f"  - Good: {n_good}, Bad: {n_bad}, Unlabeled: {n_unlabeled}")
+    print(f"  - Total spikes: {total_spikes}")
+
+
+# =============================================================================
+# CLI Entry Point
 # =============================================================================
 
 def main():
-    """Extract ROI features from Suite2p data and save to .npy file."""
-    argparser = argparse.ArgumentParser(description='Prepare ROI features from Suite2p fluorescence data')
-    argparser.add_argument('--dataset_root', type=str, default=r"C:\Users\mzinn1\Desktop\Datasets")
-    argparser.add_argument('--update', action='store_true', 
-                                        help='Update existing features instead of processing raw videos')
-    argparser.add_argument('--input_file', type=str, 
-                                        default='training_data/roi_filtering/all_roi_features.npy',
-                                        help='Input file for update mode')
-    argparser.add_argument('--backup', action='store_true', default=True,
-                                       help='Create backup before overwriting (update mode only)')
-    args = argparser.parse_args()
+    parser = argparse.ArgumentParser(description='Prepare ROI features from Suite2p data')
+    parser.add_argument('--dataset_root', type=str, default=r"C:\Users\mzinn1\Desktop\Datasets",
+                        help='Root directory containing video folders')
+    parser.add_argument('--input_file', type=str, 
+                        default='training_data/roi_filtering/all_roi_features.npy',
+                        help='Input file for update mode')
+    parser.add_argument('--output_file', type=str,
+                        default='training_data/roi_filtering/all_roi_features.npy',
+                        help='Output file path')
+    parser.add_argument('--update', action='store_true',
+                        help='Update existing features instead of processing raw videos')
+    parser.add_argument('--no-backup', action='store_true',
+                        help='Skip backup creation in update mode')
+    parser.add_argument('-q', '--quiet', action='store_true',
+                        help='Suppress output')
+    args = parser.parse_args()
     
-    dataset_root = Path(args.dataset_root)  
-    output_path = Path('training_data/roi_filtering')
-    output_path.mkdir(parents=True, exist_ok=True)
-    npy_file = output_path / 'all_roi_features.npy'
-    
-    if args.update:
-        input_path = Path(args.input_file)
-        if not input_path.exists():
-            print(f"Input file not found: {input_path}")
-            return
-        
-        roi_dict = np.load(input_path, allow_pickle=True).item()
-        n_good = sum(1 for roi in roi_dict.values() if get_label_value(roi.get('label')) == 1)
-        n_bad = sum(1 for roi in roi_dict.values() if get_label_value(roi.get('label')) == 0)
-        n_unlabeled = sum(1 for roi in roi_dict.values() if get_label_value(roi.get('label')) == -1)
-        total_spikes = sum(len(roi.get('spikes', {})) for roi in roi_dict.values())
-        
-        print(f"\nCurrent Data:")
-        print(f"  - Good ROIs: {n_good}, Bad ROIs: {n_bad}, Unlabeled: {n_unlabeled}")
-        print(f"  - Total spikes: {total_spikes}")
-        
-        if args.backup:
-            import shutil
-            from datetime import datetime
-            backup_path = input_path.with_suffix(f'.backup_{datetime.now():%Y%m%d_%H%M%S}.npy')
-            shutil.copy(input_path, backup_path)
-            print(f"\nCreated backup: {backup_path}")
-        
-        all_roi_dict = update_roi_features(roi_dict)
-
-    else:
-        video_paths = [path for path in dataset_root.iterdir() if path.is_dir()]
-        all_rois = []
-        
-        for video_path in video_paths:
-            video_rois = process_video(video_path)
-            if video_rois:
-                all_rois.extend(video_rois)
-        
-        all_roi_dict = dict(all_rois)
-    
-    np.save(npy_file, all_roi_dict)
-    print(f"\nSaved {len(all_roi_dict)} ROIs to {npy_file}")
+    prepare_roi_data(
+        dataset_root=Path(args.dataset_root),
+        input_file=Path(args.input_file),
+        output_file=Path(args.output_file),
+        update=args.update,
+        backup=not args.no_backup,
+        verbose=not args.quiet
+    )
 
 
 if __name__ == '__main__':

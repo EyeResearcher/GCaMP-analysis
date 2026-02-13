@@ -5,167 +5,71 @@ Tests different feature transformations and compares model performance.
 Only trains on manually labeled ROIs.
 """
 import argparse
-import json
-from datetime import datetime
-from typing import Any
-from xml.parsers.expat import model
-
-from sklearn.svm import SVC
-import numpy as np
-import pandas as pd
 from pathlib import Path
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV, train_test_split, cross_val_score
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
-import joblib
-from classifier_pipeline.datasets import ClassifierDataset, DataSplit
-from classifier_pipeline.utils import get_label_value, get_label_source, merge_dicts, get_model, train, get_feature_importance
-from classifier_pipeline.verbose_utils import print_dataset_summary, print_split_summary, print_tuned_summary
-from classifier_pipeline.optimize import test_configurations, test_feature_selection, tune_hyperparameters
-from classifier_pipeline.io_utils import load_roi_data, load_labeled_roi_data, save_model_and_config
+from classifier_pipeline.run_pipeline import PipelineRunner
+from classifier_pipeline.io_utils import load_config, load_roi_data, load_labeled_roi_data, save_optimization_outputs
+from sklearn.model_selection import train_test_split
+from classifier_pipeline.verbose_utils import print_split_summary, print_tuned_summary
+from classifier_pipeline.optimize import OptimizationResults
 
+def train_roi_classifier(config_path : Path, data_path: Path, 
+                        name : str, output_dir: Path,
+                        verbose: bool, manual_only: bool,
+                        overwrite: bool) -> OptimizationResults:
 
-
-
-
-
-
-
+    config = load_config(config_path)
+    data = load_roi_data(data_path, manual_only=manual_only)
+    labeled_data = load_labeled_roi_data(data, manual_only=manual_only)
     
+    splits = train_test_split(labeled_data[0], labeled_data[1], test_size=0.2, random_state=42)
 
-
-
-
-
-
-# =============================================================================
-# Model Saving
-# =============================================================================
-
-
-
-
-# =============================================================================
-# Main Entry Point
-# =============================================================================
-
-def train_roi_classifier(
-    data_path: Path,
-    output_dir: Path = None,
-    test_size: float = 0.2,
-    random_state: int = 42,
-    n_estimators: int = 100,
-    max_depth: int = None,
-    manual_only: bool = True,
-    save_model: bool = True,
-    hp_config: dict = None,
-    verbose: bool = True
-) -> dict:
-    """
-    Train ROI classifier with feature transformation testing.
-    
-    This is the main entry point for training. Tests Random Forest and 
-    Logistic Regression with different feature transformations and 
-    feature subsets.
-    
-    Parameters
-    ----------
-    data_path : Path
-        Path to ROI data .npy file
-    output_dir : Path, optional
-        Directory to save models. If None, models won't be saved.
-    test_size : float
-        Fraction of data for testing (default: 0.2)
-    random_state : int
-        Random seed for reproducibility (default: 42)
-    n_estimators : int
-        Number of trees for Random Forest (default: 100)
-    max_depth : int or None
-        Max depth for Random Forest (default: None = unlimited)
-    manual_only : bool
-        Only use manually labeled ROIs (default: True)
-    save_model : bool
-        Whether to save the best model (default: True)
-    verbose : bool
-        Print detailed output (default: True)
-    
-    Returns
-    -------
-    result : dict
-        Dictionary containing:
-        - 'best_model': The trained best model instance
-        - 'config': Configuration dict with model settings
-        - 'results_df': DataFrame with all results
-        - 'feature_names': List of feature names
-        - 'model_path': Path to saved model (if save_model=True)
-        - 'config_path': Path to saved config (if save_model=True)
-    """
-    
-    roi_dict = load_roi_data(data_path, verbose=False)
-    
-    X, y, feature_names, roi_keys = load_labeled_roi_data(roi_dict, manual_only=manual_only)
-    
     if verbose:
-        print_dataset_summary(feature_names, y, manual_only=manual_only)
-   
-    splits = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
-    )
-    dataset = ClassifierDataset.build(splits, feature_names)
-    if verbose:
-        print_split_summary(dataset.y_train.raw, dataset.y_test.raw)
+        print_split_summary(splits[1], splits[3])
 
-    best_config = test_configurations(dataset, verbose=verbose)
-    
-    best_config_tuned = tune_hyperparameters(best_config, hp_config)
-    
+    runner = PipelineRunner(config, labeled_data[2], verbose=verbose)    
+    results = runner.run(splits)
     if verbose:
-        print_tuned_summary(best_config_tuned)
+        print_tuned_summary(results)
     
-    model_path, config_path = save_model_and_config(
-            tuned_config=best_config_tuned,
-            feature_names=feature_names,
-            output_dir=output_dir,
-            n_train=len(dataset.y_train.raw),
-            n_test=len(dataset.y_test.raw),
-            manual_only=manual_only
-        )
-    best_config_tuned['model_path'] = model_path
-    best_config_tuned['config_path'] = config_path
-    return best_config_tuned
-
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        save_optimization_outputs(results, output_dir, name, verbose=verbose, overwrite=overwrite)
+        
+        if verbose:
+            print(f"Saved results to {output_dir}")
+    
+    return results
 
 def main():
     parser = argparse.ArgumentParser(description="Train ROI classifier with feature transformation testing")
+    parser.add_argument("--config", type=str, default=None,
+                       help="Path to configuration file")
     parser.add_argument("--data_path", type=str, 
                        default="training_data/roi_filtering/all_roi_features.npy",
                        help="Path to ROI data file")
     parser.add_argument("--output_dir", type=str,
                        default="roi_classifier/models",
                        help="Directory to save models")
-    parser.add_argument("--test_size", type=float, default=0.2,
-                       help="Fraction of data for testing")
-    parser.add_argument("--random_state", type=int, default=42,
-                       help="Random seed")
-    parser.add_argument("--n_estimators", type=int, default=100,
-                       help="Number of trees for Random Forest")
-    parser.add_argument("--max_depth", type=int, default=None,
-                       help="Max depth for Random Forest (None=unlimited)")
-    parser.add_argument("--include_auto", action='store_true',
-                       help="Include auto-labeled ROIs (default: manual only)")
+    parser.add_argument("--name", type=str, default=None,
+                       help="Name for the model")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Enable verbose output", default=True)
+    parser.add_argument("-m", "--manual_only", action="store_true",
+                        help="Use only manually labeled ROIs", default=True)
+    parser.add_argument("-o", "--overwrite", action="store_true",
+                        help="Overwrite existing models of the same name", default=True)
     args = parser.parse_args()
 
     train_roi_classifier(
+        config_path=Path(args.config),
         data_path=Path(args.data_path),
+        name=args.name,
         output_dir=Path(args.output_dir),
-        test_size=args.test_size,
-        random_state=args.random_state,
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth,
-        manual_only=not args.include_auto,
-        save_model=True,
-        verbose=True
+        verbose=args.verbose,
+        manual_only=args.manual_only,
+        overwrite=args.overwrite
     )
 
 

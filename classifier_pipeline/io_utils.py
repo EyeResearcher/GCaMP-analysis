@@ -8,10 +8,100 @@ import joblib
 import numpy as np
 import yaml
 from .optimize import OptimizationResults
+import pandas as pd
 
 def load_config(path: Path | str):
     with open(path, 'r') as f:
         return yaml.safe_load(f)
+    
+def load_labeled_spike_data(data_path: Path) -> tuple[np.ndarray, np.ndarray, list, list]:
+    """
+    Load labeled spike data from CSV and extract features from .npy file.
+    
+    Parameters
+    ----------
+    data_path : Path
+        Path to ROI data .npy file (CSV will be inferred)
+    
+    Returns
+    -------
+    X : np.ndarray
+        Feature matrix (n_samples, n_features)
+    y : np.ndarray
+        Labels (n_samples,)
+    feature_names : list
+        Names of features
+    spike_keys : list
+        Spike keys corresponding to each sample
+    """
+    # Load the CSV with spike keys and labels
+    csv_path = data_path.parent / f"{data_path.stem}_spike_keys.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Spike keys CSV not found: {csv_path}")
+    
+    df = pd.read_csv(csv_path)
+    
+    # Filter for labeled spikes only (label == 0 or 1, not -1)
+    labeled_df = df[df['label'].isin([0, 1])].copy()
+    
+    print(f"Total spikes: {len(df)}")
+    print(f"Labeled spikes: {len(labeled_df)}")
+    print(f"  - Good spikes (label=1): {(labeled_df['label'] == 1).sum()}")
+    print(f"  - Bad spikes (label=0): {(labeled_df['label'] == 0).sum()}")
+    
+    if len(labeled_df) == 0:
+        raise ValueError("No labeled spikes found! Please annotate some spikes first.")
+    
+    # Load the .npy file with all ROI data
+    npy_dict = np.load(data_path, allow_pickle=True).item()
+    
+    # Extract features for labeled spikes
+    features_list = []
+    labels_list = []
+    spike_keys_list = []
+    feature_names = None
+    
+    for _, row in labeled_df.iterrows():
+        spike_key = row['spike_key']
+        label = row['label']
+        
+        # Parse spike_key: "roi_key-spike_idx"
+        roi_key, spike_idx_str = spike_key.rsplit('-', 1)
+        spike_idx = int(spike_idx_str)
+        
+        # Get ROI data
+        if roi_key not in npy_dict:
+            print(f"Warning: ROI {roi_key} not found in .npy file, skipping spike {spike_key}")
+            continue
+        
+        roi_data = npy_dict[roi_key]
+        
+        # Get spike data
+        if 'spikes' not in roi_data or spike_idx not in roi_data['spikes']:
+            print(f"Warning: Spike {spike_idx} not found in ROI {roi_key}, skipping")
+            continue
+        
+        spike_data = roi_data['spikes'][spike_idx]
+        spike_features = spike_data['features']
+        
+        # Extract feature names on first iteration
+        if feature_names is None:
+            feature_names = sorted(spike_features.keys())
+        
+        # Extract feature values in consistent order
+        feature_values = [spike_features[fname] for fname in feature_names]
+        
+        features_list.append(feature_values)
+        labels_list.append(label)
+        spike_keys_list.append(spike_key)
+    
+    X = np.array(features_list)
+    y = np.array(labels_list)
+    feature_names = sorted(feature_names)
+    print(f"\nSuccessfully extracted features for {len(X)} labeled spikes")
+    print(f"Feature matrix shape: {X.shape}")
+    
+    return X, y, feature_names, spike_keys_list
 
 def load_labeled_roi_data(roi_dict: dict[str, dict[str, np.ndarray | dict ]],
                         manual_only: bool = True) -> tuple[np.ndarray, np.ndarray, list, list]:
@@ -155,7 +245,7 @@ def save_optimization_outputs(results: OptimizationResults, output_dir: Path,
 
     model_file = f"{model_name}.joblib"
     results_file = f"{model_name}_results.json"
-    
+
     if not overwrite:
         model_file = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
         results_file = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_results.json"
