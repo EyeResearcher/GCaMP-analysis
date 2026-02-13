@@ -52,7 +52,10 @@ import matplotlib.pyplot as plt
 from tkinter import Tk, Frame, Label, Button, Listbox, Scrollbar, StringVar, END, SINGLE
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from classifier_pipeline.utils import create_label_dict, get_label_value, get_label_source
+from utils.label_utils import (
+    create_label_dict, get_label_value, get_label_source,
+    update_spike_label, label_to_text, matches_label_mode as _spike_matches_mode,
+)
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
 
 
@@ -100,61 +103,6 @@ def parse_spike_key(spike_key: str) -> tuple[str, int]:
 
 def make_spike_key(roi_key: str, spike_idx: int) -> str:
     return f"{roi_key}-{int(spike_idx)}"
-
-
-def update_spike_label(npy_dict: dict, roi_key: str, spike_idx: int, new_label: int) -> bool:
-    """
-    Update the label for a spike in the npy_dict using standardized label dicts.
-    
-    Parameters
-    ----------
-    npy_dict : dict
-        Dictionary of ROI data.
-    roi_key : str
-        Key identifying the ROI.
-    spike_idx : int
-        Index of the spike within the ROI.
-    new_label : int
-        New label value (0 = bad, 1 = good).
-    
-    Returns
-    -------
-    changed : bool
-        True if the label was different from the existing one.
-    """
-    spike_idx = int(spike_idx)
-
-    current_label = get_label_value(npy_dict[roi_key]["spikes"][spike_idx].get("label", create_label_dict(-1, 'unlabeled')))
-    changed = (int(new_label) != current_label)
-
-    npy_dict[roi_key]["spikes"][spike_idx]["label"] = create_label_dict(int(new_label), 'manual')
-
-    return changed
-
-
-def label_to_text(label) -> str:
-    value = get_label_value(label) if isinstance(label, dict) else int(label)
-    if value == 1:
-        return "good"
-    if value == 0:
-        return "bad"
-    return "unlabeled"
-
-
-# =============================================================================
-# ROI selection
-# =============================================================================
-
-def _spike_matches_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bool:
-    if unlabeled_only and labeled_only:
-        raise ValueError("Choose at most one of unlabeled_only or labeled_only.")
-
-    value = get_label_value(label) if isinstance(label, dict) else int(label)
-    if unlabeled_only:
-        return value == -1
-    if labeled_only:
-        return value != -1
-    return True
 
 
 def collect_candidate_rois(

@@ -16,33 +16,7 @@ sys.path.insert(0, str(project_root))
 
 from utils.model_utils.rois import compute_roi_features
 from utils.preprocessing import normalize_minmax
-from classifier_pipeline.utils import get_label_value, create_label_dict
-
-
-# =============================================================================
-# Label Utilities
-# =============================================================================
-
-def normalize_label_format(label_value) -> dict:
-    """
-    Convert old label format (int) to new format (dict).
-    
-    Parameters
-    ----------
-    label_value : int | dict
-        Either int (-1/0/1) or dict with 'value' and 'source' keys
-    
-    Returns
-    -------
-    label : dict
-        Standardized label dict with 'value' and 'source' keys
-    """
-    if isinstance(label_value, dict) and 'value' in label_value and 'source' in label_value:
-        return label_value
-    
-    if label_value in [0, 1]:
-        return create_label_dict(int(label_value), 'auto')
-    return create_label_dict(-1, 'unlabeled')
+from utils.label_utils import get_label_value, create_label_dict, normalize_label_format
 
 
 # =============================================================================

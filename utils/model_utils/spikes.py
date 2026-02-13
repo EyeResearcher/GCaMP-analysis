@@ -513,7 +513,7 @@ def get_all_spike_features(smoothed_f, peaks, props : dict, mode = "train", roi_
     width_factor=1.5,
 )
     
-    from classifier_pipeline.utils import create_label_dict
+    from utils.label_utils import create_label_dict
 
     spike_data: Dict[int, Dict] = {}
     num_peaks = len(peaks)

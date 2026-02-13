@@ -6,7 +6,7 @@ import argparse
 import random
 from pathlib import Path
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from classifier_pipeline.utils import get_label_value, get_label_source, create_label_dict, get_keys
+from utils.label_utils import get_label_value, get_label_source, create_label_dict, get_keys
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
 from classifier_pipeline.verbose_utils import print_keys
 def select_rois_for_annotation(

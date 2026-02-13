@@ -4,70 +4,11 @@ import numpy as np
 from scipy.signal import find_peaks
 from utils.model_utils.spikes import get_all_spike_features
 from scipy.stats import skew
-from classifier_pipeline.utils import create_label_dict, get_label_value, get_label_source
+from utils.label_utils import (
+    create_label_dict, get_label_value, get_label_source,
+    normalize_spike_label, preserve_existing_label,
+)
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
-
-
-
-# =============================================================================
-# Label Utilities
-# =============================================================================
-
-def normalize_spike_label(label) -> dict:
-    """
-    Convert old spike label format (int or bare dict) to standardized format.
-    
-    Parameters
-    ----------
-    label : int | dict | None
-        Old format: int (-1/0/1), or dict with 'value'/'source' keys,
-        or None
-    
-    Returns
-    -------
-    label : dict
-        Standardized label dict with 'value' and 'source' keys
-    """
-    if label is None:
-        return create_label_dict(-1, 'unlabeled')
-    if isinstance(label, dict) and 'value' in label and 'source' in label:
-        return label
-    if isinstance(label, (int, np.integer)):
-        if label in (0, 1):
-            return create_label_dict(int(label), 'auto')
-        return create_label_dict(-1, 'unlabeled')
-    return create_label_dict(-1, 'unlabeled')
-
-
-def _preserve_existing_label(existing_spikes: dict, spike_idx, new_label: dict) -> dict:
-    """
-    Preserve a manually-annotated label from a prior session if one exists
-    for this spike index, otherwise return the new (detection-assigned) label.
-    
-    Parameters
-    ----------
-    existing_spikes : dict
-        Previously stored spike data keyed by spike index.
-    spike_idx : int
-        Index of the spike to look up.
-    new_label : dict
-        Default label assigned during current detection.
-    
-    Returns
-    -------
-    label : dict
-        Normalized label dict, preferring the existing manual label.
-    """
-    if spike_idx not in existing_spikes:
-        return new_label
-    
-    old_label = existing_spikes[spike_idx].get('label', None)
-    normalized = normalize_spike_label(old_label)
-    
-    # Only preserve labels that were explicitly set (manual or auto with value 0/1)
-    if get_label_value(normalized) != -1:
-        return normalized
-    return new_label
 
 
 # =============================================================================
@@ -183,7 +124,7 @@ def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None) -> D
         # Preserve existing manual labels, normalizing to dict format
         existing_spikes = roi_data.get('spikes', {})
         for spike_idx in spike_keys:
-            preserved = _preserve_existing_label(
+            preserved = preserve_existing_label(
                 existing_spikes, spike_idx, roi_spike_data[spike_idx]['label']
             )
             roi_spike_data[spike_idx]['label'] = preserved

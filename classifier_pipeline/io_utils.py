@@ -1,7 +1,7 @@
 import datetime
 import json
 from pathlib import Path
-from classifier_pipeline.utils import get_label_source, get_label_value
+from utils.label_utils import get_label_source, get_label_value
 import joblib
 import numpy as np
 import yaml
