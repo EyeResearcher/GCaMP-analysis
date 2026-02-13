@@ -4,5 +4,31 @@ This program lends a degree of lab-specific personalization to the analysis of G
 2. The Spike Classifier Module allows the user to train a lightweight classifier on, again, a small subset of naively detected peaks within their ROI data separate those peaks representative of a fluorescence event from those produced by excessive noise or some other irregularity. 
 3. The Analysis Pipeline leverages these classifiers onto the dataset as a whole to characterize neurons and identify their discrete fluorescence events, allowing for interpretable representations of calcium decay kinetics across the field of view. It also identifies correlated fluorescence signals to describe potentially synaptically connected neurons.
 
-## Quick Start 
-Running these programs can be done from either a command terminal or within curated jupyter notebooks that deliver continuous updates on the intermediate steps within a pipeline. 
+## Installation 
+### Prerequisites
+- Python 3.10+ 
+- [Anaconda](https://www.anaconda.com/download) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
+    - During installation, its advisable to check "Add to PATH" so conda is accessible 
+- [Suite2p](https://github.com/MouseLand/suite2p) output data
+### Setup
+First, open a command prompt or an anaconda prompt on your computer. Then,
+```bash
+# 1. Clone the repository (or download the zip directly from GitHub and open the main folder)
+git clone https://github.com/<your-username>/GCaMP-analysis.git
+
+# 2. Navigate to the main folder
+cd GCaMP-analysis
+
+# 3. Create a fully equipped conda environment 
+conda env create -f environment.yml
+
+
+# 4. Activate that environment so all the tools are available to the program
+conda activate gcamp
+
+# Optionally, if anaconda environment dependency installation is not working, run this command after activating your environment
+pip install -r [requirements.txt](http://_vscodecontentref_/1)
+
+# 5. Verify dependency installation 
+python -c "import numpy, scipy, pandas, sklearn, matplotlib, joblib, yaml; print('All dependencies OK')"
+
