@@ -1,25 +1,10 @@
-
-
+"""Neuron class for filtered ROIs."""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
-import numpy as np
-from .roi import ROI
-from .spike import Spike
-
-
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import numpy as np
-
 from .roi import ROI
 from .spike import Spike
-
-"""Neuron class for filtered ROIs."""
-from data_classes.spike import Spike
-import numpy as np
-from typing import List, Optional
-from .roi import ROI
 
 @dataclass
 class Neuron:

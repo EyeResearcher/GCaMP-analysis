@@ -6,7 +6,7 @@ import numpy as np
 from scipy.signal import peak_prominences
 
 from data_classes.spike import Spike
-from utils.feature_utils import _create_small_window
+from spike_processing.kinetics import _create_small_window
 
 
 @dataclass

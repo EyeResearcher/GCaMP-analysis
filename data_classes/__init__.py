@@ -8,12 +8,9 @@ from .spike import Spike
 from .neuron_group import NeuronGroup
 
 __all__ = [
-    'Experiment',
-    'Timepoint', 
     'Video',
     'ROI',
     'Neuron',
     'Spike',
-    'Valley',
-    'NeuronGroup'
+    'NeuronGroup',
 ]

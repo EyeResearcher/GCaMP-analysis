@@ -5,7 +5,6 @@ from typing import Dict, Protocol, Tuple
 import numpy as np
 
 from scipy.optimize import curve_fit
-from utils.feature_utils import compute_spike_constants as compute_spike_constants_legacy
 
 def _exp_offset(t: np.ndarray, A: float, tau: float, C: float) -> np.ndarray:
     # tau is a *time constant* in seconds (NOT a rate)
@@ -36,7 +35,8 @@ class LegacyTimeTo1eDecayEstimator:
     name: str = "legacy_time_to_1e"
 
     def estimate(self, window: np.ndarray, peak_idx_in_window: int, fs: float) -> Tuple[float, Dict[str, float]]:
-        rise_slope, tau = compute_spike_constants_legacy(window, peak_idx_in_window, fs=fs)
+        from .kinetics import compute_spike_constants
+        rise_slope, tau = compute_spike_constants(window, peak_idx_in_window, fs=fs)
         return float(tau), {}
     
 @dataclass

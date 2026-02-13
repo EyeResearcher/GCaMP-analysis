@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
-from roi_classifier.prepare_data import normalize_minmax
+from utils.preprocessing import normalize_minmax
 
 def get_savgol_params(fs: float, sensor_type: str = "gcamp8s") -> tuple[int, int]:
     if sensor_type == "gcamp8s":

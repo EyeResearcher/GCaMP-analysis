@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.stats import skew
 from typing import Dict, Optional
-from utils.feature_utils import compute_spike_constants, _create_large_window, _create_small_window
+from spike_processing.kinetics import compute_spike_constants, _create_large_window, _create_small_window
 from scipy.signal import peak_prominences, peak_widths
 def area_asymmetry(window: np.ndarray, zero_index: int) -> float:
     """

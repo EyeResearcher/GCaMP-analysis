@@ -454,6 +454,7 @@ class SpikeAnnotationByROISession:
 
         # Update ROI-level stats
         self.stats.rois_done = max(self.stats.rois_done, self.roi_pos)
+        self.stats.spikes_total_in_session += len(self.current_spike_indices)
 
         # Reset spike position to first spike for this ROI
         self.spike_pos = 0

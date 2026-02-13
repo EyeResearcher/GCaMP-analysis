@@ -2,17 +2,12 @@ import datetime
 import json
 from pathlib import Path
 from utils.label_utils import get_label_source, get_label_value
+from utils.io_utils import load_config          # noqa: F401  (re-export)
 import joblib
 import numpy as np
 import yaml
 from .optimize import OptimizationResults
 import pandas as pd
-
-
-def load_config(path: Path | str) -> dict:
-    """Load YAML config file."""
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
 
 
 def load_labeled_roi_data(

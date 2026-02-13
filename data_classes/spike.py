@@ -1,15 +1,6 @@
 """Spike class for detected events."""
 from __future__ import annotations
 
-import numpy as np
-from typing import Optional, Tuple
-from utils.feature_utils import (
-    _create_large_window,
-    _create_small_window
-)
-
-
-
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 import numpy as np

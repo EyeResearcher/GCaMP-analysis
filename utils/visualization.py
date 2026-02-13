@@ -16,7 +16,8 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
                             stat: np.ndarray, 
                             img_size: tuple = (512, 512), 
                             video_path: Path = None,
-                            config_label: str = None):
+                            config_label: str = None,
+                            save_path: Path = None):
     """
     Visualize neuron groups in a color-coordinated fashion.
     
@@ -146,11 +147,21 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
     # Adjust layout to fit legend
     plt.tight_layout()
     
-    # Save figure
-    
-    plt.close(fig)
-    
+    # Resolve save path: explicit save_path takes precedence, then video_path
+    _save_path = save_path
+    if _save_path is None and video_path is not None:
+        output_dir = Path(video_path) / 'metrics'
+        output_dir.mkdir(exist_ok=True, parents=True)
+        if config_label:
+            _save_path = output_dir / f'neuron_groups_{config_label}.png'
+        else:
+            _save_path = output_dir / 'neuron_groups.png'
 
+    if _save_path is not None:
+        fig.savefig(_save_path, dpi=150, bbox_inches='tight', facecolor='black')
+        logger.info(f"Saved neuron group visualization to {_save_path}")
+
+    plt.close(fig)
     
     return fig
 
