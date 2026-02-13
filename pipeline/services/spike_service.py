@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
+from classifier_pipeline.datasets import apply_transform
 from pipeline.reports import SpikeReport
 
 from spike_processing.detector import SpikeDetector
@@ -116,6 +117,10 @@ class SpikeService:
         if X.shape[0] == 0:
             video.neurons = []
             return np.asarray([], dtype=bool)
+
+        # Apply the same feature transform used during training
+        transform = model_config.get("transform") if model_config else None
+        X = apply_transform(X, transform)
 
         spike_mask = spike_model.predict(X).astype(bool)
 

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
+from classifier_pipeline.datasets import apply_transform
 from data_classes.roi import ROI
 from data_classes.neuron import Neuron
 from typing import TYPE_CHECKING
@@ -91,6 +92,10 @@ class ROIService:
             X = feats_df[expected].values
         else:
             X = feats_df.values
+
+        # Apply the same feature transform used during training
+        transform = model_config.get("transform") if model_config else None
+        X = apply_transform(X, transform)
 
         preds = roi_model.predict(X).astype(bool)
         good_roi_mask = np.asarray(preds, dtype=bool)

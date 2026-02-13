@@ -9,11 +9,43 @@ train/test splits used during model selection and hyperparameter tuning.
 import numpy as np
 from typing import Any
 
+
+def apply_transform(X: np.ndarray, transform: str | None) -> np.ndarray:
+    """Apply a named feature transform to a matrix.
+
+    Must match the transforms in :class:`DataSplit` so that inference
+    uses the same mapping the model was trained with.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Feature matrix (n_samples, n_features).
+    transform : str or None
+        One of ``'raw'``, ``'log'``, ``'sqrt'``, ``'square'``, or *None*.
+        ``'raw'`` and *None* return *X* unchanged.
+
+    Returns
+    -------
+    np.ndarray
+        Transformed feature matrix (same shape as *X*).
+    """
+    if transform is None or transform == "raw":
+        return X
+    if transform == "log":
+        return np.log1p(np.abs(X))
+    if transform == "sqrt":
+        return np.sqrt(np.abs(X))
+    if transform == "square":
+        return X ** 2
+    raise ValueError(f"Unknown transform: {transform!r}")
+
+
 class DataSplit:
     """Container for a single data array and its feature transforms.
 
-    Stores the raw data and lazily computes log, sqrt, and square
-    transformations, making them available via ``transformed_data``.
+    Stores the raw data and computes all transforms via
+    :func:`apply_transform`, making them available in
+    ``transformed_data``.
 
     Parameters
     ----------
@@ -29,27 +61,18 @@ class DataSplit:
         Always contains the ``'raw'`` key.
     """
 
-    def __init__(self, data):
+    _transforms = ("raw", "log", "sqrt", "square")
+
+    def __init__(self, data: np.ndarray):
         self.raw = data
-        self.transformed_data = {'raw': self.raw}
+        self.transformed_data: dict[str, np.ndarray] = {"raw": self.raw}
 
-    def log_transform(self):
-        """Apply ``log1p(|x|)`` transform and store under ``'log'`` key."""
-        self.transformed_data['log'] = np.log1p(np.abs(self.raw))
+    def collect_transforms(self) -> None:
+        """Compute and store all available transforms."""
+        for name in self._transforms:
+            if name not in self.transformed_data:
+                self.transformed_data[name] = apply_transform(self.raw, name)
 
-    def sqrt_transform(self):
-        """Apply ``sqrt(|x|)`` transform and store under ``'sqrt'`` key."""
-        self.transformed_data['sqrt'] = np.sqrt(np.abs(self.raw))
-
-    def square_transform(self):
-        """Apply element-wise squaring and store under ``'square'`` key."""
-        self.transformed_data['square'] = self.raw.copy() ** 2
-
-    def collect_transforms(self):
-        """Compute and store all available transforms (log, sqrt, square)."""
-        self.log_transform()
-        self.sqrt_transform()
-        self.square_transform()
 
 class ClassifierDataset:
     """Structured train/test dataset for classifier optimization.
@@ -107,17 +130,10 @@ class ClassifierDataset:
         instance.feature_names = feature_names
         return instance
     
-    def transform_x(self):
+    def transform_data(self) -> None:
         """Compute all feature transforms for both train and test splits."""
         self.x_train.collect_transforms()
         self.x_test.collect_transforms()
-    
-    def transform_data(self):
-        """Compute all feature transforms on X data.
-
-        Convenience wrapper around :meth:`transform_x`.
-        """
-        self.transform_x()
 
     def get_subset(self, top=None, transform_name='raw'):
         """Extract a feature subset from a specific transform.
