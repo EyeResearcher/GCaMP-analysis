@@ -8,7 +8,7 @@ from pathlib import Path
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from classifier_pipeline.utils import get_label_value, get_label_source, create_label_dict, get_keys
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
-
+from classifier_pipeline.verbose_utils import print_keys
 def select_rois_for_annotation(
     npy_dict: dict,
     n_samples: int,
@@ -42,7 +42,8 @@ def select_rois_for_annotation(
     selected = random.sample(roi_keys, n_to_sample)
 
     if verbose: 
-        print(f"Selected {n_to_sample} ROIs for annotation")
+        type_desc = "unlabeled" if unlabeled_only else "labeled" if labeled_only else "all"
+        print_keys(len(roi_keys), type_desc, len(selected))
     
     return selected
 

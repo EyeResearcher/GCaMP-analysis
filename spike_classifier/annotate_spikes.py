@@ -2,7 +2,7 @@
 ROI-centric spike annotation module.
 
 What this module does
-- Loads your existing spike-training .npy dict + the companion *_spike_keys.csv
+- Loads your existing spike-training .npy dict
 - Presents one ROI at a time
 - Lets the user label ALL candidate spikes for that ROI (good/bad), while seeing:
   - the full trace (raw + smoothed)
@@ -52,42 +52,41 @@ import matplotlib.pyplot as plt
 from tkinter import Tk, Frame, Label, Button, Listbox, Scrollbar, StringVar, END, SINGLE
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+from classifier_pipeline.utils import create_label_dict, get_label_value, get_label_source
+from classifier_pipeline.io_utils import load_roi_data, save_roi_data
+
 
 # =============================================================================
 # Data I/O
 # =============================================================================
 
-def load_spike_data(npy_path: Path) -> tuple[dict, dict[str, int], Path]:
-    if not npy_path.exists():
-        raise FileNotFoundError(f"Spike .npy not found: {npy_path}")
-
-    npy_dict = np.load(npy_path, allow_pickle=True).item()
-
-    csv_path = npy_path.parent / f"{npy_path.stem}_spike_keys.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Spike keys CSV not found: {csv_path}")
-
-    df = pd.read_csv(csv_path)
-    if "spike_key" not in df.columns or "label" not in df.columns:
-        raise ValueError(f"CSV must have columns ['spike_key','label'], got: {list(df.columns)}")
-
-    key_labels = dict(zip(df["spike_key"].astype(str), df["label"].astype(int)))
-    return npy_dict, key_labels, csv_path
+def load_spike_data(npy_path: Path) -> dict:
+    """Load spike data from .npy file.
+    
+    Parameters
+    ----------
+    npy_path : Path
+        Path to the .npy file containing ROI/spike data.
+    
+    Returns
+    -------
+    npy_dict : dict
+        Dictionary of ROI data with nested spike dicts.
+    """
+    return load_roi_data(npy_path, verbose=True)
 
 
-def save_spike_data(npy_dict: dict, key_labels: dict[str, int], npy_path: Path) -> None:
-    npy_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Save .npy
-    np.save(npy_path, npy_dict, allow_pickle=True)
-
-    # Save CSV
-    csv_path = npy_path.parent / f"{npy_path.stem}_spike_keys.csv"
-    df = pd.DataFrame(list(key_labels.items()), columns=["spike_key", "label"])
-    df.to_csv(csv_path, index=False)
-
-    print(f"Saved: {npy_path}")
-    print(f"Saved: {csv_path}")
+def save_spike_data(npy_dict: dict, npy_path: Path) -> None:
+    """Save spike data to .npy file.
+    
+    Parameters
+    ----------
+    npy_dict : dict
+        Dictionary of ROI data with nested spike dicts.
+    npy_path : Path
+        Path to save the .npy file.
+    """
+    save_roi_data(npy_dict, npy_path, verbose=True)
 
 
 # =============================================================================
@@ -103,29 +102,41 @@ def make_spike_key(roi_key: str, spike_idx: int) -> str:
     return f"{roi_key}-{int(spike_idx)}"
 
 
-def update_spike_label(npy_dict: dict, key_labels: dict[str, int], roi_key: str, spike_idx: int, new_label: int) -> bool:
+def update_spike_label(npy_dict: dict, roi_key: str, spike_idx: int, new_label: int) -> bool:
     """
-    Updates BOTH:
-      - npy_dict[roi_key]['spikes'][spike_idx]['label']
-      - key_labels["roi_key-spike_idx"]
-    Returns True if changed.
+    Update the label for a spike in the npy_dict using standardized label dicts.
+    
+    Parameters
+    ----------
+    npy_dict : dict
+        Dictionary of ROI data.
+    roi_key : str
+        Key identifying the ROI.
+    spike_idx : int
+        Index of the spike within the ROI.
+    new_label : int
+        New label value (0 = bad, 1 = good).
+    
+    Returns
+    -------
+    changed : bool
+        True if the label was different from the existing one.
     """
     spike_idx = int(spike_idx)
-    spike_key = make_spike_key(roi_key, spike_idx)
 
-    current_label = int(npy_dict[roi_key]["spikes"][spike_idx].get("label", -1))
+    current_label = get_label_value(npy_dict[roi_key]["spikes"][spike_idx].get("label", create_label_dict(-1, 'unlabeled')))
     changed = (int(new_label) != current_label)
 
-    npy_dict[roi_key]["spikes"][spike_idx]["label"] = int(new_label)
-    key_labels[spike_key] = int(new_label)
+    npy_dict[roi_key]["spikes"][spike_idx]["label"] = create_label_dict(int(new_label), 'manual')
 
     return changed
 
 
-def label_to_text(label: int) -> str:
-    if label == 1:
+def label_to_text(label) -> str:
+    value = get_label_value(label) if isinstance(label, dict) else int(label)
+    if value == 1:
         return "good"
-    if label == 0:
+    if value == 0:
         return "bad"
     return "unlabeled"
 
@@ -134,14 +145,15 @@ def label_to_text(label: int) -> str:
 # ROI selection
 # =============================================================================
 
-def _spike_matches_mode(label: int, *, unlabeled_only: bool, labeled_only: bool) -> bool:
+def _spike_matches_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bool:
     if unlabeled_only and labeled_only:
         raise ValueError("Choose at most one of unlabeled_only or labeled_only.")
 
+    value = get_label_value(label) if isinstance(label, dict) else int(label)
     if unlabeled_only:
-        return int(label) == -1
+        return value == -1
     if labeled_only:
-        return int(label) != -1
+        return value != -1
     return True
 
 
@@ -162,10 +174,7 @@ def collect_candidate_rois(
 
         keep_any = False
         for spk_idx, spk_data in spikes.items():
-            try:
-                lbl = int(spk_data.get("label", -1))
-            except Exception:
-                lbl = -1
+            lbl = spk_data.get("label", create_label_dict(-1, 'unlabeled'))
             if _spike_matches_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
                 keep_any = True
                 break
@@ -189,10 +198,7 @@ def collect_candidate_spike_indices(
 
     idxs: list[int] = []
     for spk_idx, spk_data in spikes.items():
-        try:
-            lbl = int(spk_data.get("label", -1))
-        except Exception:
-            lbl = -1
+        lbl = spk_data.get("label", create_label_dict(-1, 'unlabeled'))
         if _spike_matches_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
             idxs.append(int(spk_idx))
 
@@ -316,9 +322,8 @@ class SpikeAnnotationByROISession:
       - lets user relabel with full ROI context
     """
 
-    def __init__(self, npy_dict: dict, key_labels: dict[str, int], cfg: SessionConfig):
+    def __init__(self, npy_dict: dict, cfg: SessionConfig):
         self.npy_dict = npy_dict
-        self.key_labels = key_labels
         self.cfg = cfg
 
         self.roi_keys_all = collect_candidate_rois(
@@ -468,7 +473,8 @@ class SpikeAnnotationByROISession:
 
     def _get_current_label(self, roi_key: str, spike_idx: int) -> int:
         try:
-            return int(self._get_spike_data(roi_key, spike_idx).get("label", -1))
+            label = self._get_spike_data(roi_key, spike_idx).get("label", create_label_dict(-1, 'unlabeled'))
+            return get_label_value(label)
         except Exception:
             return -1
 
@@ -645,7 +651,7 @@ class SpikeAnnotationByROISession:
         roi_key = self._current_roi_key()
         spk_idx = self._current_spike_idx()
 
-        changed = update_spike_label(self.npy_dict, self.key_labels, roi_key, spk_idx, int(label))
+        changed = update_spike_label(self.npy_dict, roi_key, spk_idx, int(label))
         self.stats.spikes_labeled += 1
 
         if changed:
@@ -680,7 +686,7 @@ class SpikeAnnotationByROISession:
         n_total = 0
         for pos in range(start_pos, len(self.current_spike_indices)):
             spk_idx = self.current_spike_indices[pos]
-            changed = update_spike_label(self.npy_dict, self.key_labels, roi_key, spk_idx, 0)
+            changed = update_spike_label(self.npy_dict, roi_key, spk_idx, 0)
             n_total += 1
             self.stats.spikes_labeled += 1
             if changed:
@@ -735,7 +741,7 @@ class SpikeAnnotationByROISession:
         self._load_roi(new_pos)
 
     def _save(self) -> None:
-        save_spike_data(self.npy_dict, self.key_labels, self.cfg.data_path)
+        save_spike_data(self.npy_dict, self.cfg.data_path)
 
     def _save_and_quit(self) -> None:
         self._save()
@@ -794,7 +800,7 @@ def annotate_spikes_by_roi(
     checkpoint_interval:
         Auto-save after every N labeled spikes.
     """
-    npy_dict, key_labels, _csv_path = load_spike_data(data_path)
+    npy_dict = load_spike_data(data_path)
 
     cfg = SessionConfig(
         data_path=data_path,
@@ -804,7 +810,7 @@ def annotate_spikes_by_roi(
         max_rois=max_rois,
     )
 
-    session = SpikeAnnotationByROISession(npy_dict=npy_dict, key_labels=key_labels, cfg=cfg)
+    session = SpikeAnnotationByROISession(npy_dict=npy_dict, cfg=cfg)
     stats = session.run()
 
     print(

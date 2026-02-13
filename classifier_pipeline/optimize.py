@@ -135,7 +135,7 @@ class ModelOptimizer:
         feat_importance : pd.DataFrame
             Feature importance DataFrame from the best model
         """
-        y_train, y_test = self.dataset.y_train, self.dataset.y_test
+        y_train, y_test = self.dataset.y_train.raw, self.dataset.y_test.raw
         best = 0
         best_transform = None
         feat_importance = None
@@ -143,7 +143,7 @@ class ModelOptimizer:
         for transform in self.dataset.x_test.transformed_data.keys():
             x_train, x_test = self.dataset.get_subset(transform_name=transform)
             model = get_model(model_class, **hp_kwargs)
-            acc = train_and_evaluate(model, x_train, y_train.raw, x_test, y_test.raw, metric=self.metric)
+            acc = train_and_evaluate(model, x_train, y_train, x_test, y_test, metric=self.metric)
 
             if acc > best:
                 best = acc
@@ -285,7 +285,7 @@ class ModelOptimizer:
         if self.best_features is None:
             raise ValueError("Call find_best_model() first")
             
-        y_train, y_test = self.dataset.y_train, self.dataset.y_test
+        y_train, y_test = self.dataset.y_train.raw, self.dataset.y_test.raw
         x_train, x_test = self.dataset.get_subset(self.best_features, self.best_transform)
 
         search = GridSearchCV(base_model, hp_grid, cv=5, scoring='accuracy', n_jobs=-1)

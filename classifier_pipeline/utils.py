@@ -6,7 +6,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 import pandas as pd
 from enum import Enum
-from .verbose_utils import print_keys
 
 def train_and_evaluate(model: RandomForestClassifier | LogisticRegression | SVC,
                        X_train: np.ndarray, y_train: np.ndarray, 
@@ -214,17 +213,11 @@ def get_keys(roi_dict: dict[str, dict[str, Any]],
     
     if unlabeled_only:
         keys = [k for k in roi_dict.keys() if get_label_value(roi_dict[k]['label']) == -1]
-        if verbose:
-            print_keys(len(roi_dict), "unlabeled", len(keys))
     elif labeled_only:  # Changed from 'if' to 'elif'
         keys = [k for k in roi_dict.keys() if get_label_value(roi_dict[k]['label']) != -1]
-        if verbose:
-            print_keys(len(roi_dict), "labeled", len(keys))
     else:
         keys = list(roi_dict.keys())
-        if verbose:
-            print_keys(len(roi_dict), "all", len(keys))
-    
+            
     if len(keys) == 0:
         raise ValueError("No ROIs match the specified filtering criteria.")
     return keys

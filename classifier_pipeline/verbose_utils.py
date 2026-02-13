@@ -1,28 +1,34 @@
 from .optimize import OptimizationResults
 
 
-def print_dataset_summary(feature_names, y, manual_only=True):
+def print_dataset_summary(feature_names, y_train, y_test, manual_only=True):
     """
-    Print summary of the dataset.
+    Print summary of the dataset including train/test label distributions.
     
     Parameters
     ----------
     feature_names : list[str]
-        Names of features
-    y : np.ndarray
-        Labels array
+        Names of features.
+    y_train : np.ndarray
+        Training labels array.
+    y_test : np.ndarray
+        Testing labels array.
     manual_only : bool, optional
-        Whether only manual labels are used, by default True
+        Whether only manual labels are used, by default True.
     """
+    total = len(y_train) + len(y_test)
     print(f"Dataset Summary")
-    print(f"Total labeled ROIs: {len(y)}")
-    print(f"Feature names:")
+    print(f"Total labeled ROIs: {total}")
+    print(f"  Train: {len(y_train)} | Test: {len(y_test)}")
+    print(f"\nFeature names:")
     for i, feat in enumerate(feature_names):
         print(f"\t  {i+1}. {feat}")
-    print(f"Label distribution:")
-    print(f"  - Bad (0):  {(y == 0).sum()}")
-    print(f"  - Good (1): {(y == 1).sum()}")
-    print(f"Training on: {'Manual labels only' if manual_only else 'Manual + Auto labels'}")
+    print(f"\nLabel distribution:")
+    print(f"  {'':10s} {'Bad (0)':>8s} {'Good (1)':>9s}")
+    print(f"  {'Train':<10s} {(y_train == 0).sum():>8d} {(y_train == 1).sum():>9d}")
+    print(f"  {'Test':<10s} {(y_test == 0).sum():>8d} {(y_test == 1).sum():>9d}")
+    print(f"  {'Total':<10s} {((y_train == 0).sum() + (y_test == 0).sum()):>8d} {((y_train == 1).sum() + (y_test == 1).sum()):>9d}")
+    print(f"\nTraining on: {'Manual labels only' if manual_only else 'Manual + Auto labels'}")
 
 
 def print_split_summary(y_train, y_test):
