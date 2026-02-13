@@ -1,6 +1,8 @@
 models:
-  roi_model_path: "C:\Users\mzinn1\Desktop\gcamp_model\roi_classifier_20260122_142743.joblib"
-  spike_model_path: "C:\Users\mzinn1\Desktop\gcamp_model\spike_classifier_20260122_163505.joblib"  
+  roi_model_path: "C:/Users/mzinn1/Desktop/gcamp_model/roi_classifier_20260122_142743.joblib"
+  roi_config_path: "roi_classifier/models/roi_classifier_config.json"
+  spike_model_path: "C:/Users/mzinn1/Desktop/gcamp_model/spike_classifier_20260122_163505.joblib"
+  spike_config_path: "spike_classifier/models/spike_classifier_config.json"
   cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
   cascade_model_dir: "Cascade/Pretrained_models"
 

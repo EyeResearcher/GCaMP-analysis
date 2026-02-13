@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
-import json
 
 import numpy as np
 import pandas as pd
@@ -24,7 +22,6 @@ if TYPE_CHECKING:
 @dataclass
 class SpikeService:
     n_jobs: int = -1
-    spike_config_path: Optional[Path] = Path("spike_classifier/models/spike_classifier_config.json")
 
     detector: SpikeDetector = field(default_factory=SpikeDetector)
     spike_filter: SpikeFilter = field(default_factory=SpikeFilter)
@@ -58,31 +55,49 @@ class SpikeService:
 
         return pd.DataFrame(spike_features_flat)
 
-    def _prepare_matrix(self, spk_feats_df: pd.DataFrame, model: Any) -> np.ndarray:
-        expected = None
+    def _prepare_matrix(
+        self,
+        spk_feats_df: pd.DataFrame,
+        model: Any,
+        model_config: Optional[dict] = None,
+    ) -> np.ndarray:
+        """Build the feature matrix for inference, honouring the training config.
 
-        if self.spike_config_path and self.spike_config_path.exists():
-            try:
-                cfg: dict = json.load(open(self.spike_config_path))
-                if cfg.get("use_top_features") and cfg.get("selected_features"):
-                    expected = cfg.get("selected_features")
-                else:
-                    expected = cfg.get("feature_names")
-            except Exception:
-                expected = None
+        Resolution order for feature names
+        -----------------------------------
+        1. ``model_config["selected_features"]`` when ``use_top_features`` is
+           set (subset selection was applied during training).
+        2. ``model_config["feature_names"]`` (full ordered list from training).
+        3. ``model.feature_names_in_`` (sklearn attribute).
+        4. Positional fallback — use columns as-is.
+        """
+        expected: Optional[list[str]] = None
+
+        if model_config:
+            if model_config.get("use_top_features") and model_config.get("selected_features"):
+                expected = model_config["selected_features"]
+            else:
+                expected = model_config.get("feature_names")
 
         if expected is None:
             expected = getattr(model, "feature_names_in_", None)
 
         if expected:
+            expected = list(expected)
             for col in expected:
                 if col not in spk_feats_df.columns:
                     spk_feats_df[col] = np.nan
-            return spk_feats_df[list(expected)].copy().values
+            return spk_feats_df[expected].copy().values
 
         return spk_feats_df.values
 
-    def filter_spikes(self, video: "Video", spk_feats_df: pd.DataFrame, spike_model: Any) -> np.ndarray:
+    def filter_spikes(
+        self,
+        video: "Video",
+        spk_feats_df: pd.DataFrame,
+        spike_model: Any,
+        model_config: Optional[dict] = None,
+    ) -> np.ndarray:
         """
         Populates on each neuron:
           - peaks_filtered (list[int])
@@ -97,7 +112,7 @@ class SpikeService:
             video.neurons = []
             return np.asarray([], dtype=bool)
 
-        X = self._prepare_matrix(spk_feats_df, spike_model)
+        X = self._prepare_matrix(spk_feats_df, spike_model, model_config=model_config)
         if X.shape[0] == 0:
             video.neurons = []
             return np.asarray([], dtype=bool)
@@ -180,7 +195,7 @@ class SpikeService:
 
         return means
 
-    def run(self, video: "Video", spike_model: Any) -> SpikeReport:
+    def run(self, video: "Video", spike_model: Any, model_config: Optional[dict] = None) -> SpikeReport:
         """
         Populates on video:
           - neurons updated after filtering
@@ -196,7 +211,7 @@ class SpikeService:
         n_spikes_raw = int(sum(getattr(n, "n_peaks_raw", 0) for n in video.neurons))
 
         # Filter spikes + drop neurons with no spikes
-        self.filter_spikes(video, spk_feats_df, spike_model)
+        self.filter_spikes(video, spk_feats_df, spike_model, model_config=model_config)
 
         # Count kept spikes after filtering
         n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))

@@ -1,7 +1,5 @@
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List, Optional, Any
-import json
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -17,26 +15,40 @@ from pipeline.reports import ROIReport
 if TYPE_CHECKING:
     from data_classes.video import Video
 
-def _expected_feature_names(model: RandomForestClassifier | LogisticRegression, fallback_config_path: Optional[Path]) -> Optional[list[str]]:
-    expected = None
-    if hasattr(model, "feature_names_in_"):
-        try:
-            expected = list(model.feature_names_in_)
-        except Exception:
-            expected = None
 
-    if expected is None and fallback_config_path and fallback_config_path.exists():
+def _resolve_feature_names(
+    model: Any,
+    model_config: Optional[dict] = None,
+) -> Optional[list[str]]:
+    """Return the ordered feature names the model was trained on.
+
+    Resolution order
+    ----------------
+    1. ``model.feature_names_in_`` (set by sklearn when fitted on a DataFrame).
+    2. ``model_config["feature_names"]`` from the JSON sidecar passed in at
+       load time.
+    3. ``None`` — caller must fall back to positional columns.
+    """
+    # 1) sklearn attribute
+    names = getattr(model, "feature_names_in_", None)
+    if names is not None:
         try:
-            cfg = json.load(open(fallback_config_path))
-            expected = cfg.get("feature_names")
+            return list(names)
         except Exception:
-            expected = None
-    return expected
+            pass
+
+    # 2) JSON sidecar
+    if model_config:
+        names = model_config.get("feature_names")
+        if names:
+            return list(names)
+
+    return None
+
 
 @dataclass
 class ROIService:
     n_jobs: int = -1
-    roi_config_path: Optional[Path] = Path("roi_classifier/models/roi_classifier_config.json")
 
     def create_rois(self, video: "Video") -> List[ROI]:
         rois: List[ROI] = []
@@ -51,7 +63,13 @@ class ROIService:
             )
         return rois
 
-    def filter_rois(self, video: "Video", all_rois: List[ROI], roi_model: RandomForestClassifier | LogisticRegression) -> tuple[List[ROI], np.ndarray]:
+    def filter_rois(
+        self,
+        video: "Video",
+        all_rois: List[ROI],
+        roi_model: RandomForestClassifier | LogisticRegression,
+        model_config: Optional[dict] = None,
+    ) -> tuple[List[ROI], np.ndarray]:
         if roi_model is None:
             raise RuntimeError("ROI classifier model is not provided.")
 
@@ -65,7 +83,7 @@ class ROIService:
 
         feats_df = pd.DataFrame(all_feats)
 
-        expected = _expected_feature_names(roi_model, self.roi_config_path)
+        expected = _resolve_feature_names(roi_model, model_config)
         if expected:
             for col in expected:
                 if col not in feats_df.columns:
@@ -122,7 +140,7 @@ class ROIService:
         video.neurons = neurons
         return neurons
    
-    def run(self, video: "Video", roi_model: Any) -> ROIReport:
+    def run(self, video: "Video", roi_model: Any, model_config: Optional[dict] = None) -> ROIReport:
         """
         Populates on video:
           - bad_rois, n_good_rois, n_bad_rois
@@ -131,7 +149,7 @@ class ROIService:
         Returns counts for narration.
         """
         all_rois = self.create_rois(video)
-        good_rois, good_roi_mask = self.filter_rois(video, all_rois, roi_model)
+        good_rois, good_roi_mask = self.filter_rois(video, all_rois, roi_model, model_config=model_config)
 
         self.build_bad_rois_features_df(video)
 

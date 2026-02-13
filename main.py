@@ -38,9 +38,15 @@ def main(
 
     # 1) Load config + models once
     config = load_config(config_path)
+
+    roi_model, roi_cfg = load_model(config["models"], which="roi")
+    spike_model, spike_cfg = load_model(config["models"], which="spike")
+
     models = {
-        "spike": load_model(config["models"], which="spike"),
-        "roi": load_model(config["models"], which="roi"),
+        "roi": roi_model,
+        "roi_config": roi_cfg,
+        "spike": spike_model,
+        "spike_config": spike_cfg,
     }
     # 2) Build runner once
     runner = VideoPipelineRunner.build(config)

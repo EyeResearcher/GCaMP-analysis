@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import numpy as np
 from typing import Any, Optional
 import time
 from data_classes.video import Video
@@ -17,7 +18,7 @@ class VideoPipelineRunner:
     grouping : grouping_service.GroupingService
 
     @classmethod
-    def build(cls, config: dict) -> "VideoPipelineRunner":
+    def build(cls, config: dict[str, dict| np.ndarray]) -> "VideoPipelineRunner":
         """Construct the runner once, reuse for all videos in the experiment."""
 
         n_jobs = config.get("parallel", {}).get("n_jobs", -1)
@@ -26,16 +27,8 @@ class VideoPipelineRunner:
             smooth_sigma=config.get("traces", {}).get("smooth_sigma", 4.0),
             sensor_type=config.get("traces", {}).get("sensor_type", "gcamp8s"),
         )
-        roi = roi_service.ROIService(
-            n_jobs=n_jobs,
-            roi_config_path=Path(config["models"]["roi_config_path"])
-            if config.get("models", {}).get("roi_config_path") else None,
-        )
-        spike = spike_service.SpikeService(
-            n_jobs=n_jobs,
-            spike_config_path=Path(config["models"]["spike_config_path"])
-            if config.get("models", {}).get("spike_config_path") else None,
-        )
+        roi = roi_service.ROIService(n_jobs=n_jobs)
+        spike = spike_service.SpikeService(n_jobs=n_jobs)
         grouping = grouping_service.GroupingService(
             enable_dtw=config.get("grouping", {}).get("enable_dtw", False),
         )
@@ -52,7 +45,7 @@ class VideoPipelineRunner:
             print(f"  Traces: {tr.n_rois} ROIs, {tr.n_frames} frames @ {tr.fs:.1f} Hz")
 
         # Step 3–4: ROI filtering
-        rr = self.roi.run(video, models["roi"])
+        rr = self.roi.run(video, models["roi"], model_config=models.get("roi_config"))
         if verbose:
             print(f"  ROI filter: {rr.n_rois_good}/{rr.n_rois_total} kept ({rr.pass_rate:.1%})")
 
@@ -62,7 +55,7 @@ class VideoPipelineRunner:
             return
 
         # Step 5–6: spikes
-        sr = self.spike.run(video, models["spike"])
+        sr = self.spike.run(video, models["spike"], model_config=models.get("spike_config"))
         if verbose:
             print(
                 f"  Spikes: {sr.n_spikes_kept}/{sr.n_spikes_raw} kept | "

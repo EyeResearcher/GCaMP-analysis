@@ -43,7 +43,7 @@ class ROI:
         # Detect candidate peaks from the smoothed spike-probability trace (not the F trace)
         self.peaks, _ = find_peaks(sm_norm_f)
         # Compute ROI-level features (returns features dict and validity flags)
-        self.features, validity = compute_roi_features(sm_norm_f, mode="Inference")
+        self.features, validity = compute_roi_features(sm_norm_f)
         # Store validity flags for downstream inspection but do not auto-reject here;
         # classification model will decide based on available features.
         self.features_validity = validity

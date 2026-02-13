@@ -4,16 +4,8 @@ import numpy as np
 from scipy.signal import find_peaks
 from utils.model_utils.spikes import get_all_spike_features
 from scipy.stats import skew
-import pandas as pd
-
-
-
-def load_roi_data(file_path: str) -> Dict[str, Dict]:
-    """
-    Load ROI data from a .npy file.
-    """
-    roi_data = np.load(file_path, allow_pickle=True).item()
-    return roi_data
+from classifier_pipeline.utils import create_label_dict, get_label_value
+from classifier_pipeline.io_utils import load_roi_data, save_roi_data
 
 
 
@@ -55,42 +47,49 @@ def parallel_detect_spikes(args):
     spike_data, spike_keys = define_candidate_fluor_events(smoothed_f, roi_idx=roi_idx)
     return spike_data, spike_keys
 
-def validate_roi_label(roi_key: str, roi_data: Dict) -> None:
+def validate_roi_label(roi_key: str, roi_data: Dict) -> bool:
     """
-    Validate that all ROIs have a 'label' field with a 'value'.
+    Validate that an ROI has a good label (value == 1).
     
-    Args:
-        roi_dict: Dictionary of ROI data
+    Parameters
+    ----------
+    roi_key : str
+        Key identifying the ROI.
+    roi_data : dict
+        ROI data dictionary containing a 'label' field.
     
-    Raises:
-        ValueError: If any ROI is missing 'label' or 'value'.
+    Returns
+    -------
+    is_good : bool
+        True if ROI label value is 1, False otherwise.
+    
+    Raises
+    ------
+    ValueError
+        If ROI is missing the 'label' field.
     """
-
     roi_label = roi_data.get('label', None)
     if roi_label is None:
         raise ValueError(f"ROI {roi_key} is missing 'label' data.")
     
-    roi_label_value = roi_label.get('value', None)
+    return get_label_value(roi_label) == 1
 
-    if roi_label_value is None:
-        raise ValueError(f"ROI {roi_key} has label without 'value' field.")
-    
-    if roi_label_value != 1:
-        return False
-    
-    return True
-
-def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None) -> Tuple[Dict, list]:
+def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None) -> Dict:
     """
     Iterate through ROI data and collect spike features for labeled-good ROIs (label == 1).
     
-    Args:
-        roi_dict: Dictionary of ROI data
-        max_rois: Maximum number of good ROIs to process (None = all)
+    Parameters
+    ----------
+    roi_dict : dict
+        Dictionary of ROI data.
+    max_rois : int, optional
+        Maximum number of good ROIs to process (None = all).
     
-    Returns: (roi_dict_with_spikes, all_roi_spike_keys)
+    Returns
+    -------
+    roi_dict : dict
+        Updated ROI dictionary with spike data added in-place.
     """
-    all_roi_spike_keys = []
     processed_count = 0
     bad_roi = 0
     for roi_key, roi_data in roi_dict.items():
@@ -112,40 +111,34 @@ def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None) -> T
 
         roi_spike_data, spike_keys = define_candidate_fluor_events(smoothed_f_trace)
         
+        # Preserve existing labels (e.g. from prior annotation sessions)
         existing_spikes = roi_data.get('spikes', {})
         for spike_idx in spike_keys:
             if spike_idx in existing_spikes:
-                roi_spike_data[spike_idx]['label'] = existing_spikes[spike_idx]['label']
+                existing_label = existing_spikes[spike_idx].get('label', None)
+                if existing_label is not None:
+                    roi_spike_data[spike_idx]['label'] = existing_label
         
-        roi_spike_keys = [(f"{roi_key}-{spike_idx}", roi_spike_data[spike_idx]['label']) for spike_idx in spike_keys]
-        all_roi_spike_keys.extend(roi_spike_keys)
         roi_dict[roi_key]['spikes'] = roi_spike_data
         processed_count += 1
 
-    print(f"Processed {processed_count} good ROIs, found {len(all_roi_spike_keys)} spikes")
+    print(f"Processed {processed_count} good ROIs")
     print(f"Skipped {bad_roi} bad ROIs")
-    return roi_dict, all_roi_spike_keys
+    return roi_dict
 
 
 def main(input_path: str,
          output_path: Optional[str] = None, 
          max_rois: Optional[int] = None) -> Dict[str, Dict[int, Dict]]:
-    roi_dict = load_roi_data(input_path)
+    from pathlib import Path
     
+    roi_dict = load_roi_data(Path(input_path), verbose=True)
+    roi_dict = process_rois(roi_dict, max_rois=max_rois)
     
-    roi_dict_spikes, all_roi_spike_keys = process_rois(roi_dict, max_rois=max_rois)
+    save_path = Path(output_path) if output_path else Path(input_path)
+    save_roi_data(roi_dict, save_path, verbose=True)
     
-    if output_path:
-        np.save(output_path, roi_dict_spikes)
-        all_roi_spike_keys_path = output_path.replace('.npy', '_spike_keys.csv')
-        df = pd.DataFrame(all_roi_spike_keys, columns=['spike_key', 'label'])
-        df.to_csv(all_roi_spike_keys_path, index=False)
-    if not output_path:
-        np.save(input_path, roi_dict_spikes)
-        all_roi_spike_keys_path = input_path.replace('.npy', '_spike_keys.csv')
-        df = pd.DataFrame(all_roi_spike_keys, columns=['spike_key', 'label'])
-        df.to_csv(all_roi_spike_keys_path, index=False)
-    return roi_dict_spikes
+    return roi_dict
 
 
 if __name__ == "__main__":

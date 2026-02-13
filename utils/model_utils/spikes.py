@@ -513,6 +513,8 @@ def get_all_spike_features(smoothed_f, peaks, props : dict, mode = "train", roi_
     width_factor=1.5,
 )
     
+    from classifier_pipeline.utils import create_label_dict
+
     spike_data: Dict[int, Dict] = {}
     num_peaks = len(peaks)
     spike_keys = []
@@ -543,7 +545,7 @@ def get_all_spike_features(smoothed_f, peaks, props : dict, mode = "train", roi_
         spike_key = peak if roi_idx is None else f"{roi_idx}_{peak}"
         spike_keys.append(spike_key)
         features_list.append(features)
-        labels_list.append(-1)
+        labels_list.append(create_label_dict(-1, 'unlabeled'))
         windows_list.append({
             'large_window': {
                 'window_values': large_window_f, 

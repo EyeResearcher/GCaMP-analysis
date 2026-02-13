@@ -48,14 +48,41 @@ def load_config(config_path: Path = Path("config.yaml")) -> Dict:
         config = yaml.safe_load(f)
     return config
 
-def load_model(models_config: Dict, which : str) -> Dict:
-    """Load all required models and normalize wrappers to sklearn estimators.""" 
-    path = Path(models_config.get(f'{which}_model_path', ''))
-    if path.exists():
-        model = load(path)
-        return model
-    else:
-        raise FileNotFoundError(f"{which} model cannot be found at {path}.")
+def load_model(models_config: Dict, which: str) -> tuple:
+    """Load a model and its JSON config sidecar.
+
+    Parameters
+    ----------
+    models_config : dict
+        The ``models`` section of the pipeline YAML.  Expected keys:
+        ``<which>_model_path`` and (optionally) ``<which>_config_path``.
+    which : str
+        ``"roi"`` or ``"spike"``.
+
+    Returns
+    -------
+    tuple[Any, dict | None]
+        ``(sklearn_model, config_dict)`` where *config_dict* is ``None``
+        when no config path is given or the file does not exist.
+    """
+    import json
+
+    model_path = Path(models_config.get(f"{which}_model_path", ""))
+    if not model_path.exists():
+        raise FileNotFoundError(f"{which} model cannot be found at {model_path}.")
+    model = load(model_path)
+
+    config_path_str = models_config.get(f"{which}_config_path")
+    model_cfg: Optional[Dict] = None
+    if config_path_str:
+        config_path = Path(config_path_str)
+        if config_path.exists():
+            with open(config_path, "r") as fh:
+                model_cfg = json.load(fh)
+        else:
+            logger.warning("%s config not found at %s — continuing without it.", which, config_path)
+
+    return model, model_cfg
     
 def _safe_sheet_name(name: str) -> str:
     """

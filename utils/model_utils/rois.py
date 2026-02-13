@@ -166,8 +166,7 @@ def peak_density_and_prominence(smoothed_f_trace: np.ndarray) -> tuple:
 # Comprehensive ROI Feature Extraction
 # =============================================================================
 
-def compute_roi_features(smoothed_f_trace: np.ndarray, 
-                         mode: str = None) -> tuple[dict, dict]:
+def compute_roi_features(smoothed_f_trace: np.ndarray) -> tuple[dict, dict]:
     """
     Extract comprehensive ROI-level features from traces.
 
@@ -175,8 +174,6 @@ def compute_roi_features(smoothed_f_trace: np.ndarray,
     ----------
     smoothed_f_trace : np.ndarray
         Smoothed, min-max normalized fluorescence trace (1D).
-    mode : str, optional
-        If "inference", returns minimal features for fast inference.
 
     Returns
     -------
@@ -190,30 +187,16 @@ def compute_roi_features(smoothed_f_trace: np.ndarray,
     # Derivative-based metrics
     deriv_skew, valid_deriv_skew, derivative = derivative_skewness(smoothed_f_trace)
     deriv_asym, valid_deriv_asym = derivative_asymmetry(smoothed_f_trace)
-
-    # Left-based prominence metrics on F trace
     spike_prom_mean, spike_prom_skew, valid_prom = left_based_prominence(smoothed_f_trace)
-
-    # Rolling variance-of-variance on F trace
     var_of_var, valid_vov = rolling_variance_of_variance(smoothed_f_trace, window=30)
 
-    # Autocorrelation decay
     ac_decay, valid_ac = autocorr_decay(smoothed_f_trace, lag1=1, lag2=5)
 
-    # SNR estimate
     snr, valid_snr = snr_estimate(smoothed_f_trace)
 
-    # Peak density & median prominence on F trace
     peak_density, median_spike_prom, valid_peak = peak_density_and_prominence(smoothed_f_trace)
 
-    # Simple range of F trace
     trace_range = float(np.nanmax(smoothed_f_trace) - np.nanmin(smoothed_f_trace))
-
-    if mode == "inference":
-        return (
-            {"derivative_skew": float(deriv_skew)},
-            {"valid_deriv_skew": bool(valid_deriv_skew)}
-        )
 
     features = {
                 "derivative_skew": float(deriv_skew),
