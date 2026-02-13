@@ -16,35 +16,89 @@ from pipeline.reports import ROIReport
 if TYPE_CHECKING:
     from data_classes.video import Video
 
+from dataclasses import dataclass
+from typing import List, Optional, Any
 
-def _resolve_feature_names(
-    model: Any,
-    model_config: Optional[dict] = None,
-) -> Optional[list[str]]:
-    """Return the ordered feature names the model was trained on.
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+import pandas as pd
+from joblib import Parallel, delayed
 
-    Resolution order
-    ----------------
-    1. ``model.feature_names_in_`` (set by sklearn when fitted on a DataFrame).
-    2. ``model_config["feature_names"]`` from the JSON sidecar passed in at
-       load time.
-    3. ``None`` — caller must fall back to positional columns.
+from classifier_pipeline.datasets import apply_transform
+from data_classes.roi import ROI
+from data_classes.neuron import Neuron
+from typing import TYPE_CHECKING
+
+from pipeline.reports import ROIReport
+if TYPE_CHECKING:
+    from data_classes.video import Video
+
+
+def _get_feature_names(model: Any) -> list[str]:
     """
-    # 1) sklearn attribute
+    Get feature names from a trained model.
+    
+    Parameters
+    ----------
+    model : Any
+        Trained sklearn model
+        
+    Returns
+    -------
+    feature_names : list[str]
+        Ordered feature names the model was trained on
+        
+    Raises
+    ------
+    ValueError
+        If model doesn't have feature_names_in_ attribute
+    """
     names = getattr(model, "feature_names_in_", None)
-    if names is not None:
-        try:
-            return list(names)
-        except Exception:
-            pass
+    if names is None:
+        raise ValueError("Model was not trained with feature names. Retrain on a DataFrame.")
+    return list(names)
 
-    # 2) JSON sidecar
-    if model_config:
-        names = model_config.get("feature_names")
-        if names:
-            return list(names)
-
-    return None
+def _prepare_features(
+    feats_df: pd.DataFrame, 
+    model: Any, 
+    transform: str = None
+) -> pd.DataFrame:
+    """
+    Prepare features for inference with correct ordering and transform.
+    
+    Parameters
+    ----------
+    feats_df : pd.DataFrame
+        Raw extracted features
+    model : Any
+        Trained model with feature_names_in_
+    transform : str, optional
+        Transform to apply, by default None
+        
+    Returns
+    -------
+    X : pd.DataFrame
+        Features ready for prediction
+        
+    Raises
+    ------
+    ValueError
+        If feats_df is missing required columns
+    """
+    expected = _get_feature_names(model)
+    
+    missing = set(expected) - set(feats_df.columns)
+    if missing:
+        raise ValueError(f"Missing required features: {missing}")
+    
+    # Select and reorder to match training
+    X = feats_df[expected].copy()
+    
+    if transform:
+        X = apply_transform(X, transform)
+    
+    return X
 
 
 @dataclass
@@ -71,6 +125,27 @@ class ROIService:
         roi_model: RandomForestClassifier | LogisticRegression,
         model_config: Optional[dict] = None,
     ) -> tuple[List[ROI], np.ndarray]:
+        """
+        Filter ROIs using the trained classifier.
+        
+        Parameters
+        ----------
+        video : Video
+            Video object with normalized traces
+        all_rois : List[ROI]
+            All ROIs to filter
+        roi_model : RandomForestClassifier | LogisticRegression
+            Trained classifier
+        model_config : dict, optional
+            Config with 'transform' key, by default None
+            
+        Returns
+        -------
+        good_rois : List[ROI]
+            ROIs classified as good
+        good_roi_mask : np.ndarray
+            Boolean mask of good ROIs
+        """
         if roi_model is None:
             raise RuntimeError("ROI classifier model is not provided.")
 
@@ -83,24 +158,15 @@ class ROIService:
             roi.features = feats
 
         feats_df = pd.DataFrame(all_feats)
-
-        expected = _resolve_feature_names(roi_model, model_config)
-        if expected:
-            for col in expected:
-                if col not in feats_df.columns:
-                    feats_df[col] = np.nan
-            X = feats_df[expected].values
-        else:
-            X = feats_df.values
-
-        # Apply the same feature transform used during training
+        
+        # Prepare features with correct ordering and transform
         transform = model_config.get("transform") if model_config else None
-        X = apply_transform(X, transform)
+        X = _prepare_features(feats_df, roi_model, transform)
 
         preds = roi_model.predict(X).astype(bool)
         good_roi_mask = np.asarray(preds, dtype=bool)
 
-        # Preserve explicitly marked-bad ROIs (your current logic)
+        # Preserve explicitly marked-bad ROIs
         for i, roi in enumerate(all_rois):
             if roi.is_good is False:
                 good_roi_mask[i] = False
@@ -131,7 +197,7 @@ class ROIService:
         neurons: List[Neuron] = []
 
         # Prefer video.fs if present; fallback to suite2p ops or default
-        fs = float(getattr(video, "fs", None) or video.suite2p_data.get("ops", {}).get("fs", 30.0))
+        fs = float(getattr(video, "fs", None) or video.suite2p_data.get("ops", {}).get("fs", 15.0))
 
         for filtered_index, roi in enumerate(good_rois):
             neurons.append(

@@ -8,8 +8,8 @@ import pandas as pd
 from enum import Enum
 
 def train_and_evaluate(model: RandomForestClassifier | LogisticRegression | SVC,
-                       X_train: np.ndarray, y_train: np.ndarray, 
-                       X_test: np.ndarray, y_test: np.ndarray,
+                       X_train: pd.DataFrame, y_train: pd.Series, 
+                       X_test: pd.DataFrame, y_test: pd.Series,
                        metric: str = 'roc_auc') -> float:
     """
     Train model and return evaluation metric.
@@ -18,13 +18,13 @@ def train_and_evaluate(model: RandomForestClassifier | LogisticRegression | SVC,
     ----------
     model : RandomForestClassifier | LogisticRegression | SVC
         Model instance to train
-    X_train : np.ndarray
+    X_train : pd.DataFrame
         Training features
-    y_train : np.ndarray
+    y_train : pd.Series
         Training labels
-    X_test : np.ndarray
+    X_test : pd.DataFrame   
         Test features
-    y_test : np.ndarray
+    y_test : pd.Series
         Test labels
     metric : str, optional
         Evaluation metric to return, by default 'roc_auc'
@@ -50,7 +50,7 @@ def train_and_evaluate(model: RandomForestClassifier | LogisticRegression | SVC,
     else:
         raise ValueError(f"Unknown metric: {metric}")
     
-def get_feature_importance(model, feature_names: list) -> pd.DataFrame:
+def get_feature_importance(model : RandomForestClassifier | LogisticRegression | SVC, feature_names: list) -> pd.DataFrame:
     """
     Extract feature importance from a trained model.
     

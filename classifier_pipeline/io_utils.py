@@ -1,5 +1,3 @@
-
-
 import datetime
 import json
 from pathlib import Path
@@ -10,41 +8,94 @@ import yaml
 from .optimize import OptimizationResults
 import pandas as pd
 
-def load_config(path: Path | str):
+
+def load_config(path: Path | str) -> dict:
+    """Load YAML config file."""
     with open(path, 'r') as f:
         return yaml.safe_load(f)
-def load_labeled_spike_data(npy_dict: dict[str, dict[str, np.ndarray | dict]],
-                            manual_only: bool = True) -> tuple[np.ndarray, np.ndarray, list, list]:
+
+
+def load_labeled_roi_data(
+    roi_dict: dict[str, dict[str, np.ndarray | dict]],
+    manual_only: bool = True
+) -> tuple[pd.DataFrame, pd.Series]:
     """
-    Extract labeled spike features from the ROI/spike .npy dictionary.
+    Load labeled ROI data as DataFrame.
     
-    Mirrors the structure of :func:`load_labeled_roi_data` — iterates
-    through all ROIs and their nested spikes, filters by label value
-    and source, and returns aligned feature / label arrays.
+    Parameters
+    ----------
+    roi_dict : dict
+        Dictionary containing ROI data
+    manual_only : bool, optional
+        If True, only use manually labeled ROIs, by default True
+    
+    Returns
+    -------
+    X : pd.DataFrame
+        Feature matrix with named columns
+    y : pd.Series
+        Labels
+        
+    Raises
+    ------
+    ValueError
+        If no labeled data found
+    """
+    rows = []
+    
+    for roi_key, roi_data in roi_dict.items():
+        label_value = get_label_value(roi_data['label'])
+        label_source = get_label_source(roi_data['label'])
+        
+        if label_value == -1:
+            continue
+        if manual_only and label_source != 'manual':
+            continue
+
+        row = roi_data['features'].copy()
+        row['label'] = label_value
+        row['roi_key'] = roi_key
+        rows.append(row)
+    
+    if len(rows) == 0:
+        raise ValueError("No labeled data found! Please annotate some ROIs first.")
+    
+    df = pd.DataFrame(rows)
+    
+    # Separate features, labels, and keys
+    y = df['label'].astype(int)
+    X = df.drop(columns=['label', 'roi_key'])
+    
+    return X, y
+
+
+def load_labeled_spike_data(
+    npy_dict: dict[str, dict[str, np.ndarray | dict]],
+    manual_only: bool = True
+) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Load labeled spike data as DataFrame.
     
     Parameters
     ----------
     npy_dict : dict
-        Dictionary of ROI data, where each ROI contains a ``'spikes'``
-        dict mapping spike index to ``{'features': dict, 'label': dict}``.
+        Dictionary of ROI data with nested spikes
     manual_only : bool, optional
-        If True, only include spikes labeled with ``source == 'manual'``.
-        Default is True.
+        If True, only include manually labeled spikes, by default True
     
     Returns
     -------
-    X : np.ndarray
-        Feature matrix (n_samples, n_features).
-    y : np.ndarray
-        Labels (n_samples,).
-    feature_names : list[str]
-        Names of features.
-    spike_keys : list[str]
-        Spike keys (``"roi_key-spike_idx"``) corresponding to each sample.
+    X : pd.DataFrame
+        Feature matrix with named columns
+    y : pd.Series
+        Labels
+        
+    Raises
+    ------
+    ValueError
+        If no labeled spikes found
     """
     rows = []
-    spike_keys_list = []
-    feature_names = None
     
     for roi_key, roi_data in npy_dict.items():
         spikes = roi_data.get('spikes', {})
@@ -61,78 +112,27 @@ def load_labeled_spike_data(npy_dict: dict[str, dict[str, np.ndarray | dict]],
             if manual_only and label_source != 'manual':
                 continue
             
-            spike_features = spike_data.get('features', {})
-            if not spike_features:
+            features = spike_data.get('features', {})
+            if not features:
                 continue
             
-            if feature_names is None:
-                feature_names = sorted(spike_features.keys())
-            
-            feature_values = [spike_features[fname] for fname in feature_names]
-            rows.append(feature_values + [label_value])
-            spike_keys_list.append(f"{roi_key}-{spike_idx}")
+            row = features.copy()
+            row['label'] = label_value
+            row['spike_key'] = f"{roi_key}-{spike_idx}"
+            rows.append(row)
     
     if len(rows) == 0:
         raise ValueError("No labeled spikes found! Please annotate some spikes first.")
     
-    data_array = np.array(rows)
-    X = data_array[:, :-1]
-    y = data_array[:, -1]
+    df = pd.DataFrame(rows)
     
-    return X, y, feature_names, spike_keys_list
+    y = df['label'].astype(int)
+    X = df.drop(columns=['label', 'spike_key'])
+    
+    return X, y
 
-def load_labeled_roi_data(roi_dict: dict[str, dict[str, np.ndarray | dict ]],
-                        manual_only: bool = True) -> tuple[np.ndarray, np.ndarray, list, list]:
-    """
-    Load ROI data and filter for labeled ROIs.
-    
-    Parameters
-    ----------
-    roi_dict : dict
-        Dictionary containing ROI data
-    manual_only : bool
-        If True, only use manually labeled ROIs (default: True)
-    
-    Returns
-    -------
-    X : np.ndarray
-        Feature matrix (n_samples, n_features)
-    y : np.ndarray
-        Labels (n_samples,)
-    feature_names : list
-        Names of features
-    roi_keys : list
-        ROI keys corresponding to each sample
-    """
-    
-    rows = []
-    roi_keys_list = []
-    
-    for roi_key, roi_data in roi_dict.items():
-        label_value = get_label_value(roi_data['label'])
-        label_source = get_label_source(roi_data['label'])
-        
-        if (manual_only and label_source != 'manual') or label_value == -1:
-            continue
 
-        features = list(roi_data['features'].values())
-        rows.append(features + [label_value])
-        roi_keys_list.append(roi_key)
-    
-    if len(rows) == 0:
-        raise ValueError("No labeled data found! Please annotate some ROIs first.")
-    
-    data_array = np.array(rows)
-    X = data_array[:, :-1]  
-    y = data_array[:, -1]   
-    
-    first_roi = next(iter(roi_dict.values()))
-    feature_names = list(first_roi['features'].keys())
-    
-    return X, y, feature_names, roi_keys_list
-
-def load_roi_data(npy_path: Path, verbose: bool = True,
-                 manual_only: bool = True) -> dict:
+def load_roi_data(npy_path: Path, verbose: bool = True) -> dict:
     """Load ROI data from .npy file."""
     if not npy_path.exists():
         raise FileNotFoundError(f"ROI data file not found: {npy_path}")
@@ -141,6 +141,7 @@ def load_roi_data(npy_path: Path, verbose: bool = True,
         print(f"Loaded {len(data)} ROIs from {npy_path}")
     return data
 
+
 def save_roi_data(npy_dict: dict, npy_path: Path, verbose: bool = True) -> None:
     """Save ROI data to .npy file."""
     npy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,19 +149,9 @@ def save_roi_data(npy_dict: dict, npy_path: Path, verbose: bool = True) -> None:
     if verbose:
         print(f"Saved to {npy_path}")
 
+
 def save_results(results: OptimizationResults, output_path: Path, verbose: bool = True) -> None:
-    """
-    Save optimization results to a JSON file.
-    
-    Parameters
-    ----------
-    results : OptimizationResults
-        Results object to save
-    output_path : Path
-        Path to save JSON file
-    verbose : bool, optional
-        Whether to print confirmation, by default True
-    """
+    """Save optimization results to JSON file."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -172,18 +163,7 @@ def save_results(results: OptimizationResults, output_path: Path, verbose: bool 
 
 
 def save_model(model, output_path: Path, verbose: bool = True) -> None:
-    """
-    Save trained model to joblib file.
-    
-    Parameters
-    ----------
-    model : sklearn model
-        Trained model to save
-    output_path : Path
-        Path to save model
-    verbose : bool, optional
-        Whether to print confirmation, by default True
-    """
+    """Save trained model to joblib file."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, output_path)
@@ -192,9 +172,12 @@ def save_model(model, output_path: Path, verbose: bool = True) -> None:
         print(f"Saved model to {output_path}")
 
 
-def save_optimization_outputs(results: OptimizationResults, output_dir: Path,
-                              model_name : str, verbose: bool = True,
-                              overwrite: bool = False) -> tuple[Path, Path]:
+def save_optimization_outputs(
+    results: OptimizationResults, 
+    output_dir: Path, 
+    model_name: str,
+    verbose: bool = True
+) -> tuple[Path, Path]:
     """
     Save both model and results JSON.
     
@@ -204,10 +187,10 @@ def save_optimization_outputs(results: OptimizationResults, output_dir: Path,
         Results object containing model and metrics
     output_dir : Path
         Directory to save outputs
+    model_name : str
+        Name of model being saved
     verbose : bool, optional
         Whether to print confirmation, by default True
-    overwrite : bool, optional
-        Whether to overwrite existing files, by default False
         
     Returns
     -------
@@ -216,20 +199,11 @@ def save_optimization_outputs(results: OptimizationResults, output_dir: Path,
     results_path : Path
         Path to saved results JSON
     """
-    from datetime import datetime
-    
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    model_file = f"{model_name}.joblib"
-    results_file = f"{model_name}_results.json"
-
-    if not overwrite:
-        model_file = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
-        results_file = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_results.json"
-
-    model_path = output_dir / model_file
-    results_path = output_dir / results_file
+    model_path = output_dir / f"{model_name}.joblib"
+    results_path = output_dir / f"{model_name}_results.json"
     
     save_model(results.model, model_path, verbose=verbose)
     save_results(results, results_path, verbose=verbose)

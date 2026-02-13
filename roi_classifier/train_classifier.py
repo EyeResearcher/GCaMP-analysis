@@ -19,12 +19,12 @@ def train_roi_classifier(config_path : Path, data_path: Path,
 
     config = load_config(config_path)
     data = load_roi_data(data_path, manual_only=manual_only)
-    labeled_data = load_labeled_roi_data(data, manual_only=manual_only)
+    x, y = load_labeled_roi_data(data, manual_only=manual_only)
     
-    splits = train_test_split(labeled_data[0], labeled_data[1], test_size=0.2, random_state=42)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
 
-    runner = PipelineRunner(config, labeled_data[2], verbose=verbose)    
-    results = runner.run(splits)
+    runner = PipelineRunner(config, verbose=verbose)    
+    results = runner.run([x_train, x_test, y_train, y_test])
     if verbose:
         print_tuned_summary(results)
     
@@ -32,7 +32,7 @@ def train_roi_classifier(config_path : Path, data_path: Path,
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        save_optimization_outputs(results, output_dir, name, verbose=verbose, overwrite=overwrite)
+        save_optimization_outputs(results, output_dir, name, verbose=verbose)
         
         if verbose:
             print(f"Saved results to {output_dir}")

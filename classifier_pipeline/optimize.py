@@ -52,6 +52,7 @@ class OptimizationResults:
     recall: float
     features: list[str]
     transform: str
+
     def to_dict(self, include_model: bool = False) -> dict:
         """
         Convert results to a JSON-serializable dictionary.
@@ -81,6 +82,8 @@ class OptimizationResults:
         if include_model:
             d['model_type'] = type(self.model).__name__
         return d
+
+
 class ModelOptimizer:
     """
     Optimizer for finding the best model, transform, and features.
@@ -91,6 +94,8 @@ class ModelOptimizer:
         The dataset with all x and y data
     verbose : bool, optional
         Whether to print results, by default True
+    metric : str, optional
+        Metric to optimize, by default 'roc_auc'
         
     Attributes
     ----------
@@ -98,6 +103,8 @@ class ModelOptimizer:
         The dataset used for optimization
     verbose : bool
         Whether to print results
+    metric : str
+        Metric used for optimization
     best_model_type : str or None
         The best model type found after optimization
     best_features : list[str] or None
@@ -106,16 +113,32 @@ class ModelOptimizer:
         The best transform found after optimization
     best_accuracy : float or None
         The best accuracy achieved
+    results : OptimizationResults or None
+        Final optimization results after tuning
     """
     
     def __init__(self, dataset: ClassifierDataset, verbose: bool = True, metric: str = 'roc_auc'):
         self.dataset = dataset
         self.verbose = verbose
         self.metric = metric
-        self.best_model_type = None
-        self.best_features = None
-        self.best_transform = None
-        self.best_accuracy = None
+        self.best_model_type: str = None
+        self.best_features: list[str] = None
+        self.best_transform: str = None
+        self.best_accuracy: float = None
+        self.results: OptimizationResults = None
+
+    def _get_labels(self) -> tuple[pd.Series, pd.Series]:
+        """
+        Get train and test labels.
+        
+        Returns
+        -------
+        y_train : pd.Series
+            Training labels
+        y_test : pd.Series
+            Test labels
+        """
+        return self.dataset.get_labels()
 
     def _test_transforms(self, model_class: str, **hp_kwargs) -> tuple[str, pd.DataFrame]:
         """
@@ -135,24 +158,24 @@ class ModelOptimizer:
         feat_importance : pd.DataFrame
             Feature importance DataFrame from the best model
         """
-        y_train, y_test = self.dataset.y_train.raw, self.dataset.y_test.raw
+        y_train, y_test = self._get_labels()
         best = 0
         best_transform = None
         feat_importance = None
         
-        for transform in self.dataset.x_test.transformed_data.keys():
-            x_train, x_test = self.dataset.get_subset(transform_name=transform)
+        for transform in self.dataset.x_train.transformed_data.keys():
+            X_train, X_test = self.dataset.get_subset(transform_name=transform)
             model = get_model(model_class, **hp_kwargs)
-            acc = train_and_evaluate(model, x_train, y_train, x_test, y_test, metric=self.metric)
+            acc = train_and_evaluate(model, X_train, y_train, X_test, y_test, metric=self.metric)
 
             if acc > best:
                 best = acc
                 best_transform = transform
-                feat_importance = get_feature_importance(model, self.dataset.feature_names)
+                feat_importance = get_feature_importance(model, X_train.columns.tolist())
                 
         if self.verbose: 
             print(f"{model_class}")
-            print(f"\t Best transform: {best_transform} with accuracy: {best}")
+            print(f"\t Best transform: {best_transform} with {self.metric}: {best:.4f}")
             
         return best_transform, feat_importance
     
@@ -179,16 +202,17 @@ class ModelOptimizer:
         best : float
             The best accuracy achieved
         """
-        y_train, y_test = self.dataset.y_train.raw, self.dataset.y_test.raw
-        feature_subsets = [3, 5, len(self.dataset.feature_names)]
+        y_train, y_test = self._get_labels()
+        n_features = len(self.dataset.feature_names)
+        feature_subsets = [n for n in [3, 5, n_features] if n <= n_features]
         best = 0 
         best_features = []  
 
-        for n_features in feature_subsets:
-            top_features: list[str] = importance_df.head(n_features)['feature'].tolist()
-            x_train, x_test = self.dataset.get_subset(top=top_features, transform_name=transform_name)
+        for n in feature_subsets:
+            top_features: list[str] = importance_df.head(n)['feature'].tolist()
+            X_train, X_test = self.dataset.get_subset(top=top_features, transform_name=transform_name)
             model = get_model(model_class, **hp_kwargs)
-            acc = train_and_evaluate(model, x_train, y_train, x_test, y_test, metric=self.metric)
+            acc = train_and_evaluate(model, X_train, y_train, X_test, y_test, metric=self.metric)
             
             if acc > best:
                 best = acc
@@ -196,10 +220,9 @@ class ModelOptimizer:
                 
         if self.verbose:
             print(f"{model_class} with transform: {transform_name}")
-            print(f"\t Best features: {best_features} with accuracy: {best}")
+            print(f"\t Best features: {best_features} with {self.metric}: {best:.4f}")
             
         return best_features, best
-
 
     def optimize_model(self, model_type: str) -> tuple[list[str], float, str]:
         """
@@ -254,9 +277,9 @@ class ModelOptimizer:
         self.best_model_type = best_type
         self.best_features, self.best_accuracy, self.best_transform = best_config
         
-        return best_type
+        return self
 
-    def tune_hyperparameters(self, hp_grid: dict, base_model: RFC | LR | SVC = None) -> dict:
+    def tune_hyperparameters(self, hp_grid: dict, base_model: RFC | LR | SVC = None) -> OptimizationResults:
         """
         Tune hyperparameters for the best model using GridSearchCV.
         
@@ -270,7 +293,7 @@ class ModelOptimizer:
         Returns
         -------
         results : OptimizationResults
-            dataclass type object 
+            Dataclass containing model and metrics
             
         Raises
         ------
@@ -285,23 +308,22 @@ class ModelOptimizer:
         if self.best_features is None:
             raise ValueError("Call find_best_model() first")
             
-        y_train, y_test = self.dataset.y_train.raw, self.dataset.y_test.raw
-        x_train, x_test = self.dataset.get_subset(self.best_features, self.best_transform)
+        y_train, y_test = self._get_labels()
+        X_train, X_test = self.dataset.get_subset(self.best_features, self.best_transform)
 
         search = GridSearchCV(base_model, hp_grid, cv=5, scoring='accuracy', n_jobs=-1)
-        search.fit(x_train, y_train)
+        search.fit(X_train, y_train)
 
         best_model = search.best_estimator_
-        test_acc = best_model.score(x_test, y_test)
-        y_pred_proba = best_model.predict_proba(x_test)[:, 1]
-        y_pred = best_model.predict(x_test)
+        y_pred = best_model.predict(X_test)
+        y_pred_proba = best_model.predict_proba(X_test)[:, 1]
         report = classification_report(y_test, y_pred, output_dict=True)['weighted avg']
         
         self.results = OptimizationResults(
             model=best_model,
             best_params=search.best_params_,
             cv_acc=search.best_score_,
-            test_acc=test_acc,
+            test_acc=best_model.score(X_test, y_test),
             roc_auc=roc_auc_score(y_test, y_pred_proba),
             confusion_matrix=confusion_matrix(y_test, y_pred),
             f1=report['f1-score'],

@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
-from classifier_pipeline.datasets import apply_transform
 from pipeline.reports import SpikeReport
+from pipeline.services.roi_service import _prepare_features
 
 from spike_processing.detector import SpikeDetector
 from spike_processing.filter import SpikeFilter
@@ -37,7 +37,6 @@ class SpikeService:
           - n_peaks_raw (int)
         Returns flattened feature dataframe for inference.
         """
-
         results = Parallel(n_jobs=self.n_jobs)(
             delayed(self.detector.extract_candidate_features)(
                 video.norm_sm_f[neuron.index, :],
@@ -51,46 +50,9 @@ class SpikeService:
             neuron.spk_features = list(feats_list or [])
             neuron.peaks = np.asarray(peaks, dtype=int)
             neuron.n_peaks_raw = int(len(neuron.peaks))
-
             spike_features_flat.extend(neuron.spk_features)
 
         return pd.DataFrame(spike_features_flat)
-
-    def _prepare_matrix(
-        self,
-        spk_feats_df: pd.DataFrame,
-        model: Any,
-        model_config: Optional[dict] = None,
-    ) -> np.ndarray:
-        """Build the feature matrix for inference, honouring the training config.
-
-        Resolution order for feature names
-        -----------------------------------
-        1. ``model_config["selected_features"]`` when ``use_top_features`` is
-           set (subset selection was applied during training).
-        2. ``model_config["feature_names"]`` (full ordered list from training).
-        3. ``model.feature_names_in_`` (sklearn attribute).
-        4. Positional fallback — use columns as-is.
-        """
-        expected: Optional[list[str]] = None
-
-        if model_config:
-            if model_config.get("use_top_features") and model_config.get("selected_features"):
-                expected = model_config["selected_features"]
-            else:
-                expected = model_config.get("feature_names")
-
-        if expected is None:
-            expected = getattr(model, "feature_names_in_", None)
-
-        if expected:
-            expected = list(expected)
-            for col in expected:
-                if col not in spk_feats_df.columns:
-                    spk_feats_df[col] = np.nan
-            return spk_feats_df[expected].copy().values
-
-        return spk_feats_df.values
 
     def filter_spikes(
         self,
@@ -109,18 +71,16 @@ class SpikeService:
             raise RuntimeError("Spike classifier model is not provided.")
 
         if spk_feats_df.empty:
-            # No candidate peaks anywhere
             video.neurons = []
             return np.asarray([], dtype=bool)
 
-        X = self._prepare_matrix(spk_feats_df, spike_model, model_config=model_config)
+        # Use shared helper from roi_service
+        transform = model_config.get("transform") if model_config else None
+        X = _prepare_features(spk_feats_df, spike_model, transform)
+
         if X.shape[0] == 0:
             video.neurons = []
             return np.asarray([], dtype=bool)
-
-        # Apply the same feature transform used during training
-        transform = model_config.get("transform") if model_config else None
-        X = apply_transform(X, transform)
 
         spike_mask = spike_model.predict(X).astype(bool)
 
@@ -183,10 +143,7 @@ class SpikeService:
         return video.summary_df
 
     def _aggregate_summary_means(self, summary_df: pd.DataFrame) -> dict[str, float]:
-        """
-        Kept as-is for now. (You’ll likely deprecate this in favor of your
-        bottom-up experiment summaries.)
-        """
+        """Aggregate mean metrics from summary DataFrame."""
         if summary_df.empty:
             return {}
 
@@ -209,21 +166,13 @@ class SpikeService:
         """
         n_neurons_in = len(video.neurons)
 
-        # Extract raw peak features and store on neurons
         spk_feats_df = self.extract_spike_features(video)
-
-        # Count raw spikes before filtering
         n_spikes_raw = int(sum(getattr(n, "n_peaks_raw", 0) for n in video.neurons))
 
-        # Filter spikes + drop neurons with no spikes
         self.filter_spikes(video, spk_feats_df, spike_model, model_config=model_config)
-
-        # Count kept spikes after filtering
         n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))
 
-        # Compute per-neuron spike stats df (and attach spike objects)
         summary_df = self.compute_spike_statistics(video)
-
         mean_metrics = self._aggregate_summary_means(summary_df)
 
         return SpikeReport(

@@ -4,7 +4,7 @@ from .verbose_utils import print_dataset_summary
 from .optimize import ModelOptimizer, OptimizationResults
 from typing import Any
 import numpy as np
-
+import pandas as pd
 
 class PipelineRunner:
     """
@@ -31,28 +31,34 @@ class PipelineRunner:
         Optimizer after finding best model
     """
     
-    def __init__(self, hp_config: dict[str, Any], feature_names: list[str], verbose: bool = True):
+    def __init__(self, hp_config: dict[str, dict[str, list]], verbose: bool = True):
         self.config = hp_config
-        self.feature_names = feature_names
         self.verbose = verbose
         self.dataset: ClassifierDataset = None
         self.optimizer: ModelOptimizer = None
-    
-    def build_dataset(self, splits: list[np.ndarray]) -> 'PipelineRunner':
+        self.feature_names : list[str] = []
+    def build_dataset(self, x_train : pd.DataFrame, x_test: pd.DataFrame, y_train: pd.Series, y_test: pd.Series) -> 'PipelineRunner':
         """
         Build and transform the dataset.
         
         Parameters
         ----------
-        splits : list[np.ndarray]
-            List of [x_train, x_test, y_train, y_test]
+        x_train : pd.DataFrame
+            Training features
+        x_test : pd.DataFrame
+            Testing features
+        y_train : pd.Series
+            Training labels
+        y_test : pd.Series
+            Testing labels
             
         Returns
         -------
         self : PipelineRunner
             Returns self for method chaining
         """
-        self.dataset = ClassifierDataset.build(splits, self.feature_names)
+        self.feature_names = list(x_train.columns)
+        self.dataset = ClassifierDataset.build(x_train, x_test, y_train, y_test)
         self.dataset.transform_data()
         if self.verbose:
             print_dataset_summary(self.feature_names, self.dataset.y_train.raw, self.dataset.y_test.raw)
@@ -102,14 +108,22 @@ class PipelineRunner:
         
         return self.optimizer.tune_hyperparameters(hp_grid, base_model)
     
-    def run(self, splits: list[np.ndarray]) -> OptimizationResults:
+    def run(self, 
+            x_train: pd.DataFrame, x_test: pd.DataFrame,
+            y_train: pd.Series, y_test: pd.Series) -> OptimizationResults:
         """
         Run the full pipeline.
         
         Parameters
         ----------
-        splits : list[np.ndarray]
-            List of [x_train, x_test, y_train, y_test]
+        x_train : pd.DataFrame
+            Training features
+        x_test : pd.DataFrame
+            Testing features
+        y_train : pd.Series
+            Training labels
+        y_test : pd.Series
+            Testing labels
             
         Returns
         -------
@@ -117,4 +131,4 @@ class PipelineRunner:
             Final optimization results
 
         """
-        return self.build_dataset(splits).find_best_model().tune()
+        return self.build_dataset(x_train, x_test, y_train, y_test).find_best_model().tune()
