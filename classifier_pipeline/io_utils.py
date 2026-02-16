@@ -9,7 +9,14 @@ import yaml
 from .optimize import OptimizationResults
 import pandas as pd
 
-
+def load_labeled_data(classifier_type : str, 
+                    roi_dict : dict[str, dict[str, np.ndarray | dict]],
+                    manual_only : bool = True) -> tuple[pd.DataFrame, pd.Series]:
+    if classifier_type == "roi":
+        return load_labeled_roi_data(roi_dict, manual_only)
+    elif classifier_type == "spike":
+        return load_labeled_spike_data(roi_dict, manual_only)
+    
 def load_labeled_roi_data(
     roi_dict: dict[str, dict[str, np.ndarray | dict]],
     manual_only: bool = True
@@ -127,7 +134,7 @@ def load_labeled_spike_data(
     return X, y
 
 
-def load_roi_data(npy_path: Path, verbose: bool = True) -> dict:
+def load_roi_data(npy_path: Path, verbose: bool = False) -> dict:
     """Load ROI data from .npy file."""
     if not npy_path.exists():
         raise FileNotFoundError(f"ROI data file not found: {npy_path}")

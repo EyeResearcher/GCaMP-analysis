@@ -1,20 +1,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from turtle import distance
 from typing import Any, Dict, List, Tuple
 import numpy as np
 from scipy.signal import find_peaks
 
-# Your existing feature extractor used for spike classifier inference
-from spike_classifier.prepare_data import define_candidate_fluor_events as detect_spikes
+from .features import get_all_spike_features
 
+
+# ---------------------------------------------------------------------------
+# Core spike detection
+# ---------------------------------------------------------------------------
+
+def define_candidate_fluor_events(
+    smoothed_f: np.ndarray = None,
+    peaks: np.ndarray | None = None,
+    roi_idx=None,
+    mode="train",
+) -> Tuple[Dict[int, Dict], list[int | str]]:
+    """Detect spikes and compute windows/features per spike."""
+    peaks, props = find_peaks(smoothed_f, distance=30) if peaks is None else (peaks, None)
+    if peaks.size == 0:
+        return {}, []
+
+    spike_data, spike_keys = get_all_spike_features(
+        smoothed_f, peaks, props, mode=mode, roi_idx=roi_idx
+    )
+    return spike_data, spike_keys
+
+
+# ---------------------------------------------------------------------------
+# SpikeDetector (inference entry point)
+# ---------------------------------------------------------------------------
 
 @dataclass
 class SpikeDetector:
-    """
-    Detect candidate peaks and compute per-peak feature dicts (for spike classifier).
-    """
+    """Detect candidate peaks and compute per-peak feature dicts."""
 
     def get_feats(
         self,
@@ -22,15 +43,6 @@ class SpikeDetector:
         roi_idx: int,
         dist: int = 20,
     ) -> Tuple[List[Dict[str, Any]], np.ndarray]:
-        """
-        Args:
-            sm_norm_f: Smoothed, normalized trace for a single ROI/neuron (1D).
-            roi_idx: Original ROI index (used by your feature code).
-
-        Returns:
-            features_list: list of dicts (one per peak) for classifier input
-            peaks: np.ndarray of peak indices (same ordering as features_list)
-        """
         x = np.asarray(sm_norm_f, dtype=float)
         if x.ndim != 1 or x.size < 3 or not np.isfinite(x).all():
             return [], np.asarray([], dtype=int)
@@ -40,6 +52,8 @@ class SpikeDetector:
         if peaks.size == 0:
             return [], peaks
 
-        feats_list, _keys = detect_spikes(x, peaks, roi_idx=roi_idx, mode="inference")
+        feats_list, _keys = define_candidate_fluor_events(
+            x, peaks, roi_idx=roi_idx, mode="inference"
+        )
         feats_list = list(feats_list or [])
         return feats_list, peaks

@@ -84,6 +84,51 @@ def label_to_text(label) -> str:
         return "bad"
     return "unlabeled"
 
+def compute_data_summary(roi_dict: dict, level: str = "roi") -> dict:
+    """
+    Compute label counts for ROI or spike data.
+
+    Parameters
+    ----------
+    roi_dict : dict
+        ROI data dictionary.
+    level : str
+        ``"roi"`` for ROI-level labels, ``"spike"`` for spike-level labels.
+
+    Returns
+    -------
+    dict
+    """
+    if level == "roi":
+        items = list(roi_dict.values())
+        get_label = lambda item: item.get("label", {})
+    elif level == "spike":
+        items = [
+            spike_data
+            for roi_data in roi_dict.values()
+            for spike_data in roi_data.get("spikes", {}).values()
+        ]
+        get_label = lambda item: item.get("label", {})
+    else:
+        raise ValueError(f"Unknown level: {level!r}. Use 'roi' or 'spike'.")
+
+    summary = {
+        "level": level,
+        "n_total": len(items),
+        "n_good": sum(1 for item in items if get_label_value(get_label(item)) == 1),
+        "n_bad": sum(1 for item in items if get_label_value(get_label(item)) == 0),
+        "n_unlabeled": sum(1 for item in items if get_label_value(get_label(item)) == -1),
+        "n_manual": sum(1 for item in items if get_label_source(get_label(item)) == "manual"),
+        "n_auto": sum(1 for item in items if get_label_source(get_label(item)) == "auto"),
+    }
+
+    if level == "roi":
+        summary["total_spikes"] = sum(len(r.get("spikes", {})) for r in roi_dict.values())
+    elif level == "spike":
+        summary["n_rois"] = len(roi_dict)
+        summary["n_rois_with_spikes"] = sum(1 for r in roi_dict.values() if r.get("spikes"))
+
+    return summary
 
 # =============================================================================
 # Label Normalization
@@ -190,7 +235,28 @@ def preserve_existing_label(existing_spikes: dict, spike_idx, new_label: dict) -
         return normalized
     return new_label
 
+def reset_spike_labels(roi_dict: dict) -> tuple[dict, int]:
+    """Reset all spike labels to unlabeled.
 
+    Parameters
+    ----------
+    roi_dict : dict
+        ROI data dictionary with spike labels.
+
+    Returns
+    -------
+    tuple[dict, int]
+        Modified dict and count of labels that were reset.
+    """
+    n_reset = 0
+    for roi_data in roi_dict.values():
+        if 'spikes' in roi_data:
+            for spike_idx in roi_data['spikes']:
+                val = get_label_value(roi_data['spikes'][spike_idx].get('label', {}))
+                if val != -1:
+                    n_reset += 1
+                roi_data['spikes'][spike_idx]['label'] = create_label_dict(-1, 'unlabeled')
+    return roi_dict, n_reset
 # =============================================================================
 # Label-Based Filtering
 # =============================================================================

@@ -60,8 +60,6 @@ class PipelineRunner:
         self.feature_names = list(x_train.columns)
         self.dataset = ClassifierDataset.build(x_train, x_test, y_train, y_test)
         self.dataset.transform_data()
-        if self.verbose:
-            print_dataset_summary(self.feature_names, self.dataset.y_train.raw, self.dataset.y_test.raw)
         return self
     
     def find_best_model(self) -> 'PipelineRunner':

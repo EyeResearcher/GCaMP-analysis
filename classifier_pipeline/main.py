@@ -10,16 +10,12 @@ import pandas as pd
 
 from .run_pipeline import PipelineRunner
 from .optimize import OptimizationResults
-from .io_utils import load_config, load_roi_data, load_labeled_roi_data, load_labeled_spike_data, save_optimization_outputs
-from .verbose_utils import print_tuned_summary
+from .io_utils import load_config, load_roi_data, load_labeled_data, save_optimization_outputs
+from .verbose_utils import print_tuned_summary, print_dataset_summary
 from sklearn.model_selection import train_test_split
 
 
-# Registry mapping classifier type to the appropriate data loader
-_DATA_LOADERS: dict[str, Callable] = {
-    "roi": load_labeled_roi_data,
-    "spike": load_labeled_spike_data,
-}
+
 
 
 def train_classifier(
@@ -64,21 +60,18 @@ def train_classifier(
     ValueError
         If *classifier_type* is not ``"roi"`` or ``"spike"``.
     """
-    if classifier_type not in _DATA_LOADERS:
-        raise ValueError(
-            f"Unknown classifier_type {classifier_type!r}. "
-            f"Expected one of {list(_DATA_LOADERS)}"
-        )
 
-    data_loader = _DATA_LOADERS[classifier_type]
 
     config = load_config(config_path)
-    data = load_roi_data(data_path, verbose=verbose)
-    x, y = data_loader(data, manual_only=manual_only)
+    data = load_roi_data(data_path)
+    x, y = load_labeled_data(classifier_type, data, manual_only)
 
     x_train, x_test, y_train, y_test = train_test_split(
         x, y, test_size=0.2, random_state=42
     )
+
+    if verbose:
+        print_dataset_summary(y_train, y_test, manual_only=manual_only)
 
     runner = PipelineRunner(config, verbose=verbose)
     results = runner.run(x_train, x_test, y_train, y_test)

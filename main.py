@@ -26,6 +26,7 @@ from experiments.compare import ExperimentComparer, BasicSiblingComparator
 def main(
     experiment_root: Path,
     config_path: Path = Path("config.yaml"),
+    sensor_type: str | None = None,
     output_root: Path | None = None,
     verbose: bool = True,
 ) -> None:
@@ -49,7 +50,7 @@ def main(
         "spike_config": spike_cfg,
     }
     # 2) Build runner once
-    runner = VideoPipelineRunner.build(config)
+    runner = VideoPipelineRunner.build(config, sensor_type)
 
     # 3) Build experiment tree (directory-agnostic)
     builder = ExperimentTreeBuilder(is_video_dir=is_video_dir)
@@ -105,6 +106,8 @@ if __name__ == "__main__":
         default=Path("config/pipeline_config.yaml"),
         help="Path to pipeline config YAML (default: config/pipeline_config.yaml)",
     )
+    parser.add_argument("--sensor", type=str, default=None,
+                        help="Sensor type, e.g. gcamp6f, gcamp8s (overrides config; default: gcamp8s)")
     parser.add_argument("--output", type=Path, default=None, help="Output root (defaults to experiment_root)")
     parser.add_argument("--quiet", action="store_true", help="Suppress verbose output")
     args = parser.parse_args()
@@ -112,6 +115,7 @@ if __name__ == "__main__":
     main(
         experiment_root=args.experiment_root,
         config_path=args.config,
+        sensor_type=args.sensor,
         output_root=args.output,
         verbose=not args.quiet,
     )

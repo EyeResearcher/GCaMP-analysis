@@ -13,10 +13,10 @@ from scipy.ndimage import gaussian_filter1d
 import sys
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
-
+from classifier_pipeline.verbose_utils import print_data_summary
 from utils.model_utils.rois import compute_roi_features
 from utils.preprocessing import normalize_minmax
-from utils.label_utils import get_label_value, create_label_dict, normalize_label_format
+from utils.label_utils import get_label_value, create_label_dict, normalize_label_format, compute_data_summary
 from utils.io_utils import create_backup
 
 
@@ -154,29 +154,37 @@ def update_roi_features(roi_dict: dict[str, dict[str, Any]], verbose: bool = Tru
 def process_dataset(dataset_root: Path, verbose: bool = True) -> dict:
     """
     Process all videos in a dataset directory.
-    
+
+    Recursively searches for directories containing Suite2p outputs
+    (``suite2p/plane0/F.npy``).
+
     Parameters
     ----------
     dataset_root : Path
-        Root directory containing video folders
+        Root directory containing video folders (may be nested)
     verbose : bool, optional
         Whether to print progress, by default True
-    
+
     Returns
     -------
     roi_dict : dict
         Dictionary of all ROIs from all videos
     """
-    video_paths = [p for p in dataset_root.iterdir() if p.is_dir()]
+    # Find every directory that has suite2p output
+    video_paths = sorted(
+        {p.parent.parent.parent for p in dataset_root.rglob("suite2p/plane0/F.npy")}
+    )
+    if verbose:
+        print(f"Found {len(video_paths)} video directories under {dataset_root}")
+
     all_rois = []
-    
     for video_path in video_paths:
         video_rois = process_video(video_path)
         if video_rois:
             all_rois.extend(video_rois)
             if verbose:
-                print(f"Processed {video_path.name}: {len(video_rois)} ROIs")
-    
+                print(f"  Processed {video_path.name}: {len(video_rois)} ROIs")
+
     return dict(all_rois)
 
 
@@ -228,7 +236,8 @@ def prepare_roi_data(
         roi_dict = np.load(input_file, allow_pickle=True).item()
         
         if verbose:
-            _print_data_summary(roi_dict)
+            summary = compute_data_summary(roi_dict)
+            print_data_summary(summary)
         
         roi_dict = update_roi_features(roi_dict, verbose=verbose)
     else:
@@ -245,17 +254,6 @@ def prepare_roi_data(
     
     return roi_dict
 
-
-def _print_data_summary(roi_dict: dict) -> None:
-    """Print summary of existing ROI data."""
-    n_good = sum(1 for r in roi_dict.values() if get_label_value(r.get('label')) == 1)
-    n_bad = sum(1 for r in roi_dict.values() if get_label_value(r.get('label')) == 0)
-    n_unlabeled = sum(1 for r in roi_dict.values() if get_label_value(r.get('label')) == -1)
-    total_spikes = sum(len(r.get('spikes', {})) for r in roi_dict.values())
-    
-    print(f"\nCurrent Data:")
-    print(f"  - Good: {n_good}, Bad: {n_bad}, Unlabeled: {n_unlabeled}")
-    print(f"  - Total spikes: {total_spikes}")
 
 
 # =============================================================================

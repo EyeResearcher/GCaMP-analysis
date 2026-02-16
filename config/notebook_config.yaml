@@ -5,7 +5,9 @@ models:
   spike_config_path: "C:/Users/mzinn1/Desktop/gcamp_model/spike_classifier_results.json"
   cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
   cascade_model_dir: "Cascade/Pretrained_models"
-
+traces: 
+  smooth_sigma: 4.0
+  sensor_type: "gcamp8s"   # gcamp8s, gcamp6f, or generic
 hp_tuning: 
   model_searches:
     RF:

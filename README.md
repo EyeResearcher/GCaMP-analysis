@@ -43,28 +43,15 @@ This module recursively searches a specified directory for Suite2p outputs and w
 
 **Usage:**
 ```bash
-# Process raw videos from a dataset directory
+# Process raw arrays of fluorescence data from a dataset directory
+python -m roi_classifier.prepare_data --dataset_root /path/to/videos
+
+# Same as above, but specifying where the computed features are stored
 python -m roi_classifier.prepare_data --dataset_root /path/to/videos --output_file path/to/output/features.npy
 
-# Update existing features (preserves labels and spikes)
-python -m roi_classifier.prepare_data --update --input_file training_data/roi_filtering/all_roi_features.npy
-
-# Update without creating a backup
-python -m roi_classifier.prepare_data --update --input_file training_data/roi_filtering/all_roi_features.npy --no-backup
-
-# Quiet mode (suppress output)
-python -m roi_classifier.prepare_data --dataset_root /path/to/videos -q
+# Get description of the module's purpose and its arguments 
+python -m roi_classifier.prepare_data --help
 ```
-
-**Arguments:**
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--dataset_root` | Root directory to search for Suite2p outputs | Required for processing |
-| `--input_file` | Input `.npy` file for update mode | `training_data/roi_filtering/all_roi_features.npy` |
-| `--output_file` | Output `.npy` file path | `training_data/roi_filtering/all_roi_features.npy` |
-| `--update` | Update existing features instead of processing raw videos | `False` |
-| `--no-backup` | Skip backup creation in update mode | `False` |
-| `-q`, `--quiet` | Suppress output | `False` |
 
 **Expected Directory Structure:**
 
@@ -94,15 +81,6 @@ dataset_root/
 ```
 
 The only requirement is the presence of `suite2p/plane0/F.npy` within any subdirectory.
-
-**Output:**
-
-Creates a `.npy` file containing a dictionary with ROI keys mapped to:
-- `smoothed_trace`: Gaussian-smoothed fluorescence trace
-- `raw_trace`: Original fluorescence trace  
-- `features`: Extracted ROI features (derivative skewness, SNR, etc.)
-- `label`: Label dictionary (`{'value': -1/0/1, 'source': 'unlabeled'/'manual'/'auto'}`)
-- `spikes`: Nested spike data (populated in later stages)
 
 #### 2. `annotate_data`
 
@@ -417,26 +395,13 @@ The final stage applies the trained classifiers to process entire experiment dir
 # Run pipeline on an experiment directory
 python main.py /path/to/experiment_root
 
-# Custom config file
-python main.py /path/to/experiment_root --config config/my_config.yaml
+# Optionally specify the sensor type 
+python main.py /path/to/experiment_root --sensor <your_sensor>
 
-# Save outputs to a different location
-python main.py /path/to/experiment_root --output /path/to/output
-
-# Quiet mode
-python main.py /path/to/experiment_root --quiet
-```
-
-**Arguments:**
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `experiment_root` | Root directory containing experiment data | Required |
-| `--config` | Path to pipeline configuration YAML | `config/pipeline_config.yaml` |
-| `--output` | Output directory for results | Same as `experiment_root` |
-| `--quiet` | Suppress verbose output | `False` |
-
+# Display program purpose and argument definitions
+python main.py --help
 ---
-
+```
 #### Directory Structure & Sibling Comparisons
 
 The pipeline automatically compares sibling directories at each level of your experiment hierarchy. **Parallel directory structures are required** for meaningful comparisons.
@@ -481,26 +446,3 @@ This structure enables comparisons:
 
 **Experiment-Level Outputs** (saved in `metrics/` subdirectory):
 - `sibling_comparisons.xlsx`: Multi-sheet Excel file with statistical comparisons at each hierarchy level
-
-**Console Output (Verbose Mode):**
-```
-Processing: Treatment_A/Week_1/video_001
-  ROIs: 150 → 45 good
-  Spikes: 892 → 312 kept
-  Neurons: 45 → 38 with valid spikes
-
-Processing: Treatment_A/Week_1/video_002
-  ...
-
-=== Sibling comparisons (by node) ===
-
-Node: experiment_root
-  condition    mean_spike_rate    mean_amplitude    n_neurons
-  Treatment_A          2.34            0.45            83
-  Treatment_B          1.89            0.52            71
-
-Node: Treatment_A
-  condition    mean_spike_rate    mean_amplitude    n_neurons
-  Week_1              2.12            0.43            45
-  Week_2              2.56            0.47            38
-```

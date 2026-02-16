@@ -172,10 +172,6 @@ class ModelOptimizer:
                 best = acc
                 best_transform = transform
                 feat_importance = get_feature_importance(model, X_train.columns.tolist())
-                
-        if self.verbose: 
-            print(f"{model_class}")
-            print(f"\t Best transform: {best_transform} with {self.metric}: {best:.4f}")
             
         return best_transform, feat_importance
     
@@ -217,10 +213,6 @@ class ModelOptimizer:
             if acc > best:
                 best = acc
                 best_features = top_features
-                
-        if self.verbose:
-            print(f"{model_class} with transform: {transform_name}")
-            print(f"\t Best features: {best_features} with {self.metric}: {best:.4f}")
             
         return best_features, best
 
@@ -276,9 +268,7 @@ class ModelOptimizer:
                 
         self.best_model_type = best_type
         self.best_features, self.best_accuracy, self.best_transform = best_config
-        
-        return self
-
+        return
     def tune_hyperparameters(self, hp_grid: dict, base_model: RFC | LR | SVC = None) -> OptimizationResults:
         """
         Tune hyperparameters for the best model using GridSearchCV.

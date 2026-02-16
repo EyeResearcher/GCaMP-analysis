@@ -13,3 +13,7 @@ training_data/roi_filtering/all_roi_features_spike_keys.csv
 
 # ignore test data folders 
 **/test_data/
+
+**data/
+**saved_models/
+**logs/

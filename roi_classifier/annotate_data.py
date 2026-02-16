@@ -6,9 +6,9 @@ import argparse
 import random
 from pathlib import Path
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from utils.label_utils import get_label_value, get_label_source, create_label_dict, get_keys
+from utils.label_utils import get_label_value, get_label_source, create_label_dict, get_keys, compute_data_summary
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
-from classifier_pipeline.verbose_utils import print_keys
+from classifier_pipeline.verbose_utils import print_keys, print_data_summary, print_session_summary
 def select_rois_for_annotation(
     npy_dict: dict,
     n_samples: int,
@@ -91,26 +91,6 @@ def run_annotation_session(
     return stats
 
 
-def print_session_summary(npy_dict: dict, stats: dict) -> None:
-    """Print summary statistics after annotation session."""
-    total_labeled = sum(1 for v in npy_dict.values() if get_label_value(v['label']) != -1)
-    total_unlabeled = sum(1 for v in npy_dict.values() if get_label_value(v['label']) == -1)
-    manual_count = sum(1 for v in npy_dict.values() if get_label_source(v['label']) == 'manual')
-    auto_count = sum(1 for v in npy_dict.values() if get_label_source(v['label']) == 'auto')
-    
-    print("\n" + "=" * 50)
-    print("=== Annotation Complete ===")
-    print(f"ROIs processed: {stats['total']}")
-    print(f"  Updated:   {stats['updated']}")
-    print(f"  Confirmed: {stats['confirmed']}")
-    print(f"  Skipped:   {stats['skipped']}")
-    print(f"\nDataset Summary:")
-    print(f"  Total ROIs:    {len(npy_dict)}")
-    print(f"  Labeled:       {total_labeled}")
-    print(f"  Unlabeled:     {total_unlabeled}")
-    print(f"  Manual labels: {manual_count}")
-    print(f"  Auto labels:   {auto_count}")
-
 
 # =============================================================================
 # Main Entry Point
@@ -162,9 +142,11 @@ def annotate_rois(
     )
     
     if verbose:
-        print_session_summary(npy_dict, stats)
-    
-    return npy_dict
+        print_session_summary(stats)
+        s = compute_data_summary(npy_dict, level="roi")
+        print_data_summary(s)
+
+ 
 
 
 # =============================================================================
@@ -299,7 +281,7 @@ class AnnotationSession:
     def _prev_roi(self):
         """Go back to the previous ROI (does not change labels by itself)."""
         if self.current_idx <= 0:
-            print("⏮️ Already at the first ROI.")
+            print("Already at the first ROI.")
             return
         self.current_idx -= 1
         self._update_display()
@@ -514,7 +496,7 @@ def main():
                        help="Enable verbose output")
     args = parser.parse_args()
 
-    annotate_rois(
+    results = annotate_rois(
         data_path=Path(args.data_path),
         n_annotations=args.number_annotations,
         unlabeled_only=args.unlabeled_only,

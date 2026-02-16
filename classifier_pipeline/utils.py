@@ -5,7 +5,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 import pandas as pd
 from enum import Enum
-
+from typing import Any
+from dataclasses import dataclass
 # Re-export label utilities so existing imports keep working
 from utils.label_utils import (          # noqa: F401
     create_label_dict,

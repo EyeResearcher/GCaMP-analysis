@@ -692,13 +692,13 @@ class SpikeAnnotationByROISession:
 # Public entry point
 # =============================================================================
 
-def annotate_spikes_by_roi(
+def annotate_spikes(
     data_path: Path,
-    *,
     max_rois: Optional[int] = None,
     unlabeled_only: bool = False,
     labeled_only: bool = False,
     checkpoint_interval: int = 30,
+    verbose: bool = True,
 ) -> SessionStats:
     """
     ROI-centric spike annotation.
@@ -716,7 +716,7 @@ def annotate_spikes_by_roi(
     checkpoint_interval:
         Auto-save after every N labeled spikes.
     """
-    npy_dict = load_roi_data(data_path, verbose=True)
+    npy_dict = load_roi_data(data_path, verbose=verbose)
 
     cfg = SessionConfig(
         data_path=data_path,
@@ -748,14 +748,16 @@ def main() -> None:
     parser.add_argument("--unlabeled_only", action="store_true", help="Only annotate label == -1 spikes")
     parser.add_argument("--labeled_only", action="store_true", help="Only show already-labeled spikes")
     parser.add_argument("--checkpoint_interval", type=int, default=30, help="Auto-save every N labeled spikes")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
 
-    annotate_spikes_by_roi(
+    annotate_spikes(
         data_path=Path(args.data_path),
         max_rois=args.max_rois,
         unlabeled_only=args.unlabeled_only,
         labeled_only=args.labeled_only,
         checkpoint_interval=args.checkpoint_interval,
+        verbose=args.verbose,
     )
 
 

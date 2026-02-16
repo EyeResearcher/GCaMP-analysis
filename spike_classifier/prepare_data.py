@@ -1,52 +1,20 @@
 import argparse
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 import numpy as np
-from scipy.signal import find_peaks
-from utils.model_utils.spikes import get_all_spike_features
+from pathlib import Path
 from scipy.stats import skew
 from utils.label_utils import (
     create_label_dict, get_label_value, get_label_source,
-    normalize_spike_label, preserve_existing_label,
+    normalize_spike_label, preserve_existing_label, compute_data_summary
 )
+from spike_processing.detector import define_candidate_fluor_events
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
+from classifier_pipeline.verbose_utils import print_data_summary
 
 
 # =============================================================================
 # Spike Detection
 # =============================================================================
-
-def define_candidate_fluor_events(smoothed_f: np.ndarray = None,
-                   peaks : np.ndarray | None = None, roi_idx = None,
-                     mode = "train") -> Tuple[Dict[int, Dict], list[int|str]]:
-    """
-    Detect spikes and compute windows/features per spike.
-    Args:
-        smoothed_spike_prob (np.ndarray): 1D array of smoothed spike probabilities
-        peaks (np.ndarray | None): Optional precomputed peak indices
-        roi_idx: Optional ROI index for key construction
-        mode: "train" to return detailed spike data, "inference" for feature list only
-    Returns:
-        Tuple containing for training mode:
-            - spike_data (Dict[int, Dict]): Mapping of spike index to its data (windows, features, label)
-            - spike_keys (list[int|str]): List of spike indices detected
-        or for inference mode:
-            - features_list (list[Dict]): List of feature dictionaries for each spike
-            - spike_keys (list[int|str]): List of spike keys
-
-    """
-    
-    
-    # Detect peaks in the valid region
-    peaks, props = find_peaks(smoothed_f, distance=30) if peaks is None else (peaks, None)
-    if peaks.size == 0:
-        return {}, []
-
-
-    spike_data, spike_keys = get_all_spike_features(
-        smoothed_f, peaks, props, mode=mode, roi_idx=roi_idx
-    )   
-    return spike_data, spike_keys
-
 
 def parallel_detect_spikes(args):
     smoothed_f, roi_idx = args
@@ -140,16 +108,19 @@ def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None) -> D
     return roi_dict
 
 
-def main(input_path: str,
+def prepare_spike_data(input_path: str,
          output_path: Optional[str] = None, 
-         max_rois: Optional[int] = None) -> Dict[str, Dict[int, Dict]]:
-    from pathlib import Path
+         max_rois: Optional[int] = None,
+         verbose = True) -> Dict[str, Dict[int, Dict]]:
     
-    roi_dict = load_roi_data(Path(input_path), verbose=True)
+    roi_dict = load_roi_data(Path(input_path), verbose=verbose)
     roi_dict = process_rois(roi_dict, max_rois=max_rois)
     
     save_path = Path(output_path) if output_path else Path(input_path)
-    save_roi_data(roi_dict, save_path, verbose=True)
+    save_roi_data(roi_dict, save_path, verbose=verbose)
+    if verbose:
+        s = compute_data_summary(roi_dict, level="roi")
+        print_data_summary(s)
     
     return roi_dict
 
@@ -174,6 +145,13 @@ if __name__ == "__main__":
         default=None,
         help="Maximum number of good ROIs to process (default: all ROIs)",
     )
-
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
     args = parser.parse_args()
-    main(args.input_path, args.output_path, args.max_rois)
+    roi_dict = prepare_spike_data(input_path=args.input_path,
+                                output_path=args.output_path,
+                                max_rois=args.max_rois, 
+                                verbose=args.verbose)

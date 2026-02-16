@@ -8,6 +8,10 @@ models:
 
 cascade_batch_size: 64
 
+traces:
+  sensor_type: "gcamp8s"   # gcamp8s, gcamp6f, or generic (affects smoothing window)
+  smooth_sigma: 4.0        # Gaussian smoothing sigma
+
 roi_filtering:
   normalization: "minmax"  # Normalization strategy: "minmax" or "deltaf"
 

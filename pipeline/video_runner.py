@@ -18,14 +18,16 @@ class VideoPipelineRunner:
     grouping : grouping_service.GroupingService
 
     @classmethod
-    def build(cls, config: dict[str, dict| np.ndarray]) -> "VideoPipelineRunner":
+    def build(cls, config: dict[str, dict | np.ndarray], sensor_type: str | None = None) -> "VideoPipelineRunner":
         """Construct the runner once, reuse for all videos in the experiment."""
 
         n_jobs = config.get("parallel", {}).get("n_jobs", -1)
 
+        resolved_sensor = sensor_type or config.get("traces", {}).get("sensor_type", "gcamp8s")
+
         trace = trace_service.TraceService(
             smooth_sigma=config.get("traces", {}).get("smooth_sigma", 4.0),
-            sensor_type=config.get("traces", {}).get("sensor_type", "gcamp8s"),
+            sensor_type=resolved_sensor,
         )
         roi = roi_service.ROIService(n_jobs=n_jobs)
         spike = spike_service.SpikeService(n_jobs=n_jobs)

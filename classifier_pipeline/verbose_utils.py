@@ -1,7 +1,26 @@
 from .optimize import OptimizationResults
 
+def print_data_summary(summary: dict) -> None:
+    """Print a formatted data summary dict."""
+    level = summary["level"]
+    print(f"\n{'=' * 40}")
+    print(f"  {level.upper()} Summary")
+    print(f"{'=' * 40}")
 
-def print_dataset_summary(feature_names, y_train, y_test, manual_only=True):
+    if level == "spike":
+        print(f"  ROIs: {summary['n_rois']}  ({summary['n_rois_with_spikes']} with spikes)")
+
+    print(f"  Total {level}s: {summary['n_total']}")
+    print(f"  Good: {summary['n_good']} | Bad: {summary['n_bad']} | Unlabeled: {summary['n_unlabeled']}")
+    print(f"  Manual: {summary['n_manual']} | Auto: {summary['n_auto']}")
+
+    if level == "roi":
+        print(f"  Total spikes stored: {summary['total_spikes']}")
+
+    print(f"{'=' * 40}\n")
+
+
+def print_dataset_summary(y_train, y_test, manual_only=True):
     """
     Print summary of the dataset including train/test label distributions.
     
@@ -18,11 +37,9 @@ def print_dataset_summary(feature_names, y_train, y_test, manual_only=True):
     """
     total = len(y_train) + len(y_test)
     print(f"Dataset Summary")
-    print(f"Total labeled ROIs: {total}")
+    print("-" * 50)
+    print(f"Total labeled datapoints: {total}")
     print(f"  Train: {len(y_train)} | Test: {len(y_test)}")
-    print(f"\nFeature names:")
-    for i, feat in enumerate(feature_names):
-        print(f"\t  {i+1}. {feat}")
     print(f"\nLabel distribution:")
     print(f"  {'':10s} {'Bad (0)':>8s} {'Good (1)':>9s}")
     print(f"  {'Train':<10s} {(y_train == 0).sum():>8d} {(y_train == 1).sum():>9d}")
@@ -87,3 +104,16 @@ def print_keys(rois: int, key_type: str, keys: int = None):
         print(f"Returning all {rois} keys.")
     else:
         print(f"Found {keys} {key_type} ROIs out of {rois} ROIs.")
+
+def print_session_summary(stats: dict) -> None:
+    """Print summary of an annotation session."""
+    level = stats.get("level", "unknown")
+    print(f"\n{'=' * 40}")
+    print(f"  {level.upper()} Annotation Summary")
+    print(f"{'=' * 40}")
+    print(f"  Total:     {stats['total']}")
+    print(f"  Labeled:   {stats['labeled']}")
+    print(f"  Updated:   {stats['updated']}")
+    print(f"  Confirmed: {stats['confirmed']}")
+    print(f"  Skipped:   {stats['skipped']}")
+    print(f"{'=' * 40}\n")

@@ -1,0 +1,32 @@
+{
+  "best_params": {
+    "C": 10,
+    "class_weight": null,
+    "max_iter": 200,
+    "penalty": "l1",
+    "solver": "saga"
+  },
+  "cv_acc": 0.963436806166478,
+  "test_acc": 0.9635036496350365,
+  "roc_auc": 0.9789702683103698,
+  "confusion_matrix": [
+    [
+      194,
+      3
+    ],
+    [
+      7,
+      70
+    ]
+  ],
+  "f1": 0.9632004303757229,
+  "precision": 0.9634121164997929,
+  "recall": 0.9635036496350365,
+  "features": [
+    "spike_prom",
+    "mini_prom",
+    "distance"
+  ],
+  "transform": "sqrt",
+  "model_type": "LogisticRegression"
+}
