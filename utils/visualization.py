@@ -4,13 +4,95 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from matplotlib.patches import Patch
-from typing import List, TYPE_CHECKING
-from typing import Optional, Sequence
+from typing import List, TYPE_CHECKING, Any, Optional, Sequence
 
 if TYPE_CHECKING:
     from data_classes.neuron_group import NeuronGroup
 import logging
 logger = logging.getLogger(__name__)
+
+
+
+def _safe_window_get(windows: Any, key: str, default: Optional[int] = None) -> Optional[int]:
+    """Safely extract an integer from a possibly-dict windows object."""
+    if isinstance(windows, dict):
+        v = windows.get(key, default)
+        try:
+            return int(v) if v is not None else default
+        except Exception:
+            return default
+    return default
+
+
+def plot_trace_with_spikes(
+    ax: "plt.Axes",
+    y: np.ndarray,
+    *,
+    spike_idx: int,
+    all_spike_indices: list[int],
+    title: str,
+    y_label: str,
+    windows: Any = None,
+) -> None:
+    """Full-trace plot with spike markers and window shading.
+    
+    Parameters
+    ----------
+    ax : matplotlib Axes
+    y : 1-D signal array
+    spike_idx : index of the current spike to highlight
+    all_spike_indices : all spike peak indices to mark
+    title, y_label : axis labels
+    windows : dict with optional keys 'left_base', 'right_base', 'prev_min', 'next_min'
+    """
+    if windows is None:
+        windows = {}
+
+    y = np.asarray(y, dtype=float)
+    x = np.arange(len(y), dtype=float)
+
+    ax.clear()
+    ax.plot(x, y, linewidth=1)
+
+    left_base = _safe_window_get(windows, "left_base", None)
+    right_base = _safe_window_get(windows, "right_base", None)
+    prev_min = _safe_window_get(windows, "prev_min", None)
+    next_min = _safe_window_get(windows, "next_min", None)
+
+    # Shade large window
+    if left_base is not None and right_base is not None:
+        lb = max(0, min(left_base, len(y) - 1))
+        rb = max(0, min(right_base, len(y)))
+        if rb > lb:
+            ax.fill_between(x[lb:rb], y[lb:rb], alpha=0.15)
+
+    # Thicken small window
+    if prev_min is not None and next_min is not None:
+        pm = max(0, min(prev_min, len(y) - 1))
+        nm = max(0, min(next_min, len(y)))
+        if nm > pm:
+            ax.plot(x[pm:nm], y[pm:nm], linewidth=2)
+
+    # All spike peaks
+    y_lim = ax.get_ylim()
+    y_bottom = y_lim[0]
+    for other_idx in all_spike_indices:
+        oi = int(other_idx)
+        if 0 <= oi < len(y):
+            ax.plot([oi, oi], [y_bottom, y[oi]], color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+
+    # Current spike peak
+    si = int(spike_idx)
+    if 0 <= si < len(y):
+        ax.plot([si, si], [y_bottom, y[si]], color="red", linestyle="-", linewidth=2, label="Current spike")
+
+    ax.set_title(title)
+    ax.set_xlabel("Frame")
+    ax.set_ylabel(y_label)
+    ax.set_xlim(0, len(y))
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper right")
+
 
 def visualize_neuron_groups(neuron_groups: List[NeuronGroup], 
                             stat: np.ndarray, 

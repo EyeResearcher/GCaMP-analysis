@@ -10,6 +10,15 @@ from typing import Any
 # =============================================================================
 # Label Creation & Querying
 # =============================================================================
+def parse_spike_key(spike_key: str) -> tuple[str, int]:
+    """Parse 'roikey-3' → ('roikey', 3)."""
+    roi_key, spike_idx_str = spike_key.rsplit("-", 1)
+    return roi_key, int(spike_idx_str)
+
+
+def make_spike_key(roi_key: str, spike_idx: int) -> str:
+    """Inverse of parse_spike_key."""
+    return f"{roi_key}-{int(spike_idx)}"
 
 def create_label_dict(value: int, source: str = 'manual') -> dict:
     """
