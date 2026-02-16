@@ -31,4 +31,476 @@ pip install -r [requirements.txt](http://_vscodecontentref_/1)
 
 # 5. Verify dependency installation 
 python -c "import numpy, scipy, pandas, sklearn, matplotlib, joblib, yaml; print('All dependencies OK')"
+```
+## Workflow 
+As mentioned previously, there are three modules, each of which build on the last, so they must be completed in order. 
 
+### ROI Classifier 
+The first stage comprises 3 modules: `prepare_data`, `annotate_data`, and `train_classifier`. A guided workflow is provided in jupyter notebooks, but each module's functionality can also be executed in a command terminal. 
+
+#### 1. `prepare_data`
+This module recursively searches a specified directory for Suite2p outputs and writes a dictionary containing information for every ROI found.
+
+**Usage:**
+```bash
+# Process raw videos from a dataset directory
+python -m roi_classifier.prepare_data --dataset_root /path/to/videos --output_file path/to/output/features.npy
+
+# Update existing features (preserves labels and spikes)
+python -m roi_classifier.prepare_data --update --input_file training_data/roi_filtering/all_roi_features.npy
+
+# Update without creating a backup
+python -m roi_classifier.prepare_data --update --input_file training_data/roi_filtering/all_roi_features.npy --no-backup
+
+# Quiet mode (suppress output)
+python -m roi_classifier.prepare_data --dataset_root /path/to/videos -q
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--dataset_root` | Root directory to search for Suite2p outputs | Required for processing |
+| `--input_file` | Input `.npy` file for update mode | `training_data/roi_filtering/all_roi_features.npy` |
+| `--output_file` | Output `.npy` file path | `training_data/roi_filtering/all_roi_features.npy` |
+| `--update` | Update existing features instead of processing raw videos | `False` |
+| `--no-backup` | Skip backup creation in update mode | `False` |
+| `-q`, `--quiet` | Suppress output | `False` |
+
+**Expected Directory Structure:**
+
+The program recursively searches `dataset_root` for any `suite2p/plane0/F.npy` files. Your data can be organized in any nested structure as long as Suite2p outputs exist somewhere within:
+
+```
+dataset_root/
+├── experiment_1/
+│   ├── day_1/
+│   │   └── video_001/
+│   │       └── suite2p/
+│   │           └── plane0/
+│   │               └── F.npy
+│   └── day_2/
+│       └── video_002/
+│           └── suite2p/
+│               └── plane0/
+│                   └── F.npy
+├── experiment_2/
+│   └── suite2p/
+│       └── plane0/
+│           └── F.npy
+└── standalone_video/
+    └── suite2p/
+        └── plane0/
+            └── F.npy
+```
+
+The only requirement is the presence of `suite2p/plane0/F.npy` within any subdirectory.
+
+**Output:**
+
+Creates a `.npy` file containing a dictionary with ROI keys mapped to:
+- `smoothed_trace`: Gaussian-smoothed fluorescence trace
+- `raw_trace`: Original fluorescence trace  
+- `features`: Extracted ROI features (derivative skewness, SNR, etc.)
+- `label`: Label dictionary (`{'value': -1/0/1, 'source': 'unlabeled'/'manual'/'auto'}`)
+- `spikes`: Nested spike data (populated in later stages)
+
+#### 2. `annotate_data`
+
+This module provides an interactive GUI for manually labeling ROIs as "Good" (active neurons) or "Bad" (inactive/noise). Labels are used to train the ROI classifier.
+
+**Usage:**
+```bash
+# Annotate up to 100 randomly selected ROIs
+python -m roi_classifier.annotate_data --data_path training_data/roi_filtering/all_roi_features.npy -n 100
+
+# Only annotate unlabeled ROIs
+python -m roi_classifier.annotate_data --data_path training_data/roi_filtering/all_roi_features.npy --unlabeled_only
+
+# Only review previously labeled ROIs
+python -m roi_classifier.annotate_data --data_path training_data/roi_filtering/all_roi_features.npy --labeled_only
+
+# Custom checkpoint interval (save every 50 annotations)
+python -m roi_classifier.annotate_data --data_path training_data/roi_filtering/all_roi_features.npy --checkpoint_interval 50
+
+# Verbose mode
+python -m roi_classifier.annotate_data --data_path training_data/roi_filtering/all_roi_features.npy -v
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--data_path` | Path to `.npy` file from `prepare_data` | `training_data/roi_filtering/all_roi_features.npy` |
+| `-n`, `--number_annotations` | Maximum number of ROIs to annotate | `1000` |
+| `--unlabeled_only` | Only show ROIs with no label (`label=-1`) | `False` |
+| `--labeled_only` | Only show ROIs that have been labeled | `False` |
+| `--checkpoint_interval` | Auto-save every N annotations | `30` |
+| `-v`, `--verbose` | Print progress to console | `False` |
+
+**GUI Controls:**
+
+| Control | Action |
+|---------|--------|
+| `1` or **Active** button | Label ROI as Good (active neuron) |
+| `0` or **Inactive** button | Label ROI as Bad (inactive/noise) |
+| `Space` or `→` or **Skip** button | Skip ROI without labeling |
+| `←` or **Previous** button | Go back to previous ROI |
+| `Q` or `Esc` or **Save & Quit** button | Save progress and exit |
+
+**GUI Display:**
+
+The annotation window displays:
+- **Progress**: Current ROI number out of total
+- **ROI Info**: Video name and ROI index
+- **Current Label**: Existing label status (Good/Bad/Unlabeled)
+- **Features**: Key metrics like derivative skewness and spike prominence
+- **Plots**: Raw and smoothed fluorescence traces
+
+**Tips:**
+- Start with `--unlabeled_only` to label new ROIs
+- Use `--labeled_only` to review and correct existing labels
+- Progress is auto-saved at regular intervals and on exit
+- Aim for at least 100-200 labeled ROIs (balanced between Good/Bad) before training
+
+**Output:**
+
+Updates the `.npy` file in place with:
+- `label.value`: `1` (Good), `0` (Bad), or `-1` (Unlabeled)
+- `label.source`: `'manual'` for human-annotated labels
+
+#### 3. `train_classifier`
+
+This module trains an ROI classifier using the manually labeled data from `annotate_data`. It automatically optimizes model type, feature transforms, and hyperparameters.
+
+**Usage:**
+```bash
+# Train with default settings
+python -m roi_classifier.train_classifier --data_path training_data/roi_filtering/all_roi_features.npy
+
+# Train with custom config file
+python -m roi_classifier.train_classifier --config configs/roi_classifier.yaml --data_path training_data/roi_filtering/all_roi_features.npy
+
+# Specify output directory and model name
+python -m roi_classifier.train_classifier --data_path training_data/roi_filtering/all_roi_features.npy --output_dir roi_classifier/models --name my_roi_model
+
+# Include auto-labeled ROIs in training (not just manual labels)
+python -m roi_classifier.train_classifier --data_path training_data/roi_filtering/all_roi_features.npy --no-manual_only
+
+# Quiet mode
+python -m roi_classifier.train_classifier --data_path training_data/roi_filtering/all_roi_features.npy --no-verbose
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--config` | Path to YAML configuration file | Uses built-in defaults |
+| `--data_path` | Path to `.npy` file with labeled ROIs | `training_data/roi_filtering/all_roi_features.npy` |
+| `--output_dir` | Directory to save trained model and results | `roi_classifier/models` |
+| `--name` | Name for the saved model files | Auto-generated timestamp |
+| `-v`, `--verbose` | Print training progress and results | `True` |
+| `-m`, `--manual_only` | Use only manually labeled ROIs | `True` |
+
+**Configuration File (Optional):**
+
+You can customize the training process with a YAML config file:
+
+```yaml
+# configs/roi_classifier.yaml
+base_models:
+  RF:
+    n_estimators: 100
+    random_state: 42
+  LR:
+    max_iter: 1000
+    random_state: 42
+
+model_searches:
+  RF:
+    n_estimators: [50, 100, 200]
+    max_depth: [3, 5, 10, null]
+    min_samples_split: [2, 5, 10]
+  LR:
+    C: [0.01, 0.1, 1, 10]
+    penalty: ['l1', 'l2']
+    solver: ['liblinear']
+```
+
+**Training Process:**
+
+The training pipeline automatically:
+1. Loads labeled ROI data (Good/Bad labels)
+2. Splits data into train/test sets (80/20)
+3. Tests multiple model types (Random Forest, Logistic Regression)
+4. Evaluates feature transforms (raw, log, sqrt, square)
+5. Performs feature selection based on importance
+6. Tunes hyperparameters via grid search with cross-validation
+7. Saves the best model and configuration
+
+**Output:**
+
+Creates the following files in `output_dir`:
+- `<name>.joblib`: Trained model file
+- `<name>_results.json`: Training results including:
+  - Best hyperparameters
+  - Cross-validation accuracy
+  - Test accuracy, ROC-AUC, F1 score
+  - Confusion matrix
+  - Selected features and transform
+
+**Tips:**
+- Ensure you have at least 500+ labeled ROIs before training
+- Aim for balanced classes (roughly equal Good/Bad labels)
+- Review the confusion matrix to identify systematic errors
+- If accuracy is low, label more ROIs and retrain
+
+### Spike Classifier
+
+The second stage follows the same three-step workflow as the ROI classifier, but operates on candidate fluorescence events (spikes) within good ROIs. It trains a classifier to distinguish real calcium transients from noise artifacts.
+
+> **Prerequisite:** Complete the ROI Classifier workflow first. Only ROIs labeled as "Good" will be processed for spike detection.
+
+#### 1. `prepare_data`
+
+Detects candidate spikes in all good ROIs and extracts spike-level features.
+
+**Usage:**
+```bash
+# Process spikes from labeled ROI data
+python -m spike_classifier.prepare_data --input_path training_data/roi_filtering/all_roi_features.npy
+
+# Limit number of ROIs processed
+python -m spike_classifier.prepare_data --input_path training_data/roi_filtering/all_roi_features.npy --max_rois 50
+
+# Save to a different output file
+python -m spike_classifier.prepare_data --input_path training_data/roi_filtering/all_roi_features.npy -o training_data/spike_filtering/spike_features.npy
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--input_path` | Path to `.npy` file from ROI classifier | `training_data/roi_filtering/all_roi_features.npy` |
+| `-o`, `--output` | Output file path | Same as input (updates in place) |
+| `--max_rois` | Maximum number of good ROIs to process | All good ROIs |
+
+**Output:**
+
+Updates the `.npy` file, adding a `spikes` dictionary to each good ROI:
+```python
+roi_data['spikes'] = {
+    spike_idx: {
+        'features': {...},      # Spike features (prominence, width, etc.)
+        'windows': {...},       # Window indices for visualization
+        'label': {'value': -1, 'source': 'unlabeled'}
+    },
+    ...
+}
+```
+
+---
+
+#### 2. `annotate_spikes`
+
+ROI-centric GUI for labeling candidate spikes as "Good" (real transient) or "Bad" (noise/artifact).
+
+**Usage:**
+```bash
+# Annotate spikes across all ROIs
+python -m spike_classifier.annotate_spikes --data_path training_data/roi_filtering/all_roi_features.npy
+
+# Limit to first 20 ROIs
+python -m spike_classifier.annotate_spikes --data_path training_data/roi_filtering/all_roi_features.npy --max_rois 20
+
+# Only annotate unlabeled spikes
+python -m spike_classifier.annotate_spikes --data_path training_data/roi_filtering/all_roi_features.npy --unlabeled_only
+
+# Review previously labeled spikes
+python -m spike_classifier.annotate_spikes --data_path training_data/roi_filtering/all_roi_features.npy --labeled_only
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--data_path` | Path to `.npy` file with spike data | Required |
+| `--max_rois` | Maximum ROIs to annotate | All |
+| `--unlabeled_only` | Only show unlabeled spikes | `False` |
+| `--labeled_only` | Only show previously labeled spikes | `False` |
+| `--checkpoint_interval` | Auto-save every N labels | `30` |
+
+**GUI Controls:**
+
+| Control | Action |
+|---------|--------|
+| `G` or **Good** button | Label spike as Good |
+| `B` or **Bad** button | Label spike as Bad |
+| `S` or **Skip** button | Skip without labeling |
+| `←` / `→` | Previous/Next spike within ROI |
+| `↑` / `↓` | Previous/Next ROI |
+| `X` | Label all remaining spikes in ROI as Bad |
+| `Ctrl+S` | Save progress |
+
+**GUI Display:**
+
+- Full ROI trace with all candidate spikes marked
+- Current spike highlighted in red with window shading
+- Spike listbox showing label status for current ROI
+- Feature summary (prominence, width, etc.)
+
+**Tips:**
+- Use `X` (label remaining as bad) to quickly dismiss obvious noise ROIs
+- The spike listbox lets you jump to specific spikes within an ROI
+- Aim for 200-500 labeled spikes before training
+
+---
+
+#### 3. `train_classifier`
+
+Trains a spike classifier using the same optimization pipeline as the ROI classifier.
+
+**Usage:**
+```bash
+# Train with default settings
+python -m spike_classifier.train_classifier --data_path training_data/roi_filtering/all_roi_features.npy
+
+# Custom config and output
+python -m spike_classifier.train_classifier --config configs/spike_classifier.yaml --data_path training_data/roi_filtering/all_roi_features.npy --output_dir spike_classifier/models --name my_spike_model
+
+# Include auto-labeled spikes
+python -m spike_classifier.train_classifier --data_path training_data/roi_filtering/all_roi_features.npy --no-manual_only
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--config` | Path to YAML configuration file | Built-in defaults |
+| `--data_path` | Path to `.npy` file with labeled spikes | `training_data/roi_filtering/all_roi_features.npy` |
+| `--output_dir` | Directory to save model | `spike_classifier/models` |
+| `--name` | Model name | Auto-generated |
+| `-v`, `--verbose` | Print progress | `True` |
+| `-m`, `--manual_only` | Use only manual labels | `True` |
+
+**Output:**
+
+- `<name>.joblib`: Trained spike classifier
+- `<name>_results.json`: Training metrics and configuration
+
+---
+
+### Using the Trained Classifiers
+
+After completing both classifier workflows, you'll have:
+```
+roi_classifier/models/
+├── roi_model.joblib
+└── roi_model_results.json
+
+spike_classifier/models/
+├── spike_model.joblib
+└── spike_model_results.json
+```
+
+These models are used by the Analysis Pipeline (next section) to automatically filter ROIs and spikes during batch processing.
+
+---
+
+### Analysis Pipeline
+
+The final stage applies the trained classifiers to process entire experiment directories, extracting spike statistics and comparing experimental conditions.
+
+> **Prerequisites:** 
+> - Trained ROI classifier (`roi_classifier/models/`)
+> - Trained spike classifier (`spike_classifier/models/`)
+> - Pipeline configuration file (`config/pipeline_config.yaml`)
+
+#### Execution
+
+**Usage:**
+```bash
+# Run pipeline on an experiment directory
+python main.py /path/to/experiment_root
+
+# Custom config file
+python main.py /path/to/experiment_root --config config/my_config.yaml
+
+# Save outputs to a different location
+python main.py /path/to/experiment_root --output /path/to/output
+
+# Quiet mode
+python main.py /path/to/experiment_root --quiet
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `experiment_root` | Root directory containing experiment data | Required |
+| `--config` | Path to pipeline configuration YAML | `config/pipeline_config.yaml` |
+| `--output` | Output directory for results | Same as `experiment_root` |
+| `--quiet` | Suppress verbose output | `False` |
+
+---
+
+#### Directory Structure & Sibling Comparisons
+
+The pipeline automatically compares sibling directories at each level of your experiment hierarchy. **Parallel directory structures are required** for meaningful comparisons.
+
+**Recommended Structure:**
+```
+experiment_root/
+├── Treatment_A/
+│   ├── Week_1/
+│   │   ├── video_001/
+│   │   │   └── suite2p/plane0/F.npy
+│   │   └── video_002/
+│   │       └── suite2p/plane0/F.npy
+│   └── Week_2/
+│       ├── video_003/
+│       │   └── suite2p/plane0/F.npy
+│       └── video_004/
+│           └── suite2p/plane0/F.npy
+└── Treatment_B/
+    ├── Week_1/
+    │   └── video_005/
+    │       └── suite2p/plane0/F.npy
+    └── Week_2/
+        └── video_006/
+            └── suite2p/plane0/F.npy
+```
+
+This structure enables comparisons:
+- `Treatment_A` vs `Treatment_B` (at root level)
+- `Week_1` vs `Week_2` (within each treatment)
+
+> **Note:** Sibling folders must have consistent naming across branches for effective cross-condition comparisons.
+
+---
+
+#### Output
+
+**Per-Video Outputs** (saved in each video directory):
+- `summary_df.csv`: Per-neuron spike statistics
+- `neurons.json`: Neuron metadata and spike data
+- `correlation_matrix.npy`: Pairwise neuron correlations
+
+**Experiment-Level Outputs** (saved in `metrics/` subdirectory):
+- `sibling_comparisons.xlsx`: Multi-sheet Excel file with statistical comparisons at each hierarchy level
+
+**Console Output (Verbose Mode):**
+```
+Processing: Treatment_A/Week_1/video_001
+  ROIs: 150 → 45 good
+  Spikes: 892 → 312 kept
+  Neurons: 45 → 38 with valid spikes
+
+Processing: Treatment_A/Week_1/video_002
+  ...
+
+=== Sibling comparisons (by node) ===
+
+Node: experiment_root
+  condition    mean_spike_rate    mean_amplitude    n_neurons
+  Treatment_A          2.34            0.45            83
+  Treatment_B          1.89            0.52            71
+
+Node: Treatment_A
+  condition    mean_spike_rate    mean_amplitude    n_neurons
+  Week_1              2.12            0.43            45
+  Week_2              2.56            0.47            38
+```
