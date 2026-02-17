@@ -7,7 +7,7 @@ from matplotlib.patches import Patch
 from typing import List, TYPE_CHECKING, Any, Optional, Sequence
 
 if TYPE_CHECKING:
-    from data_classes.neuron_group import NeuronGroup
+    from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 import logging
 logger = logging.getLogger(__name__)
 
@@ -246,17 +246,6 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
     plt.close(fig)
     
     return fig
-
-def print_tree(node, prefix: str = "", is_last: bool = True):
-    connector = "└── " if is_last else "├── "
-    print(prefix + connector + node.name)
-
-    new_prefix = prefix + ("    " if is_last else "│   ")
-    children = list(node.children.values())
-
-    for i, child in enumerate(children):
-        print_tree(child, new_prefix, i == len(children) - 1)
-
 
 
 def plot_matrix_heatmap(

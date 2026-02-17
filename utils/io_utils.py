@@ -10,7 +10,7 @@ import logging
 from joblib import load
 import yaml
 if TYPE_CHECKING:
-    from data_classes import Video
+    from gcamp_analysis.data_classes import Video
 
 logger = logging.getLogger(__name__)
 
@@ -131,3 +131,71 @@ def create_backup(input_path: Path) -> Path:
     backup_path = input_path.with_suffix(f'.backup_{timestamp}.npy')
     shutil.copy(input_path, backup_path)
     return backup_path
+
+
+def save_filtered_suite2p(
+    video_path: Path,
+    good_roi_mask: np.ndarray,
+    suite2p_data: Dict,
+) -> Path:
+    """Save Suite2p arrays filtered to only good ROIs.
+
+    Creates ``filtered_suite2p/plane0/`` under *video_path* containing
+    the filtered F, Fneu, spks, iscell, stat, and ops arrays plus a
+    ``roi_mapping.csv`` cross-reference.
+
+    Parameters
+    ----------
+    video_path : Path
+        Root directory of the video.
+    good_roi_mask : np.ndarray
+        Boolean mask (n_rois,) indicating which ROIs to keep.
+    suite2p_data : dict
+        Raw Suite2p arrays as returned by :func:`load_suite2p_data`.
+
+    Returns
+    -------
+    Path
+        The ``filtered_suite2p/plane0/`` directory.
+    """
+    filtered_dir = video_path / "filtered_suite2p" / "plane0"
+    filtered_dir.mkdir(parents=True, exist_ok=True)
+
+    # Filter 2-D arrays (ROIs × frames)
+    for name in ("F", "Fneu", "spks", "iscell"):
+        arr = suite2p_data.get(name)
+        if arr is not None:
+            np.save(filtered_dir / f"{name}.npy", arr[good_roi_mask])
+
+    # stat (list of dicts) — must exist
+    stat = suite2p_data.get("stat")
+    if stat is None:
+        raise FileNotFoundError(f"No stat data in suite2p_data for {video_path}")
+    np.save(
+        filtered_dir / "stat.npy",
+        [stat[i] for i in np.where(good_roi_mask)[0]],
+        allow_pickle=True,
+    )
+
+    # ops — must exist, copied unchanged
+    ops = suite2p_data.get("ops")
+    if ops is None:
+        raise FileNotFoundError(f"No ops data in suite2p_data for {video_path}")
+    np.save(filtered_dir / "ops.npy", ops, allow_pickle=True)
+
+    # Cross-reference mapping
+    good_idx = np.where(good_roi_mask)[0]
+    np.save(filtered_dir / "good_roi_indices.npy", good_idx)
+    np.save(filtered_dir / "bad_roi_indices.npy", np.where(~good_roi_mask)[0])
+
+    mapping = pd.DataFrame({
+        "original_index": np.arange(len(good_roi_mask)),
+        "is_good": good_roi_mask,
+        "filtered_index": -1,
+    })
+    mapping.loc[good_roi_mask, "filtered_index"] = np.arange(good_idx.size)
+    mapping.to_csv(filtered_dir / "roi_mapping.csv", index=False)
+
+    logger.info("Filtered Suite2p saved: %d good, %d bad ROIs",
+                good_idx.size, len(good_roi_mask) - good_idx.size)
+    return filtered_dir

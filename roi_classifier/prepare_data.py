@@ -14,7 +14,7 @@ import sys
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 from classifier_pipeline.verbose_utils import print_data_summary
-from roi_processing.features import compute_roi_features
+from gcamp_analysis.roi_processing.features import compute_roi_features
 from utils.preprocessing import normalize_minmax
 from utils.label_utils import get_label_value, create_label_dict, normalize_label_format, compute_data_summary
 from utils.io_utils import create_backup

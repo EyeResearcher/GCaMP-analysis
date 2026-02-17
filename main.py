@@ -5,16 +5,15 @@ from typing import Optional
 
 # ---- Pipeline pieces
 
-from pipeline.video_runner import VideoPipelineRunner
+from gcamp_analysis.video_runner import VideoPipelineRunner
 
 # ---- Models/config
 from utils.io_utils import load_config, load_model
 
 # ---- Experiment tree + batch
-from experiments.io import save_node_level_comparisons_with_legend
-from experiments.tree import ExperimentTreeBuilder, is_video_dir
-from experiments.processor import ExperimentProcessor
-from experiments.compare import ExperimentComparer, BasicSiblingComparator
+from gcamp_analysis.experiments.io import save_comparisons
+from gcamp_analysis.experiments.tree import ExperimentTreeBuilder, is_video_dir
+from gcamp_analysis.experiments.processor import ExperimentProcessor
 
 
 
@@ -60,10 +59,9 @@ def main(
     processor.process_tree(tree, verbose=verbose)
 
     # 5) Compare siblings at every internal node (treatment vs treatment, week vs week, etc.)
-    comparer = ExperimentComparer(comparator=BasicSiblingComparator())
-    sibling_tables = comparer.compare_all(tree)
+    sibling_tables = processor.compare_siblings(tree)
 
-    save_node_level_comparisons_with_legend(
+    save_comparisons(
         root=tree,
         sibling_tables=sibling_tables,
         output_subdir="metrics",

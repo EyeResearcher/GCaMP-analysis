@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from experiments.tree import TreeNode
+from gcamp_analysis.experiments.tree import TreeNode
 
 
 # Column suffixes that the legend explains automatically.

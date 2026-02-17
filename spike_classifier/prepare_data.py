@@ -7,7 +7,7 @@ from utils.label_utils import (
     create_label_dict, get_label_value, get_label_source,
     normalize_spike_label, preserve_existing_label, compute_data_summary
 )
-from spike_processing.detector import define_candidate_fluor_events
+from gcamp_analysis.spike_processing.detector import define_candidate_fluor_events
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
 from classifier_pipeline.verbose_utils import print_data_summary
 

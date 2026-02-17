@@ -9,14 +9,14 @@ from typing import Optional
 
 import pandas as pd
 
-from experiments.tree import TreeNode, is_video_dir
-from experiments.summary_utils import (
+from gcamp_analysis.experiments.tree import TreeNode, is_video_dir
+from gcamp_analysis.experiments.summary_utils import (
     StatSummary,
     combine_neuron_level_to_video,
     aggregate_children,
 )
-from data_classes.video import Video, VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
-from pipeline.video_runner import VideoPipelineRunner
+from gcamp_analysis.data_classes.video import Video, VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
+from gcamp_analysis.video_runner import VideoPipelineRunner
 
 
 @dataclass(frozen=True)
