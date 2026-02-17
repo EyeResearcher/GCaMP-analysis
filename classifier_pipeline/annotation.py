@@ -38,7 +38,9 @@ class AnnotationSessionBase:
         self.verbose = verbose
 
         self.stats = {
-            "total": 0,
+            "level": "unknown",
+            "queued": 0,
+            "total": 0,      # items actually seen (labeled + skipped)
             "labeled": 0,
             "updated": 0,
             "confirmed": 0,
@@ -106,6 +108,7 @@ class AnnotationSessionBase:
 
     def _record_label(self, changed: bool) -> None:
         """Update stats after a label action and checkpoint if needed."""
+        self.stats["total"] += 1
         self.stats["labeled"] += 1
         if changed:
             self.stats["updated"] += 1
@@ -114,6 +117,7 @@ class AnnotationSessionBase:
         self._checkpoint_if_needed()
 
     def _record_skip(self) -> None:
+        self.stats["total"] += 1
         self.stats["skipped"] += 1
 
     def _checkpoint_if_needed(self) -> None:

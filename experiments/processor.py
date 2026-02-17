@@ -32,10 +32,8 @@ class VideoRunRecord:
 
 
 class ExperimentProcessor:
-    def __init__(self, runner: VideoPipelineRunner, models: dict, config: dict, output_root: Path):
+    def __init__(self, runner: VideoPipelineRunner, output_root: Path):
         self.runner = runner
-        self.models = models
-        self.config = config
         self.output_root = Path(output_root)
 
     def process_tree(self, root: TreeNode, verbose: bool = True) -> None:
@@ -51,7 +49,7 @@ class ExperimentProcessor:
         suite2p_plane0 = video_dir / "suite2p" / "plane0"
 
         video = Video(path=video_dir, suite2p_path=suite2p_plane0)
-        self.runner.run(video, models=self.models, config=self.config, verbose=verbose)
+        self.runner.run(video, verbose=verbose)
 
         stats = VideoStatistics.from_video(video)
         stat_writer = VideoStatisticsWriter()

@@ -20,7 +20,7 @@ from utils.label_utils import (
     create_label_dict, get_label_value,
     update_spike_label, label_to_text,
     matches_label_mode as _spike_matches_mode,
-    compute_data_summary, parse_spike_key, make_spike_key
+    compute_data_summary, get_keys
 )
 from utils.visualization import plot_trace_with_spikes, _safe_window_get
 from classifier_pipeline.io_utils import load_roi_data
@@ -31,26 +31,6 @@ from classifier_pipeline.verbose_utils import print_session_summary, print_data_
 # =============================================================================
 # Helpers
 # =============================================================================
-
-def collect_candidate_rois(
-    npy_dict: dict,
-    *,
-    unlabeled_only: bool = False,
-    labeled_only: bool = False,
-) -> list[str]:
-    """Return ROI keys that have at least one spike matching the mode."""
-    roi_keys: list[str] = []
-    for roi_key, roi_data in npy_dict.items():
-        spikes = roi_data.get("spikes", {})
-        if not isinstance(spikes, dict) or len(spikes) == 0:
-            continue
-        for spk_data in spikes.values():
-            lbl = spk_data.get("label", create_label_dict(-1, "unlabeled"))
-            if _spike_matches_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
-                roi_keys.append(str(roi_key))
-                break
-    return roi_keys
-
 
 def collect_candidate_spike_indices(
     npy_dict: dict,
@@ -72,126 +52,62 @@ def collect_candidate_spike_indices(
 
 
 # =============================================================================
-# Plot helpers
-# =============================================================================
-
-def _safe_window_get(windows: Any, key: str, default: Optional[int] = None) -> Optional[int]:
-    """Safely extract an integer from a possibly-dict windows object."""
-    if isinstance(windows, dict):
-        v = windows.get(key, default)
-        try:
-            return int(v) if v is not None else default
-        except Exception:
-            return default
-    return default
-
-
-def _plot_trace_with_context(
-    ax: plt.Axes,
-    y: np.ndarray,
-    *,
-    spike_idx: int,
-    all_spike_indices: list[int],
-    title: str,
-    y_label: str,
-    windows: Any,
-) -> None:
-    """Full-trace plot with spike markers and window shading."""
-    y = np.asarray(y, dtype=float)
-    x = np.arange(len(y), dtype=float)
-
-    ax.clear()
-    ax.plot(x, y, linewidth=1)
-
-    left_base = _safe_window_get(windows, "left_base", None)
-    right_base = _safe_window_get(windows, "right_base", None)
-    prev_min = _safe_window_get(windows, "prev_min", None)
-    next_min = _safe_window_get(windows, "next_min", None)
-
-    # Shade large window
-    if left_base is not None and right_base is not None:
-        lb = max(0, min(left_base, len(y) - 1))
-        rb = max(0, min(right_base, len(y)))
-        if rb > lb:
-            ax.fill_between(x[lb:rb], y[lb:rb], alpha=0.15)
-
-    # Thicken small window
-    if prev_min is not None and next_min is not None:
-        pm = max(0, min(prev_min, len(y) - 1))
-        nm = max(0, min(next_min, len(y)))
-        if nm > pm:
-            ax.plot(x[pm:nm], y[pm:nm], linewidth=2)
-
-    # All spike peaks
-    y_lim = ax.get_ylim()
-    y_bottom = y_lim[0]
-    for other_idx in all_spike_indices:
-        oi = int(other_idx)
-        if 0 <= oi < len(y):
-            ax.plot([oi, oi], [y_bottom, y[oi]], color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-
-    # Current spike peak
-    si = int(spike_idx)
-    if 0 <= si < len(y):
-        ax.plot([si, si], [y_bottom, y[si]], color="red", linestyle="-", linewidth=2, label="Current spike")
-
-    ax.set_title(title)
-    ax.set_xlabel("Frame")
-    ax.set_ylabel(y_label)
-    ax.set_xlim(0, len(y))
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="upper right")
-
-
-# =============================================================================
-# Config
-# =============================================================================
-
-@dataclass
-class SessionConfig:
-    data_path: Path
-    unlabeled_only: bool = False
-    labeled_only: bool = False
-    checkpoint_interval: int = 30
-    max_rois: Optional[int] = None
-
-
-# =============================================================================
 # GUI Session
 # =============================================================================
-
 class SpikeAnnotationByROISession(AnnotationSessionBase):
     """
     Two-level annotation GUI: ROI → spikes within ROI.
     Inherits window lifecycle, checkpoint, save, and stats from base.
     """
+    def __init__(self, npy_dict: dict, save_path: Path,
+                 unlabeled_only: bool = False,
+                 labeled_only: bool = False,
+                 checkpoint_interval: int = 30,
+                 n_samples: int | None = None,
+                 verbose: bool = True):
+        
+        self.unlabeled_only = unlabeled_only
+        self.labeled_only = labeled_only
 
-    def __init__(self, npy_dict: dict, cfg: SessionConfig):
-        self.cfg = cfg
-
-        self.roi_keys_all = collect_candidate_rois(
-            npy_dict,
-            unlabeled_only=cfg.unlabeled_only,
-            labeled_only=cfg.labeled_only,
+        self.roi_keys_all = get_keys(
+            npy_dict, level="spike",
+            unlabeled_only=unlabeled_only,
+            labeled_only=labeled_only,
         )
-        if cfg.max_rois is not None:
-            self.roi_keys_all = self.roi_keys_all[: int(cfg.max_rois)]
+
+        # Shuffle ROI order so the user sees different ROIs each session
+        rng = np.random.default_rng()
+        rng.shuffle(self.roi_keys_all)
+
+        if n_samples is not None:
+            self.roi_keys_all = self.roi_keys_all[:int(n_samples)]
 
         self.roi_pos = 0
         self.spike_pos = 0
         self.current_spike_indices: list[int] = []
 
+        # Pre-compute total candidate spikes across all queued ROIs
+        self._total_spikes = 0
+        for roi_key in self.roi_keys_all:
+            self._total_spikes += len(collect_candidate_spike_indices(
+                npy_dict, roi_key,
+                unlabeled_only=unlabeled_only,
+                labeled_only=labeled_only,
+            ))
+
         super().__init__(
             npy_dict=npy_dict,
-            save_path=cfg.data_path,
-            checkpoint_interval=cfg.checkpoint_interval,
+            save_path=save_path,
+            checkpoint_interval=checkpoint_interval,
             n_rows=2,
             figsize=(10, 6),
             title="Spike Annotation (ROI-centric)",
-            verbose=True,
+            verbose=verbose,
         )
         self.stats["level"] = "spike"
-        self.stats["total"] = len(self.roi_keys_all)
+        self.stats["queued"] = self._total_spikes
+        self.stats["queued_rois"] = len(self.roi_keys_all)
+
 
         # --- Extra info labels (spike-specific) ---
         self.roi_var = StringVar(value="")
@@ -221,7 +137,7 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
         self.spike_listbox.bind("<<ListboxSelect>>", self._on_listbox_select)
 
         # Load first ROI
-        if self.stats["total"] > 0:
+        if self.stats["queued"] > 0:
             self._load_roi(0)
         else:
             self._set_status("No ROIs match the current filter settings.")
@@ -304,8 +220,8 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
         self.current_spike_indices = collect_candidate_spike_indices(
             self.npy_dict,
             roi_key,
-            unlabeled_only=self.cfg.unlabeled_only,
-            labeled_only=self.cfg.labeled_only,
+            unlabeled_only=self.unlabeled_only,
+            labeled_only=self.labeled_only,
         )
 
         if len(self.current_spike_indices) == 0:
@@ -326,8 +242,8 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
         for rp in range(self.roi_pos + 1, len(self.roi_keys_all)):
             idxs = collect_candidate_spike_indices(
                 self.npy_dict, self.roi_keys_all[rp],
-                unlabeled_only=self.cfg.unlabeled_only,
-                labeled_only=self.cfg.labeled_only,
+                unlabeled_only=self.unlabeled_only,
+                labeled_only=self.labeled_only,
             )
             if len(idxs) > 0:
                 self._load_roi(rp)
@@ -362,7 +278,7 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
     # ----- display -----
 
     def _update_display(self) -> None:
-        if self.stats["total"] == 0:
+        if self.stats["queued"] == 0:
             return
 
         roi_key = self._current_roi_key()
@@ -378,10 +294,12 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
 
         all_spike_indices = sorted(int(k) for k in roi_data.get("spikes", {}).keys())
 
-        # Info panel
+        # Info panel — show both spike-level and ROI-level progress
+        spikes_seen = self.stats.get("labeled", 0) + self.stats.get("skipped", 0)
         self.progress_var.set(
-            f"ROI {self.roi_pos + 1}/{self.stats['total']} | "
-            f"Spike {self.spike_pos + 1}/{len(self.current_spike_indices)}"
+            f"ROI {self.roi_pos + 1}/{self.stats['queued_rois']} | "
+            f"Spike {self.spike_pos + 1}/{len(self.current_spike_indices)} in ROI | "
+            f"Total spikes: {spikes_seen}/{self.stats['queued']}"
         )
         self.roi_var.set(f"ROI key: {roi_key}")
 
@@ -404,7 +322,7 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
         ax_raw, ax_smooth = self.axes
 
         if raw_f.size > 0:
-            _plot_trace_with_context(
+            plot_trace_with_spikes(
                 ax_raw, raw_f,
                 spike_idx=spk_idx, all_spike_indices=all_spike_indices,
                 title="Raw trace", y_label="F", windows=windows,
@@ -414,7 +332,7 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
             ax_raw.set_title("Raw trace (missing)")
 
         if smooth_f.size > 0:
-            _plot_trace_with_context(
+            plot_trace_with_spikes(
                 ax_smooth, smooth_f,
                 spike_idx=spk_idx, all_spike_indices=all_spike_indices,
                 title="Smoothed trace", y_label="F (smoothed)", windows=windows,
@@ -490,28 +408,26 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
         self._update_display()
 
     def _prev_roi(self) -> None:
-        if self.stats["total"] == 0:
+        if self.stats["queued"] == 0:
             return
         new_pos = max(0, self.roi_pos - 1)
         self._load_roi(new_pos)
 
     def _next_roi(self) -> None:
-        if self.stats["total"] == 0:
+        if self.stats["queued"] == 0:
             return
         new_pos = self.roi_pos + 1
-        if new_pos >= self.stats["total"]:
+        if new_pos >= self.stats["queued_rois"]:
             self._finish()
             return
         self._load_roi(new_pos)
-
-
 # =============================================================================
 # Public entry point
 # =============================================================================
 
 def annotate_spikes(
     data_path: Path,
-    max_rois: Optional[int] = None,
+    n_samples: int | None = None,
     unlabeled_only: bool = False,
     labeled_only: bool = False,
     checkpoint_interval: int = 30,
@@ -520,15 +436,14 @@ def annotate_spikes(
     """ROI-centric spike annotation."""
     npy_dict = load_roi_data(data_path, verbose=verbose)
 
-    cfg = SessionConfig(
-        data_path=data_path,
+    session = SpikeAnnotationByROISession(
+        npy_dict=npy_dict,
+        save_path=data_path,
         unlabeled_only=unlabeled_only,
         labeled_only=labeled_only,
         checkpoint_interval=checkpoint_interval,
-        max_rois=max_rois,
+        n_samples=n_samples,
     )
-
-    session = SpikeAnnotationByROISession(npy_dict=npy_dict, cfg=cfg)
     stats = session.run()
 
     if verbose:
@@ -537,8 +452,6 @@ def annotate_spikes(
         print_data_summary(s)
 
     return stats
-
-
 # =============================================================================
 # CLI
 # =============================================================================

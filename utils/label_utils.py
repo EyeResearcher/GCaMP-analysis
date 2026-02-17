@@ -303,48 +303,48 @@ def matches_label_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bo
     return True
 
 
-# Keep old name as alias
-_spike_matches_mode = matches_label_mode
 
 
-def get_keys(roi_dict: dict[str, dict[str, Any]],
-             unlabeled_only: bool = False,
-             labeled_only: bool = False,
-             verbose: bool = True) -> list[str]:
+def get_keys(
+    npy_dict: dict,
+    *,
+    level: str = "roi",
+    unlabeled_only: bool = False,
+    labeled_only: bool = False,
+    verbose: bool = False,
+) -> list[str]:
     """
-    Return list of ROI keys based on labeling criteria.
+    Return keys from npy_dict matching the label filter.
 
     Parameters
     ----------
-    roi_dict : dict[str, dict[str, Any]]
-        Dictionary of ROI data
-    unlabeled_only : bool, optional
-        Return only unlabeled ROIs, by default False
-    labeled_only : bool, optional
-        Return only labeled ROIs, by default False
-    verbose : bool, optional
-        Whether to print results, by default True
-
-    Returns
-    -------
-    keys : list[str]
-        List of ROI keys matching criteria
-
-    Raises
-    ------
-    ValueError
-        If both unlabeled_only and labeled_only are True, or no ROIs match
+    npy_dict : dict
+    level : str
+        ``"roi"`` filters on ROI-level labels.
+        ``"spike"`` returns ROI keys that have at least one spike matching the filter.
+    unlabeled_only : bool
+    labeled_only : bool
+    verbose : bool
     """
-    if unlabeled_only and labeled_only:
-        raise ValueError("Cannot set both unlabeled_only and labeled_only to True.")
+    keys: list[str] = []
 
-    if unlabeled_only:
-        keys = [k for k in roi_dict.keys() if get_label_value(roi_dict[k]['label']) == -1]
-    elif labeled_only:
-        keys = [k for k in roi_dict.keys() if get_label_value(roi_dict[k]['label']) != -1]
-    else:
-        keys = list(roi_dict.keys())
+    for roi_key, roi_data in npy_dict.items():
+        if level == "roi":
+            lbl = roi_data.get("label", {})
+            if matches_label_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
+                keys.append(str(roi_key))
 
-    if len(keys) == 0:
-        raise ValueError("No ROIs match the specified filtering criteria.")
+        elif level == "spike":
+            spikes = roi_data.get("spikes", {})
+            if not isinstance(spikes, dict) or len(spikes) == 0:
+                continue
+            for spk_data in spikes.values():
+                lbl = spk_data.get("label", create_label_dict(-1, "unlabeled"))
+                if matches_label_mode(lbl, unlabeled_only=unlabeled_only, labeled_only=labeled_only):
+                    keys.append(str(roi_key))
+                    break
+
+    if verbose:
+        print(f"Found {len(keys)} {level} keys matching filter")
+
     return keys

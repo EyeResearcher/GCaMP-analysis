@@ -1,24 +1,40 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 from typing import Any, Optional
-import time
+
 from data_classes.video import Video
 from pipeline.services import grouping_service, roi_service, spike_service, trace_service
 
 
-
-
 @dataclass
 class VideoPipelineRunner:
-    
-    trace : trace_service.TraceService
-    roi : roi_service.ROIService
-    spike : spike_service.SpikeService
-    grouping : grouping_service.GroupingService
+    """Runs the full per-video pipeline (traces → ROIs → spikes → grouping).
+
+    Build once via :meth:`build`, then call :meth:`run` for each video.
+    Models and grouping config are stored at build time so callers
+    only need to pass the ``Video`` object.
+    """
+
+    trace: trace_service.TraceService
+    roi: roi_service.ROIService
+    spike: spike_service.SpikeService
+    grouping: grouping_service.GroupingService
+
+    # Models & configs — set once, reused for every video
+    roi_model: Any = None
+    roi_model_config: Optional[dict] = None
+    spike_model: Any = None
+    spike_model_config: Optional[dict] = None
+    grouping_cfg: dict = field(default_factory=dict)
 
     @classmethod
-    def build(cls, config: dict[str, dict | np.ndarray], sensor_type: str | None = None) -> "VideoPipelineRunner":
+    def build(
+        cls,
+        config: dict[str, dict | np.ndarray],
+        models: dict[str, Any],
+        sensor_type: str | None = None,
+    ) -> "VideoPipelineRunner":
         """Construct the runner once, reuse for all videos in the experiment."""
 
         n_jobs = config.get("parallel", {}).get("n_jobs", -1)
@@ -31,13 +47,23 @@ class VideoPipelineRunner:
         )
         roi = roi_service.ROIService(n_jobs=n_jobs)
         spike = spike_service.SpikeService(n_jobs=n_jobs)
-        grouping = grouping_service.GroupingService(
+        grp = grouping_service.GroupingService(
             enable_dtw=config.get("grouping", {}).get("enable_dtw", False),
         )
 
-        return cls(trace=trace, roi=roi, spike=spike, grouping=grouping)
-    
-    def run(self, video: "Video", models: dict[str, Any], config: dict, verbose: bool = True) -> None:
+        return cls(
+            trace=trace,
+            roi=roi,
+            spike=spike,
+            grouping=grp,
+            roi_model=models["roi"],
+            roi_model_config=models.get("roi_config"),
+            spike_model=models["spike"],
+            spike_model_config=models.get("spike_config"),
+            grouping_cfg=config.get("grouping", {}),
+        )
+
+    def run(self, video: "Video", verbose: bool = True) -> None:
         if verbose:
             print(f"\n Processing: {video.video_id}")
 
@@ -47,7 +73,7 @@ class VideoPipelineRunner:
             print(f"  Traces: {tr.n_rois} ROIs, {tr.n_frames} frames @ {tr.fs:.1f} Hz")
 
         # Step 3–4: ROI filtering
-        rr = self.roi.run(video, models["roi"], model_config=models.get("roi_config"))
+        rr = self.roi.run(video, self.roi_model, model_config=self.roi_model_config)
         if verbose:
             print(f"  ROI filter: {rr.n_rois_good}/{rr.n_rois_total} kept ({rr.pass_rate:.1%})")
 
@@ -57,7 +83,7 @@ class VideoPipelineRunner:
             return
 
         # Step 5–6: spikes
-        sr = self.spike.run(video, models["spike"], model_config=models.get("spike_config"))
+        sr = self.spike.run(video, self.spike_model, model_config=self.spike_model_config)
         if verbose:
             print(
                 f"  Spikes: {sr.n_spikes_kept}/{sr.n_spikes_raw} kept | "
@@ -69,8 +95,8 @@ class VideoPipelineRunner:
                 print("  <2 neurons with spikes — skipping grouping.")
             return
 
-        # Step 8: grouping
-        gr = self.grouping.run(video, config.get("grouping", {}))
+        # Step 7: grouping
+        gr = self.grouping.run(video, self.grouping_cfg)
         if verbose:
             if gr.agreement is None:
                 print(f"  Grouping ({gr.method}): {gr.n_groups} groups")

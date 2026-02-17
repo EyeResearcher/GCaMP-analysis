@@ -1,32 +1,32 @@
 {
   "best_params": {
-    "C": 10,
-    "class_weight": null,
+    "C": 1,
+    "class_weight": "balanced",
     "max_iter": 200,
     "penalty": "l1",
-    "solver": "saga"
+    "solver": "liblinear"
   },
-  "cv_acc": 0.963436806166478,
-  "test_acc": 0.9635036496350365,
-  "roc_auc": 0.9789702683103698,
+  "cv_acc": 0.967197640117994,
+  "test_acc": 0.9646643109540636,
+  "roc_auc": 0.9755868544600939,
   "confusion_matrix": [
     [
-      194,
-      3
+      209,
+      4
     ],
     [
-      7,
-      70
+      6,
+      64
     ]
   ],
-  "f1": 0.9632004303757229,
-  "precision": 0.9634121164997929,
-  "recall": 0.9635036496350365,
+  "f1": 0.9644908152574747,
+  "precision": 0.9644458194157769,
+  "recall": 0.9646643109540636,
   "features": [
     "spike_prom",
     "mini_prom",
     "distance"
   ],
-  "transform": "sqrt",
+  "transform": "raw",
   "model_type": "LogisticRegression"
 }

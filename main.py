@@ -49,8 +49,8 @@ def main(
         "spike": spike_model,
         "spike_config": spike_cfg,
     }
-    # 2) Build runner once
-    runner = VideoPipelineRunner.build(config, sensor_type)
+    # 2) Build runner once (models + config consumed here)
+    runner = VideoPipelineRunner.build(config, models, sensor_type)
 
     # 3) Build experiment tree (directory-agnostic)
     builder = ExperimentTreeBuilder(is_video_dir=is_video_dir)
@@ -59,8 +59,6 @@ def main(
     # 4) Process all video leaves and attach payloads
     processor = ExperimentProcessor(
         runner=runner,
-        models=models,
-        config=config,
         output_root=output_root,
     )
     processor.process_tree(tree, verbose=verbose)

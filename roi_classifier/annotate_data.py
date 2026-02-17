@@ -17,7 +17,6 @@ from classifier_pipeline.annotation import AnnotationSessionBase
 # =============================================================================
 # ROI selection
 # =============================================================================
-
 def select_rois_for_annotation(
     npy_dict: dict,
     n_samples: int,
@@ -25,14 +24,14 @@ def select_rois_for_annotation(
     labeled_only: bool = False,
     verbose: bool = True,
 ) -> list[str]:
-    """Select ROIs for annotation based on filtering criteria."""
+    """Select a random sample of ROIs for annotation."""
     roi_keys = get_keys(
         npy_dict,
+        level="roi",
         unlabeled_only=unlabeled_only,
         labeled_only=labeled_only,
         verbose=verbose,
     )
-
     n_to_sample = min(n_samples, len(roi_keys))
     selected = random.sample(roi_keys, n_to_sample)
 
@@ -50,8 +49,19 @@ def select_rois_for_annotation(
 class AnnotationSession(AnnotationSessionBase):
     """ROI annotation GUI."""
 
-    def __init__(self, roi_data_list, npy_dict, save_path, checkpoint_interval=30, verbose=True):
-        self.roi_data_list = roi_data_list
+    def __init__(self, npy_dict : dict, roi_keys : list[str], 
+                 save_path: Path, checkpoint_interval=30, verbose=True):
+        
+        self.roi_data_list = []
+        for roi_key in roi_keys:
+            roi_data = npy_dict[roi_key]
+            self.roi_data_list.append({
+                'key': roi_key,
+                'raw_trace': roi_data['raw_trace'],
+                'smoothed_trace': roi_data['smoothed_trace'],
+                'features': roi_data['features'],
+                'current_label': get_label_value(roi_data['label']),
+            })
         self.current_idx = 0
 
         super().__init__(
@@ -64,7 +74,7 @@ class AnnotationSession(AnnotationSessionBase):
             verbose=verbose,
         )
         self.stats["level"] = "roi"
-        self.stats["total"] = len(roi_data_list)
+        self.stats["queued"] = len(self.roi_data_list)
         self._update_display()
 
     def _build_controls(self):
@@ -105,7 +115,7 @@ class AnnotationSession(AnnotationSessionBase):
         features = roi['features']
         parts = roi['key'].rsplit('_', 1)
 
-        self.progress_var.set(f"ROI {self.current_idx + 1} / {self.stats['total']}")
+        self.progress_var.set(f"ROI {self.current_idx + 1} / {self.stats['queued']}")
 
         label_text = {1: 'Good', 0: 'Bad', -1: 'Unlabeled'}.get(roi['current_label'], 'Unknown')
         self._set_status(
@@ -145,16 +155,16 @@ class AnnotationSession(AnnotationSessionBase):
 
         if self.verbose:
             if changed:
-                print(f"[{self.current_idx + 1}/{self.stats['total']}] Updated: {roi['key']} → {'Good' if label == 1 else 'Bad'}")
+                print(f"[{self.current_idx + 1}/{self.stats['queued']}] Updated: {roi['key']} → {'Good' if label == 1 else 'Bad'}")
             else:
-                print(f"[{self.current_idx + 1}/{self.stats['total']}] Confirmed: {roi['key']}")
+                print(f"[{self.current_idx + 1}/{self.stats['queued']}] Confirmed: {roi['key']}")
 
         self._next_roi()
 
     def _skip_roi(self):
         self._record_skip()
         if self.verbose:
-            print(f"[{self.current_idx + 1}/{self.stats['total']}] Skipped: {self.roi_data_list[self.current_idx]['key']}")
+            print(f"[{self.current_idx + 1}/{self.stats['queued']}] Skipped: {self.roi_data_list[self.current_idx]['key']}")
         self._next_roi()
 
     def _prev_roi(self):
@@ -165,7 +175,7 @@ class AnnotationSession(AnnotationSessionBase):
 
     def _next_roi(self):
         self.current_idx += 1
-        if self.current_idx >= len(self.roi_data_list):
+        if self.current_idx >= self.stats['queued']:
             self._finish()
         else:
             self._update_display()
@@ -174,70 +184,40 @@ class AnnotationSession(AnnotationSessionBase):
 # =============================================================================
 # Orchestration
 # =============================================================================
-
-def run_annotation_session(
-    npy_dict: dict,
-    roi_keys: list[str],
-    save_path: Path,
-    checkpoint_interval: int = 30,
-    verbose: bool = True,
-) -> dict:
-    """Run an interactive annotation session for the given ROIs."""
-    roi_data_list = []
-    for roi_key in roi_keys:
-        roi_data = npy_dict[roi_key]
-        roi_data_list.append({
-            'key': roi_key,
-            'raw_trace': roi_data['raw_trace'],
-            'smoothed_trace': roi_data['smoothed_trace'],
-            'features': roi_data['features'],
-            'current_label': get_label_value(roi_data['label']),
-        })
-
-    labeler = AnnotationSession(
-        roi_data_list=roi_data_list,
-        npy_dict=npy_dict,
-        save_path=save_path,
-        checkpoint_interval=checkpoint_interval,
-        verbose=verbose,
-    )
-    return labeler.run()
-
-
 def annotate_rois(
     data_path: Path,
-    n_annotations: int = 1000,
+    n_samples: int = 1000,
     unlabeled_only: bool = False,
     labeled_only: bool = False,
     checkpoint_interval: int = 30,
     verbose: bool = True,
-) -> None:
+) -> dict:
     """Main function to run ROI annotation."""
     npy_dict = load_roi_data(data_path, verbose=verbose)
 
     selected_keys = select_rois_for_annotation(
         npy_dict,
-        n_samples=n_annotations,
+        n_samples=n_samples,
         unlabeled_only=unlabeled_only,
         labeled_only=labeled_only,
         verbose=verbose,
     )
 
-    stats = run_annotation_session(
+    session = AnnotationSession(
         npy_dict=npy_dict,
         roi_keys=selected_keys,
         save_path=data_path,
         checkpoint_interval=checkpoint_interval,
         verbose=verbose,
     )
+    stats = session.run()
 
     if verbose:
         print_session_summary(stats)
         s = compute_data_summary(npy_dict, level="roi")
         print_data_summary(s)
 
-
-
+    return stats
 # =============================================================================
 # CLI
 # =============================================================================
