@@ -126,12 +126,7 @@ python -m roi_classifier.annotate_data --data_path training_data/roi_filtering/a
 
 **GUI Display:**
 
-The annotation window displays:
-- **Progress**: Current ROI number out of total
-- **ROI Info**: Video name and ROI index
-- **Current Label**: Existing label status (Good/Bad/Unlabeled)
-- **Features**: Key metrics like derivative skewness and spike prominence
-- **Plots**: Raw and smoothed fluorescence traces
+![ROI Annotation GUI](assets/images/roi_gui.png)
 
 **Tips:**
 - Start with `--unlabeled_only` to label new ROIs
@@ -317,10 +312,7 @@ python -m spike_classifier.annotate_spikes --data_path training_data/roi_filteri
 
 **GUI Display:**
 
-- Full ROI trace with all candidate spikes marked
-- Current spike highlighted in red with window shading
-- Spike listbox showing label status for current ROI
-- Feature summary (prominence, width, etc.)
+![Spike Annotation GUI](assets/images/spike_gui.png)
 
 **Tips:**
 - Use `X` (label remaining as bad) to quickly dismiss obvious noise ROIs
@@ -366,13 +358,12 @@ python -m spike_classifier.train_classifier --data_path training_data/roi_filter
 
 After completing both classifier workflows, you'll have:
 ```
-roi_classifier/models/
-├── roi_model.joblib
-└── roi_model_results.json
+models/
+├── roi_classifier.joblib
+└── roi_classifier_results.json
+├── spike_classifier.joblib
+└── spike_classifier_results.json
 
-spike_classifier/models/
-├── spike_model.joblib
-└── spike_model_results.json
 ```
 
 These models are used by the Analysis Pipeline (next section) to automatically filter ROIs and spikes during batch processing.
