@@ -8,7 +8,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 
 from pipeline.reports import SpikeReport
-from pipeline.services.roi_service import _prepare_features
+from roi_processing.filtering import _prepare_features
 
 from spike_processing.detector import SpikeDetector
 from spike_processing.filter import SpikeFilter

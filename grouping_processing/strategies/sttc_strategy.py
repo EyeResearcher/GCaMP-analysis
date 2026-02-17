@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, TYPE_CHECKING
 import numpy as np
 
@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 @dataclass
 class STTCStrategy:
     name: str = "sttc"
-    similarity: STTCSimilarity = STTCSimilarity()
-    clusterer: HierarchicalClusterer = HierarchicalClusterer()
+    similarity: STTCSimilarity = field(default_factory=STTCSimilarity)
+    clusterer: HierarchicalClusterer = field(default_factory=HierarchicalClusterer)
 
     def compute(self, video: "Video", config: Dict[str, Any]) -> Dict[str, Any]:
         tw = float(config.get("time_window", self.similarity.time_window))

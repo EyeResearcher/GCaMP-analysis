@@ -4,7 +4,10 @@ import numpy as np
 from typing import Any, Optional
 
 from data_classes.video import Video
-from pipeline.services import grouping_service, roi_service, spike_service, trace_service
+from roi_processing.traces import TraceService
+from roi_processing.filtering import ROIService
+from spike_processing.service import SpikeService
+from grouping_processing.service import GroupingService
 
 
 @dataclass
@@ -16,10 +19,10 @@ class VideoPipelineRunner:
     only need to pass the ``Video`` object.
     """
 
-    trace: trace_service.TraceService
-    roi: roi_service.ROIService
-    spike: spike_service.SpikeService
-    grouping: grouping_service.GroupingService
+    trace: TraceService
+    roi: ROIService
+    spike: SpikeService
+    grouping: GroupingService
 
     # Models & configs — set once, reused for every video
     roi_model: Any = None
@@ -41,13 +44,13 @@ class VideoPipelineRunner:
 
         resolved_sensor = sensor_type or config.get("traces", {}).get("sensor_type", "gcamp8s")
 
-        trace = trace_service.TraceService(
+        trace = TraceService(
             smooth_sigma=config.get("traces", {}).get("smooth_sigma", 4.0),
             sensor_type=resolved_sensor,
         )
-        roi = roi_service.ROIService(n_jobs=n_jobs)
-        spike = spike_service.SpikeService(n_jobs=n_jobs)
-        grp = grouping_service.GroupingService(
+        roi = ROIService(n_jobs=n_jobs)
+        spike = SpikeService(n_jobs=n_jobs)
+        grp = GroupingService(
             enable_dtw=config.get("grouping", {}).get("enable_dtw", False),
         )
 

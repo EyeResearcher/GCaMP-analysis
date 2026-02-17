@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from pipeline.reports import TraceReport
+from pipeline.reports import TraceReport  # shared report dataclasses stay in pipeline/
 if TYPE_CHECKING:
     from data_classes.video import Video
 from dataclasses import dataclass

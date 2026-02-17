@@ -6,10 +6,6 @@ from typing import Optional
 # ---- Pipeline pieces
 
 from pipeline.video_runner import VideoPipelineRunner
-from pipeline.services.trace_service import TraceService
-from pipeline.services.roi_service import ROIService
-from pipeline.services.spike_service import SpikeService
-from pipeline.services.grouping_service import GroupingService
 
 # ---- Models/config
 from utils.io_utils import load_config, load_model

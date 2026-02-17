@@ -12,7 +12,7 @@ from data_classes.roi import ROI
 from data_classes.neuron import Neuron
 from typing import TYPE_CHECKING
 
-from pipeline.reports import ROIReport
+from pipeline.reports import ROIReport  # shared report dataclasses stay in pipeline/
 if TYPE_CHECKING:
     from data_classes.video import Video
 

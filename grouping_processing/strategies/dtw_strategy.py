@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, TYPE_CHECKING, Optional
 import numpy as np
 
@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 @dataclass
 class DTWStrategy:
     name: str = "dtw"
-    similarity: DTWSimilarity = DTWSimilarity()
-    clusterer: HierarchicalClusterer = HierarchicalClusterer(distance_threshold=0.3)
+    similarity: DTWSimilarity = field(default_factory=DTWSimilarity)
+    clusterer: HierarchicalClusterer = field(default_factory=lambda: HierarchicalClusterer(distance_threshold=0.3))
 
     def compute(self, video: "Video", config: Dict[str, Any]) -> Dict[str, Any]:
         down = int(config.get("downsample_factor", self.similarity.downsample_factor))

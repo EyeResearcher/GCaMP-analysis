@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
-from data_classes import video
+
 import numpy as np
 import pandas as pd
 
