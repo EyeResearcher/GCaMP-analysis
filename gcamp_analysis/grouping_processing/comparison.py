@@ -12,7 +12,7 @@ def compare_groupings(
     dtw_matrix: np.ndarray | None,
     neurons: list,
 ) -> Dict[str, Any]:
-    # membership arrays for agreement
+    
     corr_membership = np.full(len(neurons), -1, dtype=int)
     for i, group in enumerate(corr_groups):
         for neuron in group.neurons:

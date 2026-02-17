@@ -2,8 +2,7 @@
 import numpy as np
 from typing import Optional, Dict
 from gcamp_analysis.roi_processing.features import compute_roi_features
-from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks, peak_prominences
+from scipy.signal import find_peaks
 class ROI:
     """Represents a Region of Interest from Suite2p."""
     

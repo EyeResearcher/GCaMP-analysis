@@ -8,7 +8,6 @@ import pandas as pd
 
 from gcamp_analysis.reports import GroupingReport
 
-# NEW modular imports (your new framework)
 from gcamp_analysis.grouping_processing.strategies.dtw_strategy import DTWStrategy
 from gcamp_analysis.grouping_processing.strategies.corr_strategy import CorrelationStrategy
 from gcamp_analysis.grouping_processing.comparison import compare_groupings
@@ -28,8 +27,6 @@ class GroupingService:
       - agreement
       - grouping_stats (DataFrame)
 
-    NOTE: Visualization is intentionally NOT handled here anymore.
-    Use VideoFiguresWriter to render and save figures.
     """
     enable_dtw: bool = False
 

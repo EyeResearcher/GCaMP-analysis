@@ -63,10 +63,7 @@ class ROIService:
         good_roi_mask : np.ndarray
             Boolean mask of good ROIs
         """
-        if roi_model is None:
-            raise RuntimeError("ROI classifier model is not provided.")
-
-        # Extract features in parallel
+        
         all_feats = Parallel(n_jobs=self.n_jobs)(
             delayed(roi.extract_features)(video.norm_sm_f[i, :])
             for i, roi in enumerate(all_rois)
@@ -76,14 +73,12 @@ class ROIService:
 
         feats_df = pd.DataFrame(all_feats)
         
-        # Prepare features with correct ordering and transform
         transform = model_config.get("transform") if model_config else None
         X = prepare_features(feats_df, roi_model, transform)
 
         preds = roi_model.predict(X).astype(bool)
         good_roi_mask = np.asarray(preds, dtype=bool)
 
-        # Preserve explicitly marked-bad ROIs
         for i, roi in enumerate(all_rois):
             if roi.is_good is False:
                 good_roi_mask[i] = False
@@ -119,7 +114,7 @@ class ROIService:
         for filtered_index, roi in enumerate(good_rois):
             neurons.append(
                 Neuron(
-                    roi=roi,                       # <-- wrapper style
+                    roi=roi,                       
                     filtered_index=filtered_index,
                     fs=fs,
                 )

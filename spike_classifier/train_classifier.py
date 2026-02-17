@@ -36,16 +36,16 @@ def main():
     parser.add_argument("--config", type=str, default=None,
                        help="Path to configuration file")
     parser.add_argument("--data_path", type=str,
-                       default="training_data/roi_filtering/all_roi_features.npy",
+                       default="data/all_roi_features.npy",
                        help="Path to data file")
     parser.add_argument("--output_dir", type=str,
                        default="spike_classifier/models",
                        help="Directory to save models")
     parser.add_argument("--name", type=str, default=None,
                        help="Name for the model")
-    parser.add_argument("-v", "--verbose", action="store_true",
+    parser.add_argument("-v", "--verbose", action=argparse.BooleanOptionalAction,
                         help="Enable verbose output", default=True)
-    parser.add_argument("-m", "--manual_only", action="store_true",
+    parser.add_argument("-m", "--manual_only", action=argparse.BooleanOptionalAction,
                         help="Use only manually labeled spikes", default=True)
     args = parser.parse_args()
 

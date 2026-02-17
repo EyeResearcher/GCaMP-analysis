@@ -7,7 +7,15 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
-from utils.preprocessing import normalize_minmax
+from sklearn.preprocessing import MinMaxScaler
+
+
+def normalize_minmax(f: np.ndarray) -> np.ndarray:
+    """Min-max normalize fluorescence traces."""
+    scaler = MinMaxScaler()
+    flat_f = f.reshape(-1, 1)
+    scaled_flat = scaler.fit_transform(flat_f)
+    return scaled_flat.reshape(f.shape)
 
 def get_savgol_params(fs: float, sensor_type: str = "gcamp8s") -> tuple[int, int]:
     if sensor_type == "gcamp8s":

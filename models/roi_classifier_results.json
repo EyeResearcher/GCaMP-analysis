@@ -1,39 +1,34 @@
 {
   "best_params": {
-    "C": 100,
-    "class_weight": "balanced",
-    "max_iter": 500,
-    "penalty": "l1",
-    "solver": "liblinear"
+    "class_weight": null,
+    "max_depth": 30,
+    "min_samples_leaf": 1,
+    "min_samples_split": 2,
+    "n_estimators": 100
   },
-  "cv_acc": 0.957526720607332,
-  "test_acc": 0.9717514124293786,
-  "roc_auc": 0.9951181102362204,
+  "cv_acc": 0.9730995904505043,
+  "test_acc": 0.9661016949152542,
+  "roc_auc": 0.9949606299212599,
   "confusion_matrix": [
     [
-      49,
-      1
+      48,
+      2
     ],
     [
       4,
       123
     ]
   ],
-  "f1": 0.9719939833666268,
-  "precision": 0.9728939070392799,
-  "recall": 0.9717514124293786,
+  "f1": 0.9662995141559447,
+  "precision": 0.9667900912646675,
+  "recall": 0.9661016949152542,
   "features": [
+    "peak_density",
+    "range_trace",
     "derivative_skew",
     "ac_decay",
-    "spike_prom_skew",
-    "range_trace",
-    "derivative_asymmetry",
-    "peak_density",
-    "spike_prom_mean",
-    "snr_estimate",
-    "median_spike_prom",
     "var_of_var"
   ],
-  "transform": "square",
-  "model_type": "LogisticRegression"
+  "transform": "sqrt",
+  "model_type": "RandomForestClassifier"
 }

@@ -22,7 +22,7 @@ from utils.label_utils import (
     matches_label_mode as _spike_matches_mode,
     compute_data_summary, get_keys
 )
-from utils.visualization import plot_trace_with_spikes, _safe_window_get
+from utils.visualization import plot_trace_with_spikes
 from classifier_pipeline.io_utils import load_roi_data
 from classifier_pipeline.annotation import AnnotationSessionBase
 from classifier_pipeline.verbose_utils import print_session_summary, print_data_summary
@@ -63,7 +63,7 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
                  unlabeled_only: bool = False,
                  labeled_only: bool = False,
                  checkpoint_interval: int = 30,
-                 n_samples: int | None = None,
+                 max_rois: int | None = None,
                  verbose: bool = True):
         
         self.unlabeled_only = unlabeled_only
@@ -79,8 +79,8 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
         rng = np.random.default_rng()
         rng.shuffle(self.roi_keys_all)
 
-        if n_samples is not None:
-            self.roi_keys_all = self.roi_keys_all[:int(n_samples)]
+        if max_rois is not None:
+            self.roi_keys_all = self.roi_keys_all[:int(max_rois)]
 
         self.roi_pos = 0
         self.spike_pos = 0
@@ -427,7 +427,7 @@ class SpikeAnnotationByROISession(AnnotationSessionBase):
 
 def annotate_spikes(
     data_path: Path,
-    n_samples: int | None = None,
+    max_rois: int | None = None,
     unlabeled_only: bool = False,
     labeled_only: bool = False,
     checkpoint_interval: int = 30,
@@ -442,7 +442,7 @@ def annotate_spikes(
         unlabeled_only=unlabeled_only,
         labeled_only=labeled_only,
         checkpoint_interval=checkpoint_interval,
-        n_samples=n_samples,
+        max_rois=max_rois,
     )
     stats = session.run()
 
@@ -458,7 +458,7 @@ def annotate_spikes(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ROI-centric spike annotation GUI")
-    parser.add_argument("--data_path", type=str, required=True, help="Path to spike .npy file")
+    parser.add_argument("--data_path", type=str, default="data/all_roi_features.npy", help="Path to spike .npy file")
     parser.add_argument("--max_rois", type=int, default=None, help="Annotate at most N ROIs")
     parser.add_argument("--unlabeled_only", action="store_true", help="Only annotate label == -1 spikes")
     parser.add_argument("--labeled_only", action="store_true", help="Only show already-labeled spikes")

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 def _empty_array() -> np.ndarray:
+    """Default factory for dataclass array fields."""
     return np.asarray([])
 
 
@@ -109,15 +110,8 @@ class Video:
     # --------- Small helpers (ok to keep on Video) ---------
 
     def _parse_metadata(self) -> None:
-        """
-        Best-effort metadata parse from directory path.
-        This stays in Video because it's "context", not pipeline computation.
-        """
+        """Parse experiment/treatment/timepoint from the folder path."""
         parts = list(self.path.parts)
-
-        # Example structures you mentioned:
-        # Experiment337 / GABA / Week1 / vid001
-        # We treat the last 3 ancestors as (timepoint, treatment, experiment) when available.
         if len(parts) >= 4:
             self.timepoint_name = parts[-2]
             self.treatment = parts[-3]
@@ -133,10 +127,7 @@ class Video:
         return self.path / "metrics"
 
     def clear_results(self) -> None:
-        """
-        Optional convenience: reset all computed fields.
-        Useful in notebooks if you re-run with different models.
-        """
+        """Reset all computed fields to defaults. Useful for re-running in notebooks."""
         self.norm_f = _empty_array()
         self.norm_sm_f = _empty_array()
         self.norm_sg_f = _empty_array()
@@ -213,12 +204,13 @@ class VideoStatisticsWriter:
     save_fig_bbox_inches: str = "tight"
 
     def metrics_dir(self, output_root: Path, video_name: str) -> Path:
-        # You can change this scheme later without touching VideoStatistics
+        """Resolve the metrics directory, avoiding double-nesting if *output_root* already ends with *video_name*."""
         if output_root.name == video_name:
             return output_root / "metrics"
         return output_root / video_name / "metrics"
 
     def write(self, stats: "VideoStatistics", output_root: Path) -> dict[str, str]:
+        """Write tables and matrices to disk. Returns a manifest of saved file paths."""
         out_dir = self.metrics_dir(output_root, stats.video_name)
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -262,10 +254,12 @@ Which = Literal["corr", "dtw"]
 
 @dataclass
 class VideoFiguresWriter:
+    """Saves grouping overlay and heatmap figures for a video."""
     dpi: int = 200
     close_figs: bool = True
 
     def save_fig(self, fig: Optional[Figure], path: Path) -> None:
+        """Save a single figure to *path*. No-op if *fig* is None."""
         if fig is None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -281,6 +275,7 @@ class VideoFiguresWriter:
         which: Which = "sttc",
         config_label: str | None = None,
     ) -> Tuple[Optional[Path], Optional[Path]]:
+        """Generate and save overlay + heatmap for one grouping method. Returns saved paths."""
         overlay_fig, heatmap_fig = visualize_grouping(video, which=which, config_label=config_label)
 
         base = video.path.name
@@ -293,6 +288,7 @@ class VideoFiguresWriter:
         return (overlay_path if overlay_fig else None, heatmap_path if heatmap_fig else None)
 
     def write(self, video: "Video") -> dict:
+        """Write all grouping figures for *video*. Returns a manifest of saved paths."""
         out_dir = video.path / "metrics"
         out_dir.mkdir(parents=True, exist_ok=True)
 

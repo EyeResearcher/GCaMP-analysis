@@ -21,71 +21,26 @@ def make_spike_key(roi_key: str, spike_idx: int) -> str:
     return f"{roi_key}-{int(spike_idx)}"
 
 def create_label_dict(value: int, source: str = 'manual') -> dict:
-    """
-    Create a standardized label dictionary.
-
-    Parameters
-    ----------
-    value : int
-        Label value (0, 1, or -1 for unlabeled)
-    source : str, optional
-        Source of the label, by default 'manual'
-
-    Returns
-    -------
-    label : dict
-        Dictionary with 'value' and 'source' keys
-    """
+    """Return ``{'value': value, 'source': source}``."""
     return {'value': value, 'source': source}
 
 
 def get_label_value(label: dict | int) -> int:
-    """
-    Extract numeric label value from either dict or int format.
-
-    Parameters
-    ----------
-    label : dict | int
-        Label as dict with 'value' key or raw int
-
-    Returns
-    -------
-    value : int
-        Numeric label value, -1 if not found
-    """
+    """Extract numeric label value from dict or int. Returns -1 if missing."""
     if isinstance(label, dict):
         return label.get('value', -1)
     return label
 
 
 def get_label_source(label: dict | int) -> str:
-    """
-    Extract label source from either dict or int format.
-
-    Parameters
-    ----------
-    label : dict | int
-        Label as dict with 'source' key or raw int
-
-    Returns
-    -------
-    source : str
-        Label source, 'unknown' if not found
-    """
+    """Extract label source string. Returns 'unknown' for raw ints."""
     if isinstance(label, dict):
         return label.get('source', 'unknown')
     return 'unknown'
 
 
 def label_to_text(label) -> str:
-    """
-    Convert a label (dict or int) to a human-readable string.
-
-    Returns
-    -------
-    text : str
-        'good', 'bad', or 'unlabeled'
-    """
+    """Convert label to 'good', 'bad', or 'unlabeled'."""
     value = get_label_value(label) if isinstance(label, dict) else int(label)
     if value == 1:
         return "good"
@@ -94,20 +49,7 @@ def label_to_text(label) -> str:
     return "unlabeled"
 
 def compute_data_summary(roi_dict: dict, level: str = "roi") -> dict:
-    """
-    Compute label counts for ROI or spike data.
-
-    Parameters
-    ----------
-    roi_dict : dict
-        ROI data dictionary.
-    level : str
-        ``"roi"`` for ROI-level labels, ``"spike"`` for spike-level labels.
-
-    Returns
-    -------
-    dict
-    """
+    """Compute label counts at the 'roi' or 'spike' level."""
     if level == "roi":
         items = list(roi_dict.values())
         get_label = lambda item: item.get("label", {})
@@ -143,28 +85,16 @@ def compute_data_summary(roi_dict: dict, level: str = "roi") -> dict:
 # Label Normalization
 # =============================================================================
 
+def validate_roi_label(roi_key: str, roi_data: dict) -> bool:
+    """Return True if the ROI label value is 1. Raises ValueError if label is missing."""
+    roi_label = roi_data.get('label', None)
+    if roi_label is None:
+        raise ValueError(f"ROI {roi_key} is missing 'label' data.")
+    
+    return get_label_value(roi_label) == 1
+
 def normalize_label(label) -> dict:
-    """
-    Convert any label format (int, dict, None) to the standardized dict format.
-
-    Handles:
-    - None  -> unlabeled
-    - int / np.integer  -> auto-sourced if 0 or 1, else unlabeled
-    - dict with 'value' and 'source' keys -> returned as-is
-
-    This unifies the former ``normalize_label_format`` (ROI) and
-    ``normalize_spike_label`` (spike) functions.
-
-    Parameters
-    ----------
-    label : int | dict | None
-        Label in any legacy or current format.
-
-    Returns
-    -------
-    label : dict
-        Standardized label dict with 'value' and 'source' keys.
-    """
+    """Convert any label format (int, dict, None) to standardized dict format."""
     if label is None:
         return create_label_dict(-1, 'unlabeled')
     if isinstance(label, dict) and 'value' in label and 'source' in label:
@@ -176,9 +106,6 @@ def normalize_label(label) -> dict:
     return create_label_dict(-1, 'unlabeled')
 
 
-# Keep old names as aliases for backwards compatibility
-normalize_label_format = normalize_label
-normalize_spike_label = normalize_label
 
 
 # =============================================================================
@@ -186,25 +113,7 @@ normalize_spike_label = normalize_label
 # =============================================================================
 
 def update_spike_label(npy_dict: dict, roi_key: str, spike_idx: int, new_label: int) -> bool:
-    """
-    Update the label for a spike in the npy_dict using standardized label dicts.
-
-    Parameters
-    ----------
-    npy_dict : dict
-        Dictionary of ROI data.
-    roi_key : str
-        Key identifying the ROI.
-    spike_idx : int
-        Index of the spike within the ROI.
-    new_label : int
-        New label value (0 = bad, 1 = good).
-
-    Returns
-    -------
-    changed : bool
-        True if the label was different from the existing one.
-    """
+    """Set a spike's label to *new_label* (manual). Returns True if it changed."""
     spike_idx = int(spike_idx)
     current_label = get_label_value(
         npy_dict[roi_key]["spikes"][spike_idx].get("label", create_label_dict(-1, 'unlabeled'))
@@ -215,24 +124,7 @@ def update_spike_label(npy_dict: dict, roi_key: str, spike_idx: int, new_label: 
 
 
 def preserve_existing_label(existing_spikes: dict, spike_idx, new_label: dict) -> dict:
-    """
-    Preserve a manually-annotated label from a prior session if one exists
-    for this spike index, otherwise return the new (detection-assigned) label.
-
-    Parameters
-    ----------
-    existing_spikes : dict
-        Previously stored spike data keyed by spike index.
-    spike_idx : int
-        Index of the spike to look up.
-    new_label : dict
-        Default label assigned during current detection.
-
-    Returns
-    -------
-    label : dict
-        Normalized label dict, preferring the existing manual label.
-    """
+    """Keep an existing non-unlabeled label for *spike_idx*; otherwise use *new_label*."""
     if spike_idx not in existing_spikes:
         return new_label
 
@@ -245,18 +137,7 @@ def preserve_existing_label(existing_spikes: dict, spike_idx, new_label: dict) -
     return new_label
 
 def reset_spike_labels(roi_dict: dict) -> tuple[dict, int]:
-    """Reset all spike labels to unlabeled.
-
-    Parameters
-    ----------
-    roi_dict : dict
-        ROI data dictionary with spike labels.
-
-    Returns
-    -------
-    tuple[dict, int]
-        Modified dict and count of labels that were reset.
-    """
+    """Reset all spike labels to unlabeled. Returns (roi_dict, n_reset)."""
     n_reset = 0
     for roi_data in roi_dict.values():
         if 'spikes' in roi_data:
@@ -271,27 +152,7 @@ def reset_spike_labels(roi_dict: dict) -> tuple[dict, int]:
 # =============================================================================
 
 def matches_label_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bool:
-    """
-    Check whether a label matches the requested filtering mode.
-
-    Parameters
-    ----------
-    label : dict | int
-        The label to check.
-    unlabeled_only : bool
-        If True, only unlabeled items match.
-    labeled_only : bool
-        If True, only labeled items match.
-
-    Returns
-    -------
-    matches : bool
-
-    Raises
-    ------
-    ValueError
-        If both flags are True.
-    """
+    """Check whether a label passes the unlabeled_only / labeled_only filter."""
     if unlabeled_only and labeled_only:
         raise ValueError("Choose at most one of unlabeled_only or labeled_only.")
 
@@ -302,9 +163,6 @@ def matches_label_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bo
         return value != -1
     return True
 
-
-
-
 def get_keys(
     npy_dict: dict,
     *,
@@ -313,19 +171,7 @@ def get_keys(
     labeled_only: bool = False,
     verbose: bool = False,
 ) -> list[str]:
-    """
-    Return keys from npy_dict matching the label filter.
-
-    Parameters
-    ----------
-    npy_dict : dict
-    level : str
-        ``"roi"`` filters on ROI-level labels.
-        ``"spike"`` returns ROI keys that have at least one spike matching the filter.
-    unlabeled_only : bool
-    labeled_only : bool
-    verbose : bool
-    """
+    """Return ROI keys matching the label filter at the given level ('roi' or 'spike')."""
     keys: list[str] = []
 
     for roi_key, roi_data in npy_dict.items():

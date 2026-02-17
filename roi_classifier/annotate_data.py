@@ -225,7 +225,7 @@ def annotate_rois(
 def main():
     parser = argparse.ArgumentParser(description="Annotate ROI data")
     parser.add_argument("--data_path", type=str,
-                        default="training_data/roi_filtering/all_roi_features.npy",
+                        default="data/all_roi_features.npy",
                         help="Path to ROI data file")
     parser.add_argument("--number_annotations", '-n', type=int, default=1000,
                         help="Number of annotations to perform")
@@ -241,7 +241,7 @@ def main():
 
     annotate_rois(
         data_path=Path(args.data_path),
-        n_annotations=args.number_annotations,
+        n_samples=args.number_annotations,
         unlabeled_only=args.unlabeled_only,
         labeled_only=args.labeled_only,
         checkpoint_interval=args.checkpoint_interval,

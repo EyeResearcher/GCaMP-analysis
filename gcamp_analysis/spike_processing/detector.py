@@ -9,17 +9,67 @@ from .features import get_all_spike_features
 
 
 # ---------------------------------------------------------------------------
+# Frame-rate → distance conversion
+# ---------------------------------------------------------------------------
+
+# Reference point: at 30 Hz a minimum inter-peak gap of 20 frames (~0.67 s)
+# has proven to work well.  The refractory period in *seconds* is kept
+# constant so that faster cameras yield proportionally more frames.
+_REF_FS: float = 30.0
+_REF_DIST: int = 20
+_MIN_DIST: int = 3          # absolute floor regardless of frame rate
+
+
+def min_peak_distance_frames(fs: float = _REF_FS) -> int:
+    """Convert a frame rate to a minimum inter-peak distance in frames.
+
+    The distance is inversely proportional to ``fs`` so the minimum
+    refractory period in *seconds* stays constant across acquisition
+    rates.  Anchored at ``20 frames @ 30 Hz`` (≈ 0.67 s).
+
+    Parameters
+    ----------
+    fs : float
+        Sampling rate in Hz.
+
+    Returns
+    -------
+    int
+        Minimum distance in frames (≥ ``_MIN_DIST``).
+    """
+    return max(_MIN_DIST, int(round(_REF_DIST * fs / _REF_FS)))
+
+
+# ---------------------------------------------------------------------------
 # Core spike detection
 # ---------------------------------------------------------------------------
 
-def define_candidate_fluor_events(
+def get_f_events(
     smoothed_f: np.ndarray = None,
     peaks: np.ndarray | None = None,
     roi_idx=None,
     mode="train",
+    fs: float = _REF_FS,
 ) -> Tuple[Dict[int, Dict], list[int | str]]:
-    """Detect spikes and compute windows/features per spike."""
-    peaks, props = find_peaks(smoothed_f, distance=30) if peaks is None else (peaks, None)
+    """Detect spikes and compute windows/features per spike.
+
+    Parameters
+    ----------
+    smoothed_f : ndarray
+        Smoothed fluorescence trace.
+    peaks : ndarray or None
+        Pre-detected peak indices.  If *None*, peaks are detected here
+        using ``find_peaks(distance=min_peak_distance_frames(fs))``.
+    roi_idx : int or None
+        ROI index (used as key prefix in train mode).
+    mode : {'train', 'inference'}
+        Determines key format for the returned dicts.
+    fs : float
+        Frame rate in Hz — used to compute ``distance`` when *peaks*
+        is *None*.
+    """
+    distance = min_peak_distance_frames(fs)
+    peaks, props = find_peaks(smoothed_f, distance=distance) if peaks is None else (peaks, None)
     if peaks.size == 0:
         return {}, []
 
@@ -41,19 +91,31 @@ class SpikeDetector:
         self,
         sm_norm_f: np.ndarray,
         roi_idx: int,
-        dist: int = 20,
+        fs: float = _REF_FS,
     ) -> Tuple[List[Dict[str, Any]], np.ndarray]:
+        """Detect peaks and return per-peak feature dicts.
+
+        Parameters
+        ----------
+        sm_norm_f : ndarray
+            Smoothed, normalised fluorescence trace for one ROI.
+        roi_idx : int
+            ROI index.
+        fs : float
+            Frame rate in Hz.
+        """
         x = np.asarray(sm_norm_f, dtype=float)
         if x.ndim != 1 or x.size < 3 or not np.isfinite(x).all():
             return [], np.asarray([], dtype=int)
 
+        dist = min_peak_distance_frames(fs)
         peaks, _ = find_peaks(x, distance=dist)
         peaks = np.asarray(peaks, dtype=int)
         if peaks.size == 0:
             return [], peaks
 
-        feats_list, _keys = define_candidate_fluor_events(
-            x, peaks, roi_idx=roi_idx, mode="inference"
+        feats_list, _keys = get_f_events(
+            x, peaks, roi_idx=roi_idx, mode="inference", fs=fs,
         )
         feats_list = list(feats_list or [])
         return feats_list, peaks

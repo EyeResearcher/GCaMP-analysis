@@ -7,9 +7,9 @@
 **/model_runs
 
 # Ignore large training data files
-training_data/roi_filtering/all_roi_features.npy
-training_data/roi_filtering/all_roi_features.json
-training_data/roi_filtering/all_roi_features_spike_keys.csv
+data/all_roi_features.npy
+data/all_roi_features.json
+data/all_roi_features_spike_keys.csv
 
 # ignore test data folders 
 **/test_data/

@@ -13,7 +13,7 @@ def compute_group_summary_rows(
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for g in groups:
-        # Use neuron.summary_stats (stable contract)
+       
         ss = [getattr(n, "summary_stats", {}) for n in g.neurons]
         df = pd.DataFrame(ss)
 

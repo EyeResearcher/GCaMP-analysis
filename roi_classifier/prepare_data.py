@@ -15,7 +15,7 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 from classifier_pipeline.verbose_utils import print_data_summary
 from gcamp_analysis.roi_processing.features import compute_roi_features
-from utils.preprocessing import normalize_minmax
+from gcamp_analysis.roi_processing.traces import normalize_minmax
 from utils.label_utils import get_label_value, create_label_dict, normalize_label_format, compute_data_summary
 from utils.io_utils import create_backup
 
@@ -265,10 +265,10 @@ def main():
     parser.add_argument('--dataset_root', type=str, default=r"C:\Users\mzinn1\Desktop\Datasets",
                         help='Root directory containing video folders')
     parser.add_argument('--input_file', type=str, 
-                        default='training_data/roi_filtering/all_roi_features.npy',
+                        default='data/all_roi_features.npy',
                         help='Input file for update mode')
     parser.add_argument('--output_file', type=str,
-                        default='training_data/roi_filtering/all_roi_features.npy',
+                        default='data/all_roi_features.npy',
                         help='Output file path')
     parser.add_argument('--update', action='store_true',
                         help='Update existing features instead of processing raw videos')
