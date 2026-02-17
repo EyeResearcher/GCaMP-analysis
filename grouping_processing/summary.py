@@ -8,7 +8,7 @@ def compute_group_summary_rows(
     groups: List[NeuronGroup],
     *,
     method: str,
-    sttc_matrix: np.ndarray | None,
+    corr_matrix: np.ndarray | None,
     dtw_matrix: np.ndarray | None,
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
@@ -35,9 +35,9 @@ def compute_group_summary_rows(
 
         # group connectivity summaries
         try:
-            row["mean_sttc"] = g.group_mean_sttc(sttc_matrix) if sttc_matrix is not None else np.nan
+            row["mean_corr"] = g.group_mean_corr(corr_matrix) if corr_matrix is not None else np.nan
         except Exception:
-            row["mean_sttc"] = np.nan
+            row["mean_corr"] = np.nan
         try:
             row["mean_dtw"] = g.group_mean_dtw(dtw_matrix) if dtw_matrix is not None else np.nan
         except Exception:
@@ -46,8 +46,8 @@ def compute_group_summary_rows(
         # attach thresholds if present on group
         if getattr(g, "t_win", None) is not None:
             row["time_window"] = g.t_win
-        if getattr(g, "sttc_thresh", None) is not None:
-            row["sttc_thresh"] = g.sttc_thresh
+        if getattr(g, "corr_thresh", None) is not None:
+            row["corr_thresh"] = g.corr_thresh
         if getattr(g, "dtw_thresh", None) is not None:
             row["dtw_thresh"] = g.dtw_thresh
 

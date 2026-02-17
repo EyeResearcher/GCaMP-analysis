@@ -141,8 +141,8 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
         # Get neuron indices from group
         neuron_indices = group.neuron_indices if hasattr(group, 'neuron_indices') else []
         
-        # Get average STTC from pre-computed stats
-        avg_sttc = group.mean_spk_stats.get('mean_sttc', None) if hasattr(group, 'mean_spk_stats') else None
+        # Get average correlation from pre-computed stats
+        avg_corr = group.mean_spk_stats.get('mean_corr', None) if hasattr(group, 'mean_spk_stats') else None
         
         for neuron_idx in neuron_indices:
             # Get stat dict for this neuron
@@ -180,7 +180,7 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
             'color': color,
             'n_neurons': len(neuron_indices),
             'n_drawn': n_neurons_drawn,
-            'avg_sttc': avg_sttc
+            'avg_corr': avg_corr
         })
     
     # Display image
@@ -196,13 +196,13 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
         title += f"\n{config_label}"
     ax.set_title(title, fontsize=14, fontweight='bold', color='white')
     
-    # Create legend with avg STTC
+    # Create legend with avg correlation
     if group_info:
         legend_elements = []
         for info in group_info:
-            # Build label with optional avg STTC
-            if info['avg_sttc'] is not None and not np.isnan(info['avg_sttc']):
-                label = f"{info['group_id']} (n={info['n_neurons']}, STTC={info['avg_sttc']:.2f})"
+            # Build label with optional avg correlation
+            if info['avg_corr'] is not None and not np.isnan(info['avg_corr']):
+                label = f"{info['group_id']} (n={info['n_neurons']}, corr={info['avg_corr']:.2f})"
             else:
                 label = f"{info['group_id']} (n={info['n_neurons']})"
             

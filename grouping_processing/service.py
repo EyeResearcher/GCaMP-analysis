@@ -23,7 +23,7 @@ class GroupingService:
     Compute-only grouping service.
 
     Side effects on `video`:
-      - sttc_groups, sttc_matrix
+      - corr_groups, corr_matrix
       - dtw_groups, dtw_matrix (if enabled)
       - agreement
       - grouping_stats (DataFrame)
@@ -36,7 +36,7 @@ class GroupingService:
     def run(self, video: "Video", grouping_cfg: dict) -> Optional[GroupingReport]:
         if len(video.neurons) < 2:
             # Keep fields consistent so downstream writers don't crash
-            video.sttc_groups, video.sttc_matrix = [], np.asarray([])
+            video.corr_groups, video.corr_matrix = [], np.asarray([])
             video.dtw_groups, video.dtw_matrix = [], np.asarray([])
             video.agreement = None
             video.grouping_stats = pd.DataFrame()
@@ -46,8 +46,8 @@ class GroupingService:
         #0) Compute correlatin grouping
         corr_cfg = grouping_cfg.get("corr", grouping_cfg.get("sttc", {})) or {}
         corr_res = CorrelationStrategy().compute(video, corr_cfg)
-        video.sttc_groups = corr_res.get("groups", [])
-        video.sttc_matrix = corr_res.get("matrix", np.asarray([]))
+        video.corr_groups = corr_res.get("groups", [])
+        video.corr_matrix = corr_res.get("matrix", np.asarray([]))
 
         # 2) compute DTW grouping (optional)
         if self.enable_dtw:
@@ -61,15 +61,15 @@ class GroupingService:
 
         # 3) compare / combine summaries
         grouping_summary = compare_groupings(
-            sttc_groups=video.sttc_groups,
+            corr_groups=video.corr_groups,
             dtw_groups=video.dtw_groups,
-            sttc_matrix=video.sttc_matrix if isinstance(video.sttc_matrix, np.ndarray) else None,
+            corr_matrix=video.corr_matrix if isinstance(video.corr_matrix, np.ndarray) else None,
             dtw_matrix=video.dtw_matrix if isinstance(video.dtw_matrix, np.ndarray) else None,
             neurons=video.neurons,
         )
 
         # Preserve the same outputs your pipeline expects
-        video.sttc_groups = grouping_summary.get("sttc_groups", video.sttc_groups)
+        video.corr_groups = grouping_summary.get("corr_groups", video.corr_groups)
         video.dtw_groups = grouping_summary.get("dtw_groups", video.dtw_groups)
         video.agreement = grouping_summary.get("agreement", None)
 
@@ -87,7 +87,7 @@ class GroupingService:
             video.grouping_stats = pd.DataFrame()
 
         method = "corr" + ("+dtw" if self.enable_dtw else "")
-        n_groups = len(video.sttc_groups) if video.sttc_groups else 0
+        n_groups = len(video.corr_groups) if video.corr_groups else 0
 
         return GroupingReport(
             method=method,

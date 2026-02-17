@@ -13,9 +13,9 @@ class NeuronGroup:
     def __init__(self,
                  group_id: int,
                  neurons: List[Neuron],
-                 method: str = 'sttc',
+                 method: str = 'corr',
                  t_win: float = None,
-                 sttc_thresh: float = None,
+                 corr_thresh: float = None,
                  dtw_thresh: float = None):
         """
         Initialize NeuronGroup.
@@ -34,13 +34,13 @@ class NeuronGroup:
         self.filtered_idxs = [n.filtered_index for n in self.neurons]
         self.neuron_indices = [n.index for n in self.neurons]
         self.t_win = t_win
-        self.sttc_thresh = sttc_thresh
+        self.corr_thresh = corr_thresh
         self.dtw_thresh = dtw_thresh
  
 
 
     
-    def get_mean_spike_stats(self, sttc: np.ndarray, dtw: np.ndarray) -> float:
+    def get_mean_spike_stats(self, corr: np.ndarray, dtw: np.ndarray) -> float:
         """Mean spike stats across the group.
             Returns: mean_spike_stats dictionary
                 {}
@@ -52,16 +52,16 @@ class NeuronGroup:
         self.mean_spk_stats = mean_of_means.to_dict()    
         self.mean_spk_stats['spike_rate'] = self.mean_spk_rate
         self.mean_spk_stats['number_of_spikes'] = self.mean_num_spikes
-        self.mean_spk_stats['mean_sttc'] = self.group_mean_sttc(sttc)   
+        self.mean_spk_stats['mean_corr'] = self.group_mean_corr(corr)   
         self.mean_spk_stats['mean_dtw'] = self.group_mean_dtw(dtw)
         return self.mean_spk_stats
     
-    def group_mean_sttc(self, sttc_matrix: np.ndarray) -> float:
-        """Mean pairwise STTC for members of this group. Returns np.nan if group size < 2."""
+    def group_mean_corr(self, corr_matrix: np.ndarray) -> float:
+        """Mean pairwise correlation for members of this group. Returns np.nan if group size < 2."""
         idx = [n.filtered_index for n in self.neurons]
         if len(idx) < 2:
             return float('nan')
-        sub = sttc_matrix[np.ix_(idx, idx)]
+        sub = corr_matrix[np.ix_(idx, idx)]
         n = len(idx)
         tri = sub[np.triu_indices(n, k=1)]
         return float(np.nanmean(tri))

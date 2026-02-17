@@ -7,80 +7,15 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
-from classifier_pipeline.datasets import apply_transform
 from data_classes.roi import ROI
 from data_classes.neuron import Neuron
 from typing import TYPE_CHECKING
 
-from pipeline.reports import ROIReport  # shared report dataclasses stay in pipeline/
+from pipeline.reports import ROIReport
+from utils.inference import prepare_features
+
 if TYPE_CHECKING:
     from data_classes.video import Video
-
-
-def _get_feature_names(model: Any) -> list[str]:
-    """
-    Get feature names from a trained model.
-    
-    Parameters
-    ----------
-    model : Any
-        Trained sklearn model
-        
-    Returns
-    -------
-    feature_names : list[str]
-        Ordered feature names the model was trained on
-        
-    Raises
-    ------
-    ValueError
-        If model doesn't have feature_names_in_ attribute
-    """
-    names = getattr(model, "feature_names_in_", None)
-    if names is None:
-        raise ValueError("Model was not trained with feature names. Retrain on a DataFrame.")
-    return list(names)
-
-def _prepare_features(
-    feats_df: pd.DataFrame, 
-    model: Any, 
-    transform: str = None
-) -> pd.DataFrame:
-    """
-    Prepare features for inference with correct ordering and transform.
-    
-    Parameters
-    ----------
-    feats_df : pd.DataFrame
-        Raw extracted features
-    model : Any
-        Trained model with feature_names_in_
-    transform : str, optional
-        Transform to apply, by default None
-        
-    Returns
-    -------
-    X : pd.DataFrame
-        Features ready for prediction
-        
-    Raises
-    ------
-    ValueError
-        If feats_df is missing required columns
-    """
-    expected = _get_feature_names(model)
-    
-    missing = set(expected) - set(feats_df.columns)
-    if missing:
-        raise ValueError(f"Missing required features: {missing}")
-    
-    # Select and reorder to match training
-    X = feats_df[expected].copy()
-    
-    if transform:
-        X = apply_transform(X, transform)
-    
-    return X
 
 
 @dataclass
@@ -143,7 +78,7 @@ class ROIService:
         
         # Prepare features with correct ordering and transform
         transform = model_config.get("transform") if model_config else None
-        X = _prepare_features(feats_df, roi_model, transform)
+        X = prepare_features(feats_df, roi_model, transform)
 
         preds = roi_model.predict(X).astype(bool)
         good_roi_mask = np.asarray(preds, dtype=bool)

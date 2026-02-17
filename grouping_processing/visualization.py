@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from data_classes.video import Video
 
 
-Which = Literal["sttc", "dtw"]
+Which = Literal["corr", "dtw"]
 
 
 def _infer_img_size(video: "Video", default=(1024, 1024)) -> tuple[int, int]:
@@ -46,7 +46,7 @@ def make_matrix_heatmap(
 def visualize_grouping(
     video: "Video",
     *,
-    which: Which = "sttc",
+    which: Which = "corr",
     config_label: Optional[str] = None,
     heatmap_cmap: str = "viridis",
     heatmap_vmin: Optional[float] = None,
@@ -59,11 +59,11 @@ def visualize_grouping(
     - overlay_fig: neuron group overlay on field-of-view using Suite2p stat xpix/ypix
     - heatmap_fig: STTC/DTW matrix heatmap (method-agnostic)
     """
-    if which == "sttc":
-        groups = getattr(video, "sttc_groups", [])
-        matrix = getattr(video, "sttc_matrix", None)
-        label = config_label or "sttc_grouping"
-        heat_title = f"STTC matrix ({label})"
+    if which == "corr":
+        groups = getattr(video, "corr_groups", [])
+        matrix = getattr(video, "corr_matrix", None)
+        label = config_label or "corr_grouping"
+        heat_title = f"Correlation matrix ({label})"
     else:
         groups = getattr(video, "dtw_groups", [])
         matrix = getattr(video, "dtw_matrix", None)

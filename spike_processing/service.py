@@ -8,7 +8,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 
 from pipeline.reports import SpikeReport
-from roi_processing.filtering import _prepare_features
+from utils.inference import prepare_features
 
 from spike_processing.detector import SpikeDetector
 from spike_processing.filter import SpikeFilter
@@ -77,7 +77,7 @@ class SpikeService:
 
         # Use shared helper from roi_service
         transform = model_config.get("transform") if model_config else None
-        X = _prepare_features(spk_feats_df, spike_model, transform)
+        X = prepare_features(spk_feats_df, spike_model, transform)
 
         if X.shape[0] == 0:
             video.neurons = []

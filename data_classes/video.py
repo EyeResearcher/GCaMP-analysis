@@ -70,19 +70,19 @@ class Video:
     summary_df: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
 
     # ---- Grouping outputs (populated by GroupingService)
-    sttc_matrix: np.ndarray = field(default_factory=_empty_array, repr=False)
+    corr_matrix: np.ndarray = field(default_factory=_empty_array, repr=False)
     dtw_matrix: np.ndarray = field(default_factory=_empty_array, repr=False)
 
-    sttc_groups: list["NeuronGroup"] = field(default_factory=list, repr=False)
+    corr_groups: list["NeuronGroup"] = field(default_factory=list, repr=False)
     dtw_groups: list["NeuronGroup"] = field(default_factory=list, repr=False)
 
     agreement: float = 0.0
     grouping_stats: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
 
     # ---- Figures (created by GroupingService.visualize, optional)
-    sttc_fig: Optional[Figure] = None
+    corr_fig: Optional[Figure] = None
     dtw_fig: Optional[Figure] = None
-    sttc_heatmap: Optional[Figure] = None
+    corr_heatmap: Optional[Figure] = None
     dtw_heatmap: Optional[Figure] = None
 
     def __post_init__(self) -> None:
@@ -150,14 +150,14 @@ class Video:
         self.neurons = []
         self.summary_df = pd.DataFrame()
 
-        self.sttc_matrix = _empty_array()
+        self.corr_matrix = _empty_array()
         self.dtw_matrix = _empty_array()
-        self.sttc_groups = []
+        self.corr_groups = []
         self.dtw_groups = []
         self.agreement = 0.0
         self.grouping_stats = pd.DataFrame()
 
-        self.sttc_fig = None
+        self.corr_fig = None
         self.dtw_fig = None
 
     def __repr__(self) -> str:
@@ -175,13 +175,13 @@ class VideoStatistics:
     grouping_stats: pd.DataFrame
     bad_rois_features: pd.DataFrame
 
-    sttc_matrix: np.ndarray
+    corr_matrix: np.ndarray
     dtw_matrix: np.ndarray
 
-    sttc_fig: Optional[Figure] = None 
+    corr_fig: Optional[Figure] = None 
     dtw_fig: Optional[Figure] = None
 
-    sttc_heatmap: Optional[Figure] = None
+    corr_heatmap: Optional[Figure] = None
     dtw_heatmap: Optional[Figure] = None
 
     @classmethod
@@ -192,11 +192,11 @@ class VideoStatistics:
             per_neuron_spike_summaries=video.summary_df,
             grouping_stats=video.grouping_stats,
             bad_rois_features=video.bad_rois_features,
-            sttc_matrix=video.sttc_matrix,
+            corr_matrix=video.corr_matrix,
             dtw_matrix=video.dtw_matrix,
-            sttc_fig=getattr(video, "sttc_fig", None),
+            corr_fig=getattr(video, "corr_fig", None),
             dtw_fig=getattr(video, "dtw_fig", None),
-            sttc_heatmap=getattr(video, "sttc_heatmap", None),
+            corr_heatmap=getattr(video, "corr_heatmap", None),
             dtw_heatmap=getattr(video, "dtw_heatmap", None),
             )
     
@@ -245,9 +245,9 @@ class VideoStatisticsWriter:
         
         manifest["metrics_excel"] = str(excel_path)
         # Matrices
-        sttc_npy = out_dir / f"{base}_sttc_matrix.npy"
-        np.save(sttc_npy, stats.sttc_matrix)
-        manifest["sttc_matrix_npy"] = str(sttc_npy)
+        corr_npy = out_dir / f"{base}_corr_matrix.npy"
+        np.save(corr_npy, stats.corr_matrix)
+        manifest["corr_matrix_npy"] = str(corr_npy)
 
         dtw_npy = out_dir / f"{base}_dtw_matrix.npy"
         np.save(dtw_npy, stats.dtw_matrix)
@@ -257,7 +257,7 @@ class VideoStatisticsWriter:
         return manifest
     
     
-Which = Literal["sttc", "dtw"]
+Which = Literal["corr", "dtw"]
 
 
 @dataclass
@@ -298,10 +298,10 @@ class VideoFiguresWriter:
 
         manifest: dict = {}
 
-        # STTC
-        sttc_overlay, sttc_heat = self.write_grouping_figures(video, out_dir=out_dir, which="sttc")
-        if sttc_overlay: manifest["sttc_overlay_png"] = str(sttc_overlay)
-        if sttc_heat: manifest["sttc_heatmap_png"] = str(sttc_heat)
+        # Correlation
+        corr_overlay, corr_heat = self.write_grouping_figures(video, out_dir=out_dir, which="corr")
+        if corr_overlay: manifest["corr_overlay_png"] = str(corr_overlay)
+        if corr_heat: manifest["corr_heatmap_png"] = str(corr_heat)
 
         # DTW (only if enabled / exists)
         if getattr(video, "dtw_matrix", None) is not None and np.asarray(getattr(video, "dtw_matrix")).size > 0:
