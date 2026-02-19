@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 from classifier_pipeline.verbose_utils import print_data_summary
 from gcamp_analysis.roi_processing.features import compute_roi_features
 from gcamp_analysis.roi_processing.traces import normalize_minmax
-from utils.label_utils import get_label_value, create_label_dict, normalize_label_format, compute_data_summary
+from utils.label_utils import get_label_value, create_label_dict, compute_data_summary
 from utils.io_utils import create_backup
 
 
@@ -122,7 +122,7 @@ def update_roi_features(roi_dict: dict[str, dict[str, Any]], verbose: bool = Tru
             continue
         
         features, _ = compute_roi_features(smoothed_trace)
-        label = normalize_label_format(roi_data.get('label', -1))
+        label = roi_data.get('label', create_label_dict(-1, 'unlabeled'))
         spikes = roi_data.get('spikes', {})
         
         # Track preserved data

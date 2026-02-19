@@ -13,8 +13,6 @@ from utils.label_utils import (          # noqa: F401
     get_label_value,
     get_label_source,
     get_keys,
-    normalize_label_format,
-    normalize_spike_label,
     label_to_text,
     update_spike_label,
     matches_label_mode,

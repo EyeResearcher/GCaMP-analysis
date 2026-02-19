@@ -21,7 +21,7 @@ from sklearn.model_selection import train_test_split
 
 def train(
     config_path: Path,
-    data_path: Path,
+    data_path: Path | list[Path],
     name: str,
     classifier_type: str,
     output_dir: Path = None,
@@ -38,8 +38,8 @@ def train(
     ----------
     config_path : Path
         Path to the hyperparameter YAML config file.
-    data_path : Path
-        Path to the .npy data file containing ROI dict.
+    data_path : Path | list[Path]
+        Path to the .npy data file(s) containing ROI dict.
     name : str
         Model name used for saved filenames.
     classifier_type : str

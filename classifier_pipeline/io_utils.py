@@ -132,15 +132,53 @@ def load_labeled_spike_data(
     
     return X, y
 
-
-def load_roi_data(npy_path: Path, verbose: bool = False) -> dict:
-    """Load ROI data from .npy file."""
-    if not npy_path.exists():
-        raise FileNotFoundError(f"ROI data file not found: {npy_path}")
-    data = np.load(npy_path, allow_pickle=True).item()
+def load_roi_data(npy_path: Path | list[Path], verbose: bool = False) -> dict:
+    """Load ROI data from one or more .npy files.
+    
+    Parameters
+    ----------
+    npy_path : Path or list[Path]
+        Single path or list of paths to .npy files.
+    verbose : bool, optional
+        Whether to print info, by default False.
+    
+    Returns
+    -------
+    dict
+        Combined ROI data dictionary. If duplicate keys exist across files,
+        subsequent duplicates are renamed with a '_dupN' suffix to preserve
+        all entries.
+    """
+    if isinstance(npy_path, (str, Path)):
+        return np.load(npy_path, allow_pickle=True).item()
+    
+    combined = {}
+    
+    for path in npy_path:
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"ROI data file not found: {path}")
+        data = np.load(path, allow_pickle=True).item()
+        if verbose:
+            print(f"Loaded {len(data)} ROIs from {path}")
+        
+        for key, value in data.items():
+            if key not in combined:
+                combined[key] = value
+            else:
+                n = 1
+                new_key = f"{key}_dup{n}"
+                while new_key in combined:
+                    n += 1
+                    new_key = f"{key}_dup{n}"
+                combined[new_key] = value
+                if verbose:
+                    print(f"Duplicate key '{key}' renamed to '{new_key}'")
+    
     if verbose:
-        print(f"Loaded {len(data)} ROIs from {npy_path}")
-    return data
+        print(f"Combined total: {len(combined)} ROIs from {len(npy_path)} file(s)")
+    
+    return combined
 
 
 def save_roi_data(npy_dict: dict, npy_path: Path, verbose: bool = True) -> None:
