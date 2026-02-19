@@ -2,7 +2,6 @@ import datetime
 import json
 from pathlib import Path
 from utils.label_utils import get_label_source, get_label_value
-from utils.io_utils import load_config          # noqa: F401  (re-export)
 import joblib
 import numpy as np
 import yaml

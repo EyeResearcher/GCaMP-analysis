@@ -6,7 +6,7 @@ with ``classifier_type="spike"``.
 import argparse
 from pathlib import Path
 
-from classifier_pipeline.main import train_classifier
+from classifier_pipeline.train_classifier import train
 from classifier_pipeline.optimize import OptimizationResults
 
 
@@ -20,7 +20,7 @@ def train_spike_classifier(
     **kwargs,
 ) -> OptimizationResults:
     """Train a spike classifier. See :func:`classifier_pipeline.main.train_classifier`."""
-    return train_classifier(
+    return train(
         config_path=config_path,
         data_path=data_path,
         name=name,
