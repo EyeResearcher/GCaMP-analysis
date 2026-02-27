@@ -1,93 +1,265 @@
+"""Grouping service: orchestration, comparison, summary, and visualization.
+
+Houses the public ``GroupingService`` entry point plus the helper functions
+that compare, summarise and visualise grouping results.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
+from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 from gcamp_analysis.reports import GroupingReport
-
-from gcamp_analysis.grouping_processing.strategies.dtw_strategy import DTWStrategy
-from gcamp_analysis.grouping_processing.strategies.corr_strategy import CorrelationStrategy
-from gcamp_analysis.grouping_processing.comparison import compare_groupings
+from gcamp_analysis.grouping_processing.strategies import STRATEGY_REGISTRY, GroupingResult
+from utils.visualization import visualize_neuron_groups, plot_matrix_heatmap
 
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.video import Video
 
 
+# =====================================================================
+#  PER-GROUP SUMMARY
+# =====================================================================
+
+
+def compute_group_summary_rows(
+    groups: List[NeuronGroup],
+    *,
+    method: str,
+    matrices: Dict[str, Optional[np.ndarray]],
+) -> List[Dict[str, Any]]:
+    """Return one summary dict per group.
+
+    Parameters
+    ----------
+    groups : list of NeuronGroup
+    method : strategy name that produced these groups
+    matrices : ``{strategy_name: matrix_or_None}`` for connectivity stats
+    """
+    rows: List[Dict[str, Any]] = []
+    for g in groups:
+        ss = [getattr(n, "summary_stats", {}) for n in g.neurons]
+        df = pd.DataFrame(ss)
+
+        rates = df.get("spike_frequency", pd.Series(dtype=float))
+        num_spikes = df.get("number_of_spikes", pd.Series(dtype=float))
+        mean_of_means = df.filter(like="mean_").mean(numeric_only=True).to_dict()
+
+        row: Dict[str, Any] = {
+            "group_id": g.group_id,
+            "method": method,
+            "number_neurons": int(g.size),
+            "neuron_indices": list(getattr(g, "neuron_indices", [])),
+            "filtered_idxs": list(getattr(g, "filtered_idxs", [])),
+            "spike_rate": float(np.nanmean(rates)) if len(rates) else 0.0,
+            "number_of_spikes": float(np.nanmean(num_spikes)) if len(num_spikes) else 0.0,
+            **mean_of_means,
+        }
+
+        for mat_name, mat in matrices.items():
+            try:
+                row[f"mean_{mat_name}"] = g.group_mean_similarity(mat)
+            except Exception:
+                row[f"mean_{mat_name}"] = np.nan
+
+        for key in ("t_win", "corr_thresh", "sttc_thresh", "dtw_thresh"):
+            val = g.metadata.get(key)
+            if val is not None:
+                row[key] = val
+
+        rows.append(row)
+    return rows
+
+
+# =====================================================================
+#  PAIRWISE AGREEMENT / COMBINED SUMMARY
+# =====================================================================
+
+
+def compute_pairwise_agreement(
+    results: Dict[str, GroupingResult],
+    neurons: list,
+) -> Dict[str, float]:
+    """Membership agreement between every pair of strategies.
+
+    Returns a dict like ``{"corr_vs_sttc": 0.85, ...}``.
+    """
+    if len(results) < 2:
+        return {}
+
+    memberships: Dict[str, np.ndarray] = {}
+    for name, result in results.items():
+        m = np.full(len(neurons), -1, dtype=int)
+        for i, group in enumerate(result.groups):
+            for neuron in group.neurons:
+                if neuron in neurons:
+                    m[neurons.index(neuron)] = i
+        memberships[name] = m
+
+    names = sorted(memberships)
+    agreements: Dict[str, float] = {}
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            agreements[f"{a}_vs_{b}"] = float(np.mean(memberships[a] == memberships[b]))
+    return agreements
+
+
+def build_combined_summary(
+    results: Dict[str, GroupingResult],
+) -> List[dict]:
+    """Collect per-group summary rows from all strategies."""
+    matrices = {name: r.matrix for name, r in results.items()}
+    all_rows: list[dict] = []
+    for name, result in results.items():
+        all_rows.extend(
+            compute_group_summary_rows(result.groups, method=name, matrices=matrices)
+        )
+    return all_rows
+
+
+# =====================================================================
+#  VISUALIZATION
+# =====================================================================
+
+
+def _infer_img_size(video: "Video", default=(1024, 1024)) -> tuple[int, int]:
+    ops = getattr(video, "suite2p_data", {}).get("ops", {}) if getattr(video, "suite2p_data", None) else {}
+    Ly = int(ops.get("Ly", default[0]))
+    Lx = int(ops.get("Lx", default[1]))
+    return (Ly, Lx)
+
+
+def make_matrix_heatmap(
+    matrix: np.ndarray,
+    *,
+    title: str,
+    cmap: str = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    figsize=(6, 5),
+) -> Optional[Figure]:
+    """Create a heatmap figure for a similarity/distance matrix."""
+    if matrix is None:
+        return None
+    m = np.asarray(matrix)
+    if m.ndim != 2 or m.size == 0:
+        return None
+
+    fig, ax = plt.subplots(figsize=figsize)
+    plot_matrix_heatmap(m, title=title, cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, show_colorbar=True)
+    fig.tight_layout()
+    return fig
+
+
+def visualize_grouping(
+    video: "Video",
+    *,
+    strategy_name: str = "corr",
+    config_label: Optional[str] = None,
+    heatmap_cmap: str = "viridis",
+    heatmap_vmin: Optional[float] = None,
+    heatmap_vmax: Optional[float] = None,
+) -> Tuple[Optional[Figure], Optional[Figure]]:
+    """Generate overlay + heatmap figures for a single grouping strategy.
+
+    Parameters
+    ----------
+    video : Video
+        Must have ``grouping_results`` populated.
+    strategy_name : str
+        Key into ``video.grouping_results``.
+
+    Returns
+    -------
+    (overlay_fig, heatmap_fig)
+    """
+    result = video.grouping_results.get(strategy_name)
+    if result is None:
+        return None, None
+
+    groups = result.groups
+    matrix = result.matrix
+
+    label = config_label or strategy_name
+    heat_title = f"{strategy_name} matrix ({label})"
+
+    # Overlay
+    overlay_fig: Optional[Figure] = None
+    if groups:
+        img_size = _infer_img_size(video)
+        stat = getattr(video, "suite2p_data", {}).get("stat", np.array([]))
+        overlay_fig = visualize_neuron_groups(
+            neuron_groups=groups,
+            stat=stat,
+            img_size=img_size,
+            video_path=getattr(video, "path", None),
+            config_label=label,
+        )
+
+    # Heatmap
+    heatmap_fig = make_matrix_heatmap(
+        matrix,
+        title=heat_title,
+        cmap=heatmap_cmap,
+        vmin=heatmap_vmin,
+        vmax=heatmap_vmax,
+    )
+
+    return overlay_fig, heatmap_fig
+
+
+# =====================================================================
+#  GROUPING SERVICE (entry point)
+# =====================================================================
+
+
 @dataclass
 class GroupingService:
-    """
-    Compute-only grouping service.
+    """Run one or more grouping strategies and compare them.
 
-    Side effects on `video`:
-      - corr_groups, corr_matrix
-      - dtw_groups, dtw_matrix (if enabled)
-      - agreement
-      - grouping_stats (DataFrame)
-
+    Parameters
+    ----------
+    strategies : list of strategy names (keys in ``STRATEGY_REGISTRY``).
+        Default: ``["corr"]``.
     """
-    enable_dtw: bool = False
+
+    strategies: list[str] = field(default_factory=lambda: ["corr"])
 
     def run(self, video: "Video", grouping_cfg: dict) -> Optional[GroupingReport]:
         if len(video.neurons) < 2:
-            # Keep fields consistent so downstream writers don't crash
-            video.corr_groups, video.corr_matrix = [], np.asarray([])
-            video.dtw_groups, video.dtw_matrix = [], np.asarray([])
-            video.agreement = None
+            video.grouping_results = {}
             video.grouping_stats = pd.DataFrame()
             return None
 
-        dtw_cfg = grouping_cfg.get("dtw", {}) or {}
-        #0) Compute correlatin grouping
-        corr_cfg = grouping_cfg.get("corr", grouping_cfg.get("sttc", {})) or {}
-        corr_res = CorrelationStrategy().compute(video, corr_cfg)
-        video.corr_groups = corr_res.get("groups", [])
-        video.corr_matrix = corr_res.get("matrix", np.asarray([]))
+        # ── Run each enabled strategy ────────────────────────────────
+        results: dict[str, GroupingResult] = {}
+        for name in self.strategies:
+            cls = STRATEGY_REGISTRY.get(name)
+            if cls is None:
+                raise ValueError(
+                    f"Unknown grouping strategy {name!r}. "
+                    f"Available: {list(STRATEGY_REGISTRY)}"
+                )
+            cfg = grouping_cfg.get(name, {}) or {}
+            results[name] = cls().compute(video, cfg)
 
-        # 2) compute DTW grouping (optional)
-        if self.enable_dtw:
-            dtw_res = DTWStrategy().compute(video, dtw_cfg)
-            video.dtw_groups = dtw_res.get("groups", [])
-            video.dtw_matrix = dtw_res.get("matrix", np.asarray([]))
-            dtw_label = dtw_res.get("config_label", "dtw")
-        else:
-            video.dtw_groups, video.dtw_matrix = [], np.asarray([])
-            dtw_label = "dtw_disabled"
+        video.grouping_results = results
 
-        # 3) compare / combine summaries
-        grouping_summary = compare_groupings(
-            corr_groups=video.corr_groups,
-            dtw_groups=video.dtw_groups,
-            corr_matrix=video.corr_matrix if isinstance(video.corr_matrix, np.ndarray) else None,
-            dtw_matrix=video.dtw_matrix if isinstance(video.dtw_matrix, np.ndarray) else None,
-            neurons=video.neurons,
-        )
+        # ── Compare strategies ───────────────────────────────────────
+        agreements = compute_pairwise_agreement(results, video.neurons)
 
-        # Preserve the same outputs your pipeline expects
-        video.corr_groups = grouping_summary.get("corr_groups", video.corr_groups)
-        video.dtw_groups = grouping_summary.get("dtw_groups", video.dtw_groups)
-        video.agreement = grouping_summary.get("agreement", None)
+        # ── Summary stats ────────────────────────────────────────────
+        combined = build_combined_summary(results)
+        video.grouping_stats = pd.DataFrame(combined) if combined else pd.DataFrame()
 
-        combined_stats = grouping_summary.get("combined_stats", None)
-
-        # Your old code wrapped combined_stats in a single-row df.
-        # In the new modular version, combined_stats may be a list of rows.
-        if combined_stats is None:
-            video.grouping_stats = pd.DataFrame()
-        elif isinstance(combined_stats, list):
-            video.grouping_stats = pd.DataFrame(combined_stats)
-        elif isinstance(combined_stats, dict):
-            video.grouping_stats = pd.DataFrame([combined_stats])
-        else:
-            video.grouping_stats = pd.DataFrame()
-
-        method = "corr" + ("+dtw" if self.enable_dtw else "")
-        n_groups = len(video.corr_groups) if video.corr_groups else 0
-
+        names_run = [n for n in self.strategies if n in results]
         return GroupingReport(
-            method=method,
-            n_groups=n_groups,
-            agreement=video.agreement,
+            strategies_run=names_run,
+            n_groups={n: len(results[n].groups) for n in names_run},
+            agreements=agreements,
         )

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class TraceReport:
@@ -23,6 +23,6 @@ class SpikeReport:
 
 @dataclass(frozen=True)
 class GroupingReport:
-    method: str
-    n_groups: int
-    agreement: float | None
+    strategies_run: list[str]
+    n_groups: dict[str, int]
+    agreements: dict[str, float] = field(default_factory=dict)

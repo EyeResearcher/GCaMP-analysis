@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Any, Literal, Tuple
+from typing import TYPE_CHECKING, Optional, Any, Tuple
 
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from utils.io_utils import load_suite2p_data
-from gcamp_analysis.grouping_processing.visualization import visualize_grouping
+
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.roi import ROI
     from gcamp_analysis.data_classes.neuron import Neuron
-    from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 
 
 def _empty_array() -> np.ndarray:
@@ -71,20 +70,8 @@ class Video:
     summary_df: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
 
     # ---- Grouping outputs (populated by GroupingService)
-    corr_matrix: np.ndarray = field(default_factory=_empty_array, repr=False)
-    dtw_matrix: np.ndarray = field(default_factory=_empty_array, repr=False)
-
-    corr_groups: list["NeuronGroup"] = field(default_factory=list, repr=False)
-    dtw_groups: list["NeuronGroup"] = field(default_factory=list, repr=False)
-
-    agreement: float = 0.0
+    grouping_results: dict = field(default_factory=dict, repr=False)  # {name: GroupingResult}
     grouping_stats: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
-
-    # ---- Figures (created by GroupingService.visualize, optional)
-    corr_fig: Optional[Figure] = None
-    dtw_fig: Optional[Figure] = None
-    corr_heatmap: Optional[Figure] = None
-    dtw_heatmap: Optional[Figure] = None
 
     def __post_init__(self) -> None:
         self.path = Path(self.path)
@@ -141,15 +128,8 @@ class Video:
         self.neurons = []
         self.summary_df = pd.DataFrame()
 
-        self.corr_matrix = _empty_array()
-        self.dtw_matrix = _empty_array()
-        self.corr_groups = []
-        self.dtw_groups = []
-        self.agreement = 0.0
+        self.grouping_results = {}
         self.grouping_stats = pd.DataFrame()
-
-        self.corr_fig = None
-        self.dtw_fig = None
 
     def __repr__(self) -> str:
         return (
@@ -166,30 +146,24 @@ class VideoStatistics:
     grouping_stats: pd.DataFrame
     bad_rois_features: pd.DataFrame
 
-    corr_matrix: np.ndarray
-    dtw_matrix: np.ndarray
-
-    corr_fig: Optional[Figure] = None 
-    dtw_fig: Optional[Figure] = None
-
-    corr_heatmap: Optional[Figure] = None
-    dtw_heatmap: Optional[Figure] = None
+    # All strategy matrices keyed by strategy name
+    matrices: dict = field(default_factory=dict)
 
     @classmethod
-    def from_video(cls, video : "Video") -> "VideoStatistics":
+    def from_video(cls, video: "Video") -> "VideoStatistics":
         """Convenience constructor; keeps Video dependency out of __init__."""
+        matrices = {}
+        for name, result in getattr(video, "grouping_results", {}).items():
+            if result.matrix is not None:
+                matrices[name] = result.matrix
+
         return cls(
             video_name=video.path.name,
             per_neuron_spike_summaries=video.summary_df,
             grouping_stats=video.grouping_stats,
             bad_rois_features=video.bad_rois_features,
-            corr_matrix=video.corr_matrix,
-            dtw_matrix=video.dtw_matrix,
-            corr_fig=getattr(video, "corr_fig", None),
-            dtw_fig=getattr(video, "dtw_fig", None),
-            corr_heatmap=getattr(video, "corr_heatmap", None),
-            dtw_heatmap=getattr(video, "dtw_heatmap", None),
-            )
+            matrices=matrices,
+        )
     
 @dataclass
 class VideoStatisticsWriter:
@@ -236,22 +210,16 @@ class VideoStatisticsWriter:
                 )
         
         manifest["metrics_excel"] = str(excel_path)
-        # Matrices
-        corr_npy = out_dir / f"{base}_corr_matrix.npy"
-        np.save(corr_npy, stats.corr_matrix)
-        manifest["corr_matrix_npy"] = str(corr_npy)
 
-        dtw_npy = out_dir / f"{base}_dtw_matrix.npy"
-        np.save(dtw_npy, stats.dtw_matrix)
-        manifest["dtw_matrix_npy"] = str(dtw_npy)
-
+        # Save all strategy matrices
+        for mat_name, matrix in stats.matrices.items():
+            npy_path = out_dir / f"{base}_{mat_name}_matrix.npy"
+            np.save(npy_path, matrix)
+            manifest[f"{mat_name}_matrix_npy"] = str(npy_path)
 
         return manifest
     
     
-Which = Literal["corr", "dtw"]
-
-
 @dataclass
 class VideoFiguresWriter:
     """Saves grouping overlay and heatmap figures for a video."""
@@ -272,15 +240,19 @@ class VideoFiguresWriter:
         video: "Video",
         *,
         out_dir: Path,
-        which: Which = "sttc",
+        strategy_name: str = "corr",
         config_label: str | None = None,
     ) -> Tuple[Optional[Path], Optional[Path]]:
-        """Generate and save overlay + heatmap for one grouping method. Returns saved paths."""
-        overlay_fig, heatmap_fig = visualize_grouping(video, which=which, config_label=config_label)
+        """Generate and save overlay + heatmap for one grouping strategy. Returns saved paths."""
+        from gcamp_analysis.grouping_processing.service import visualize_grouping
+
+        overlay_fig, heatmap_fig = visualize_grouping(
+            video, strategy_name=strategy_name, config_label=config_label
+        )
 
         base = video.path.name
-        overlay_path = out_dir / f"{base}_{which}_groups.png"
-        heatmap_path = out_dir / f"{base}_{which}_heatmap.png"
+        overlay_path = out_dir / f"{base}_{strategy_name}_groups.png"
+        heatmap_path = out_dir / f"{base}_{strategy_name}_heatmap.png"
 
         self.save_fig(overlay_fig, overlay_path)
         self.save_fig(heatmap_fig, heatmap_path)
@@ -294,15 +266,14 @@ class VideoFiguresWriter:
 
         manifest: dict = {}
 
-        # Correlation
-        corr_overlay, corr_heat = self.write_grouping_figures(video, out_dir=out_dir, which="corr")
-        if corr_overlay: manifest["corr_overlay_png"] = str(corr_overlay)
-        if corr_heat: manifest["corr_heatmap_png"] = str(corr_heat)
-
-        # DTW (only if enabled / exists)
-        if getattr(video, "dtw_matrix", None) is not None and np.asarray(getattr(video, "dtw_matrix")).size > 0:
-            dtw_overlay, dtw_heat = self.write_grouping_figures(video, out_dir=out_dir, which="dtw")
-            if dtw_overlay: manifest["dtw_overlay_png"] = str(dtw_overlay)
-            if dtw_heat: manifest["dtw_heatmap_png"] = str(dtw_heat)
+        # Generate figures for every strategy that was run
+        for name in getattr(video, "grouping_results", {}):
+            overlay, heat = self.write_grouping_figures(
+                video, out_dir=out_dir, strategy_name=name
+            )
+            if overlay:
+                manifest[f"{name}_overlay_png"] = str(overlay)
+            if heat:
+                manifest[f"{name}_heatmap_png"] = str(heat)
 
         return manifest

@@ -42,6 +42,7 @@ hp_tuning:
       probability: true
 
 grouping:
+  strategies: ["corr", "sttc"]  # any combination of: corr, sttc, dtw
   sttc:
     time_window: .4       # 33ms, 50ms, 100ms, 200ms, 300ms
     correlation_threshold: 0.1
@@ -49,14 +50,16 @@ grouping:
     distance_threshold: 0.2
     min_group_size: 2
   corr:
-    trace: "norm_sm_f"
+    trace: "norm_sm_f"  
     method: "pearson"
     remove_global: true
-    use_diff: true
-    diff_order: 1
+    use_diff: False
+    diff_order: 2
     zscore_each: true
     clip_negatives: true
-    distance_threshold: 0.2
+    distance_threshold: 0.15
     min_group_size: 2
+    window : 10
+    polyorder: 2
 
   

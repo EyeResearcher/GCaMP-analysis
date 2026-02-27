@@ -50,9 +50,11 @@ class VideoPipelineRunner:
         )
         roi = ROIService(n_jobs=n_jobs)
         spike = SpikeService(n_jobs=n_jobs)
-        grp = GroupingService(
-            enable_dtw=config.get("grouping", {}).get("enable_dtw", False),
-        )
+        # Resolve grouping strategies from config
+        grouping_cfg = config.get("grouping", {})
+        strategies = grouping_cfg.get("strategies", ["corr"])
+
+        grp = GroupingService(strategies=strategies)
 
         return cls(
             trace=trace,
@@ -101,9 +103,12 @@ class VideoPipelineRunner:
         # Step 7: grouping
         gr = self.grouping.run(video, self.grouping_cfg)
         if verbose:
-            if gr.agreement is None:
-                print(f"  Grouping ({gr.method}): {gr.n_groups} groups")
-            else:
-                print(f"  Grouping ({gr.method}): {gr.n_groups} groups | agreement={gr.agreement:.2f}")
+            parts = [f"Grouping ({'+'.join(gr.strategies_run)}):"]
+            for name, count in gr.n_groups.items():
+                parts.append(f"{name}={count}")
+            if gr.agreements:
+                for pair, val in gr.agreements.items():
+                    parts.append(f"{pair}={val:.2f}")
+            print("  " + " | ".join(parts))
 
 

@@ -1,16 +1,31 @@
-from .comparison import compare_groupings
-from .summary import compute_group_summary_rows
-from .visualization import make_matrix_heatmap
-
-from .strategies.base import GroupingStrategy
-from .strategies.sttc_strategy import STTCStrategy
-from .strategies.dtw_strategy import DTWStrategy
+from .strategies import (
+    GroupingResult,
+    GroupingStrategy,
+    CorrelationStrategy,
+    STTCStrategy,
+    DTWStrategy,
+    STRATEGY_REGISTRY,
+)
+from .service import (
+    GroupingService,
+    compute_pairwise_agreement,
+    build_combined_summary,
+    compute_group_summary_rows,
+    make_matrix_heatmap,
+    visualize_grouping,
+)
 
 __all__ = [
-    "compare_groupings",
-    "compute_group_summary_rows",
-    "make_matrix_heatmap",
+    "GroupingResult",
     "GroupingStrategy",
+    "CorrelationStrategy",
     "STTCStrategy",
     "DTWStrategy",
+    "STRATEGY_REGISTRY",
+    "GroupingService",
+    "compute_pairwise_agreement",
+    "build_combined_summary",
+    "compute_group_summary_rows",
+    "make_matrix_heatmap",
+    "visualize_grouping",
 ]

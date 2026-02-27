@@ -12,15 +12,10 @@ from .features import get_all_spike_features
 # Frame-rate → distance conversion
 # ---------------------------------------------------------------------------
 
-# Reference point: at 30 Hz a minimum inter-peak gap of 20 frames (~0.67 s)
-# has proven to work well.  The refractory period in *seconds* is kept
-# constant so that faster cameras yield proportionally more frames.
-_REF_FS: float = 30.0
-_REF_DIST: int = 20
-_MIN_DIST: int = 3          # absolute floor regardless of frame rate
 
 
-def min_peak_distance_frames(fs: float = _REF_FS) -> int:
+
+def min_peak_distance_frames(fs: float = 15.0) -> int:
     """Convert a frame rate to a minimum inter-peak distance in frames.
 
     The distance is inversely proportional to ``fs`` so the minimum
@@ -37,7 +32,7 @@ def min_peak_distance_frames(fs: float = _REF_FS) -> int:
     int
         Minimum distance in frames (≥ ``_MIN_DIST``).
     """
-    return max(_MIN_DIST, int(round(_REF_DIST * fs / _REF_FS)))
+    return max(3, int(round(20 * fs / 15)))
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +44,7 @@ def get_f_events(
     peaks: np.ndarray | None = None,
     roi_idx=None,
     mode="train",
-    fs: float = _REF_FS,
+    fs: float = 15.0,
 ) -> Tuple[Dict[int, Dict], list[int | str]]:
     """Detect spikes and compute windows/features per spike.
 
@@ -91,7 +86,7 @@ class SpikeDetector:
         self,
         sm_norm_f: np.ndarray,
         roi_idx: int,
-        fs: float = _REF_FS,
+        fs: float = 15.0,
     ) -> Tuple[List[Dict[str, Any]], np.ndarray]:
         """Detect peaks and return per-peak feature dicts.
 

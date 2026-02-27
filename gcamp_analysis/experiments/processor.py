@@ -124,7 +124,7 @@ class ExperimentProcessor:
         n_rois_good = int(video.n_good_rois)
         n_neurons = int(len(video.neurons))
         n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))
-        n_groups = int(len(video.corr_groups))
+        n_groups = sum(len(r.groups) for r in video.grouping_results.values())
 
         # Leaf summaries from per-neuron summary_df:
         # - kinetics: unweighted + spike-weighted (number_of_spikes)
