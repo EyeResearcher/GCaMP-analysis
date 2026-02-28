@@ -37,8 +37,9 @@ class TreeNode:
         Number of video leaves in this subtree.
     n_neurons : int
         Total neurons across all videos in this subtree.
-    n_groups : int
-        Total neuron groups across all videos in this subtree.
+    n_groups : dict[str, int]
+        Neuron groups per grouping strategy across all videos in this
+        subtree, keyed by strategy name (e.g. ``{"corr": 5, "sttc": 3}``).
     kin_unweighted : StatSummary
         Kinetics summary — children weighted equally.
     kin_weighted : StatSummary
@@ -48,6 +49,14 @@ class TreeNode:
         Spike-frequency summary — children weighted equally.
     freq_weighted : StatSummary
         Spike-frequency summary — children weighted as above.
+    kin_grouped : StatSummary
+        Kinetics summary for neurons belonging to at least one group.
+    kin_ungrouped : StatSummary
+        Kinetics summary for neurons not in any group.
+    freq_grouped : StatSummary
+        Spike-frequency summary for grouped neurons.
+    freq_ungrouped : StatSummary
+        Spike-frequency summary for ungrouped neurons.
     """
 
     name: str
@@ -59,13 +68,19 @@ class TreeNode:
     # support counts for weighting
     n_videos: int = 0
     n_neurons: int = 0
-    n_groups: int = 0
+    n_groups: dict[str, int] = field(default_factory=dict)
 
     # spike summaries over this node's subtree
     kin_unweighted: StatSummary = field(default_factory=StatSummary)
     kin_weighted: StatSummary = field(default_factory=StatSummary)
     freq_unweighted: StatSummary = field(default_factory=StatSummary)
     freq_weighted: StatSummary = field(default_factory=StatSummary)
+
+    # grouped vs ungrouped neuron summaries
+    kin_grouped: StatSummary = field(default_factory=StatSummary)
+    kin_ungrouped: StatSummary = field(default_factory=StatSummary)
+    freq_grouped: StatSummary = field(default_factory=StatSummary)
+    freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
     def is_leaf(self) -> bool:
         """Return ``True`` if the node has no children."""

@@ -37,8 +37,8 @@ class VideoRunRecord:
         Neurons retained after spike detection.
     n_spikes_kept : int
         Total spikes across all neurons after filtering.
-    n_groups : int
-        Number of neuron groups found by clustering.
+    n_groups : dict[str, int]
+        Number of neuron groups per grouping strategy.
     kin_unweighted : StatSummary
         Kinetics averaged equally across neurons.
     kin_weighted_spikes : StatSummary
@@ -54,11 +54,17 @@ class VideoRunRecord:
     n_rois_good: int
     n_neurons: int
     n_spikes_kept: int
-    n_groups: int
+    n_groups: dict[str, int] = field(default_factory=dict)
 
     kin_unweighted: StatSummary = field(default_factory=StatSummary)
     kin_weighted_spikes: StatSummary = field(default_factory=StatSummary)
     freq_unweighted: StatSummary = field(default_factory=StatSummary)
+
+    # grouped vs ungrouped neuron summaries
+    kin_grouped: StatSummary = field(default_factory=StatSummary)
+    kin_ungrouped: StatSummary = field(default_factory=StatSummary)
+    freq_grouped: StatSummary = field(default_factory=StatSummary)
+    freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
 
 class ExperimentProcessor:
@@ -124,13 +130,42 @@ class ExperimentProcessor:
         n_rois_good = int(video.n_good_rois)
         n_neurons = int(len(video.neurons))
         n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))
-        n_groups = sum(len(r.groups) for r in video.grouping_results.values())
+        n_groups = {
+            name: len(r.groups)
+            for name, r in video.grouping_results.items()
+        }
 
         # Leaf summaries from per-neuron summary_df:
         # - kinetics: unweighted + spike-weighted (number_of_spikes)
         # - frequency: unweighted (never spike-weighted)
         kin_unw, kin_wspk, freq_unw = combine_neuron_level_to_video(
             video.summary_df,
+            spike_count_col="number_of_spikes",
+            spike_freq_col="spike_frequency",
+        )
+
+        # --- grouped vs ungrouped neuron partition ---
+        grouped_indices: set[int] = set()
+        for result in video.grouping_results.values():
+            for group in result.groups:
+                grouped_indices.update(getattr(group, "neuron_indices", []))
+
+        summary_df = video.summary_df
+        if not summary_df.empty and grouped_indices:
+            mask = summary_df.index.isin(grouped_indices)
+            grouped_df = summary_df.loc[mask]
+            ungrouped_df = summary_df.loc[~mask]
+        else:
+            grouped_df = pd.DataFrame()
+            ungrouped_df = summary_df
+
+        kin_grp, _, freq_grp = combine_neuron_level_to_video(
+            grouped_df,
+            spike_count_col="number_of_spikes",
+            spike_freq_col="spike_frequency",
+        )
+        kin_ungrp, _, freq_ungrp = combine_neuron_level_to_video(
+            ungrouped_df,
             spike_count_col="number_of_spikes",
             spike_freq_col="spike_frequency",
         )
@@ -147,6 +182,10 @@ class ExperimentProcessor:
             kin_unweighted=kin_unw,
             kin_weighted_spikes=kin_wspk,
             freq_unweighted=freq_unw,
+            kin_grouped=kin_grp,
+            kin_ungrouped=kin_ungrp,
+            freq_grouped=freq_grp,
+            freq_ungrouped=freq_ungrp,
         )
 
     def _compute_bottom_up_summaries(self, root: TreeNode) -> None:
@@ -179,12 +218,25 @@ class ExperimentProcessor:
                     # Frequency: only unweighted at neuron level
                     node.freq_unweighted = node.payload.freq_unweighted
                     node.freq_weighted = node.payload.freq_unweighted  # same at leaf
+
+                    # Grouped vs ungrouped
+                    node.kin_grouped = node.payload.kin_grouped
+                    node.kin_ungrouped = node.payload.kin_ungrouped
+                    node.freq_grouped = node.payload.freq_grouped
+                    node.freq_ungrouped = node.payload.freq_ungrouped
                 return
 
             # internal node: counts
             node.n_videos = sum(ch.n_videos for ch in node.children.values())
             node.n_neurons = sum(ch.n_neurons for ch in node.children.values())
-            node.n_groups = sum(ch.n_groups for ch in node.children.values())
+
+            # merge per-strategy group counts
+            merged_groups: dict[str, int] = {}
+            for ch in node.children.values():
+                for method, count in ch.n_groups.items():
+                    merged_groups[method] = merged_groups.get(method, 0) + count
+            node.n_groups = merged_groups
+
             kids = list(node.children.values())
 
             # Unweighted: each immediate child counts equally
@@ -204,6 +256,23 @@ class ExperimentProcessor:
 
             node.kin_weighted = aggregate_children(w)
             node.freq_weighted = aggregate_children(wf)
+
+            # Grouped vs ungrouped: same weighting logic
+            if children_are_videos:
+                wg = [(ch.kin_grouped, float(ch.n_neurons)) for ch in kids]
+                wug = [(ch.kin_ungrouped, float(ch.n_neurons)) for ch in kids]
+                wfg = [(ch.freq_grouped, float(ch.n_neurons)) for ch in kids]
+                wfug = [(ch.freq_ungrouped, float(ch.n_neurons)) for ch in kids]
+            else:
+                wg = [(ch.kin_grouped, float(ch.n_videos)) for ch in kids]
+                wug = [(ch.kin_ungrouped, float(ch.n_videos)) for ch in kids]
+                wfg = [(ch.freq_grouped, float(ch.n_videos)) for ch in kids]
+                wfug = [(ch.freq_ungrouped, float(ch.n_videos)) for ch in kids]
+
+            node.kin_grouped = aggregate_children(wg)
+            node.kin_ungrouped = aggregate_children(wug)
+            node.freq_grouped = aggregate_children(wfg)
+            node.freq_ungrouped = aggregate_children(wfug)
 
         post(root)
 
@@ -247,13 +316,17 @@ class ExperimentProcessor:
                 "child": child.name,
                 "n_videos": child.n_videos,
                 "n_neurons": child.n_neurons,
-                "n_groups": child.n_groups,
             }
+            # One column per grouping strategy
+            for method in sorted(child.n_groups):
+                row[f"n_groups_{method}"] = child.n_groups[method]
 
-            # Flatten kinetics (unweighted + weighted)
+            # Flatten kinetics (unweighted + weighted + grouped + ungrouped)
             for summary, scheme in [
                 (child.kin_unweighted, "unweighted"),
                 (child.kin_weighted, "weighted"),
+                (child.kin_grouped, "grouped"),
+                (child.kin_ungrouped, "ungrouped"),
             ]:
                 for stat in sorted(summary.means):
                     row[f"{stat}_mean_{scheme}"] = summary.means[stat]
@@ -261,10 +334,12 @@ class ExperimentProcessor:
                     row[f"{stat}_within_{scheme}"] = summary.vars_within.get(stat, 0.0)
                     row[f"{stat}_between_{scheme}"] = summary.vars_between.get(stat, 0.0)
 
-            # Flatten frequency (unweighted + weighted)
+            # Flatten frequency (unweighted + weighted + grouped + ungrouped)
             for summary, scheme in [
                 (child.freq_unweighted, "unweighted"),
                 (child.freq_weighted, "weighted"),
+                (child.freq_grouped, "grouped"),
+                (child.freq_ungrouped, "ungrouped"),
             ]:
                 for stat in sorted(summary.means):
                     key = f"{stat}_{{}}_{scheme}"
@@ -277,4 +352,16 @@ class ExperimentProcessor:
 
         if len(rows) < 2:
             return None
-        return pd.DataFrame(rows).sort_values("child")
+
+        df = pd.DataFrame(rows).sort_values("child")
+
+        # Reorder columns: core identifiers first, then all means, then
+        # variance columns (var/within/between) — so the most-compared
+        # values are immediately visible.
+        core = [c for c in df.columns if c in ("child", "n_videos", "n_neurons") or c.startswith("n_groups_")]
+        rest = [c for c in df.columns if c not in core]
+        mean_cols = [c for c in rest if "_mean_" in c]
+        var_cols = [c for c in rest if c not in mean_cols]
+        df = df[core + mean_cols + var_cols]
+
+        return df

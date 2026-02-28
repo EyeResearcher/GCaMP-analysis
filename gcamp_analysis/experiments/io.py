@@ -18,12 +18,13 @@ _KIND_DEFS = {
 _SCHEME_DEFS = {
     "unweighted": "Each immediate child weighted equally.",
     "weighted": "Children weighted by n_neurons (video level) or n_videos (higher levels).",
+    "grouped": "Neurons belonging to at least one neuron group.",
+    "ungrouped": "Neurons not belonging to any neuron group.",
 }
 _CORE_COLS = {
     "child": "Name of the child node (one row per sibling).",
     "n_videos": "Number of videos under this child.",
     "n_neurons": "Total neurons under this child.",
-    "n_groups": "Total neuron groups under this child.",
 }
 
 
@@ -37,6 +38,12 @@ def _build_legend(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         if col in _CORE_COLS:
             rows.append({"column": col, "description": _CORE_COLS[col]})
+            continue
+
+        # Per-strategy group count columns (n_groups_corr, etc.)
+        if col.startswith("n_groups_"):
+            method = col[len("n_groups_"):]
+            rows.append({"column": col, "description": f"Number of neuron groups found by the '{method}' strategy."})
             continue
 
         parts = col.rsplit("_", 2)
