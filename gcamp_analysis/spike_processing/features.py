@@ -2,23 +2,141 @@
 
 All spike feature math lives here.  Both the training pipeline
 (spike_classifier.prepare_data) and the inference pipeline
-(spike_processing.detector → pipeline.services.spike_service)
-ultimately call get_all_spike_features from this module.
+(spike_processing.filtering → SpikeService)
+ultimately call describe_spikes / get_spike_feats from this module.
+
+Peak-hierarchy helpers (formerly hierarchy.py) are included at the top.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from scipy.stats import skew, kurtosis
-from scipy.signal import peak_prominences, peak_widths
+from scipy.signal import find_peaks, peak_prominences, peak_widths
 
-from .kinetics import compute_spike_constants, _create_large_window, _create_small_window
-from .hierarchy import compute_peak_hierarchy_features
+from .kinetics import _create_small_window
 
 
-# ---------------------------------------------------------------------------
-# Asymmetry
-# ---------------------------------------------------------------------------
+# =====================================================================
+#  PEAK HIERARCHY (formerly hierarchy.py)
+# =====================================================================
+
+
+def build_peak_clusters(
+    peaks: np.ndarray,
+    widths: np.ndarray,
+    width_factor: float = 1.5,
+) -> list[np.ndarray]:
+    """Group peaks into local clusters based on time proximity."""
+    if peaks.size == 0:
+        return []
+
+    order = np.argsort(peaks)
+    peaks_sorted = peaks[order]
+
+    typical_width = float(np.median(widths)) if widths.size > 0 else 1.0
+    if not np.isfinite(typical_width) or typical_width <= 0:
+        typical_width = 1.0
+
+    radius = width_factor * typical_width
+    clusters: list[np.ndarray] = []
+    current_cluster = [order[0]]
+
+    for prev_idx, cur_idx in zip(order[:-1], order[1:]):
+        if (peaks[cur_idx] - peaks[prev_idx]) <= radius:
+            current_cluster.append(cur_idx)
+        else:
+            clusters.append(np.array(current_cluster, dtype=int))
+            current_cluster = [cur_idx]
+
+    clusters.append(np.array(current_cluster, dtype=int))
+    return clusters
+
+def assign_p_prom(peaks : np.ndarray, 
+                  clusters : list[np.ndarray], 
+                  prominences : np.ndarray)-> np.ndarray:
+    
+    """
+    This function takes clusters, peaks, and prominences as inputs. 
+
+    It iterates through clusters (arrays of indices of peaks in peak array) and assignes a parent prominence to each. 
+    
+    Parameters 
+    ----------
+    peaks : np.ndarrray
+        array of indices of peaks
+    clusters : list[np.ndarray]
+        list of arrays where each array is a set of integers specifying index of peak within peaks
+    prominences : np.ndarray
+        list of prominences as computed by scipys ``peak_prominences`` 
+    
+    Returns
+    -------
+    cluster_parent_prom : np.ndarray
+        array where each entry corresponds to a peak's parent's prominence
+        """
+    cluster_parent_prom = np.empty(len(peaks), dtype=float)
+    for cl in clusters:
+        parent_prom = float(np.max(prominences[cl]))
+        cluster_parent_prom[cl] = parent_prom
+    return cluster_parent_prom
+
+def compute_peak_hierarchy_features(
+    peaks: np.ndarray,
+    prominences: np.ndarray,
+    widths: np.ndarray,
+    width_factor: float = 1.5,
+) -> dict:
+    """Compute local hierarchy features for each peak.
+
+    Currently returns only ``dominance_score``.  Additional per-peak
+    features (local_rank, cluster_size, prom_gap, time_to_parent) can
+    be derived from the same cluster structure — see commented block below.
+    """
+    n = peaks.size
+    if n == 0:
+        return {"dominance_score": np.array([], dtype=float)}
+
+    clusters = build_peak_clusters(peaks, widths, width_factor=width_factor)
+
+    dominance_score = np.zeros(n, dtype=float)
+    eps = 1e-9
+
+    for cl in clusters:
+        parent_prom = float(np.max(prominences[cl]))
+        for idx in cl:
+            dominance_score[idx] = float(prominences[idx]) / (parent_prom + eps)
+
+    # To re-enable additional hierarchy features, uncomment and add to return:
+    #
+    # local_rank = np.zeros(n, dtype=int)
+    # local_rank_norm = np.zeros(n, dtype=float)
+    # cluster_size = np.zeros(n, dtype=int)
+    # prom_gap = np.zeros(n, dtype=float)
+    # time_to_parent = np.zeros(n, dtype=float)
+    #
+    # for cl in clusters:
+    #     cl_prom = prominences[cl]
+    #     parent_idx = int(np.argmax(cl_prom))
+    #     parent_prom = float(cl_prom[parent_idx])
+    #     parent_pos = int(peaks[cl[parent_idx]])
+    #     rank_order = np.argsort(-cl_prom)
+    #     rank_of = np.empty_like(rank_order)
+    #     rank_of[rank_order] = np.arange(len(cl))
+    #     for j, gidx in enumerate(cl):
+    #         cluster_size[gidx] = len(cl)
+    #         local_rank[gidx] = int(rank_of[j])
+    #         local_rank_norm[gidx] = rank_of[j] / (len(cl) - 1) if len(cl) > 1 else 0.0
+    #         prom_gap[gidx] = (parent_prom - prominences[gidx]) / (parent_prom + eps)
+    #         time_to_parent[gidx] = abs(int(peaks[gidx]) - parent_pos)
+
+    return {"dominance_score": dominance_score}
+
+
+# =====================================================================
+#  ASYMMETRY
+# =====================================================================
+
 
 def area_asymmetry(window: np.ndarray, zero_index: int) -> float:
     """AAI using summation."""
@@ -54,9 +172,10 @@ def area_asymmetry_trapz(
     return (A_right - A_left) / total
 
 
-# ---------------------------------------------------------------------------
-# Decay shape
-# ---------------------------------------------------------------------------
+# =====================================================================
+#  DECAY SHAPE
+# =====================================================================
+
 
 def compute_decay_shape_features(
     window: np.ndarray,
@@ -185,74 +304,56 @@ def compute_additional_decay_features(
     }
 
 
-# ---------------------------------------------------------------------------
-# Per-spike feature assembly
-# ---------------------------------------------------------------------------
+# =====================================================================
+#  PER-SPIKE FEATURE ASSEMBLY
+# =====================================================================
 
-def _compute_spike_features(
-    large_window: np.ndarray,
+
+def agg_spike_feats(
+    spike_prom: float, parent_prom : float, 
     small_window: np.ndarray,
-    spike_prom: float,
-    peak_idx: int,
-    left_base_idx: int,
-    absolute_prev_min: int,
-    hierarchy: dict,
-    i: int,
-    top3: bool = False,
     trace_range: float = 1.0,
+    eps : float = 1e-9
 ) -> dict:
-    """Compute all features for a single detected spike."""
-    peak_in_large_window = peak_idx - left_base_idx
-    rise_slope, decay_tau = compute_spike_constants(
-        small_window, peak_in_large_window, fs=15.0
-    )
-    decay_shape = compute_decay_shape_features(small_window, peak_in_large_window, fs=15.0)
-    additional_decay = compute_additional_decay_features(small_window, peak_in_large_window)
+    """Compute all features for a single detected spike.
 
-    mini_prom = large_window[peak_in_large_window] - small_window[0]
+    This is the extension point for adding new per-spike features.
 
-    if top3:
-        return {
-            "spike_prom": float(spike_prom) / trace_range,
-            "dominance_score": float(hierarchy["dominance_score"][i]),
-            "mini_prom": float(mini_prom) / trace_range,
-            "distance": int(len(small_window)),
-        }
-
+    Parameters
+    ----------
+    spike_prom : float
+        Raw spike prominence.
+    parent_prom : float
+        Raw prominence of the dominant peak in this peak's cluster.
+    small_window : np.ndarray
+        Window that spans trace from left to right valley.
+    trace_range : float
+        Peak-to-peak range of the full trace, used for normalisation.
+    eps : float
+        Small constant to avoid division by zero.
+    """
+    norm_prom = float(spike_prom / trace_range)
+    dom_score = float(spike_prom/(parent_prom + eps))
+    norm_mini_prom = float((np.max(small_window) - small_window[0]) / trace_range)
+    distance = int(len(small_window))
     return {
-        "spike_prom": float(spike_prom) / trace_range,
-        "isolation": int(len(large_window)),
-        "distance": int(len(small_window)),
-        "iso_skew": float(skew(large_window)) if large_window.size else 0.0,
-        "dist_skew": float(skew(small_window)) if small_window.size else 0.0,
-        "iso_aai_sum": float(area_asymmetry(large_window, peak_idx - left_base_idx)),
-        "dist_aai_sum": float(area_asymmetry(small_window, peak_idx - absolute_prev_min)),
-        "iso_aai_trapz": float(area_asymmetry_trapz(large_window, zero_value=peak_idx - left_base_idx)),
-        "dist_aai_trapz": float(area_asymmetry_trapz(small_window, zero_value=peak_idx - absolute_prev_min)),
-        "rise_slope": float(rise_slope),
-        "decay_tau": float(decay_tau),
-        **decay_shape,
-        **additional_decay,
-        "dominance_score": float(hierarchy["dominance_score"][i]),
-        "local_rank": int(hierarchy["local_rank"][i]),
-        "local_rank_norm": float(hierarchy["local_rank_norm"][i]),
-        "cluster_size": int(hierarchy["cluster_size"][i]),
-        "prom_gap": float(hierarchy["prom_gap"][i]),
-        "time_to_parent": float(hierarchy["time_to_parent"][i]),
+        "spike_prom": norm_prom,
+        "dominance_score": dom_score,
+        "mini_prom": norm_mini_prom,
+        "distance": distance,
     }
 
+# =====================================================================
+#  ORCHESTRATOR
+# =====================================================================
 
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
 
-def get_all_spike_features(
+def get_spike_feats(
     smoothed_f: np.ndarray,
     peaks: np.ndarray,
-    props: Optional[dict],
     mode: str = "train",
     roi_idx=None,
-) -> tuple:
+) -> tuple[dict[int, dict[str,dict]] | list[dict[str,Any]], list[int|str]]:
     """
     Compute features for every detected spike in a trace.
 
@@ -262,8 +363,6 @@ def get_all_spike_features(
         1-D smoothed fluorescence trace.
     peaks : np.ndarray
         Detected peak indices.
-    props : dict or None
-        Unused (kept for API compat).
     mode : str
         ``"train"`` returns spike_data dict with windows/labels.
         ``"inference"`` returns a flat features list.
@@ -272,59 +371,126 @@ def get_all_spike_features(
 
     Returns
     -------
-    (spike_data, spike_keys) or (features_list, spike_keys)
+    result : dict[int, dict] or list[dict]
+        If *mode* is ``"train"``, a dict mapping each peak index to a
+        record with keys ``"features"``, ``"windows"``, and ``"label"``.
+        If *mode* is ``"inference"``, a list of per-spike feature dicts.
+    spike_keys : list[int | str]
+        Identifiers for each spike — plain peak indices when *roi_idx*
+        is None, or ``"{roi_idx}_{peak}"`` strings otherwise.
     """
     from utils.label_utils import create_label_dict   # lazy to avoid circular
 
     trace_range = np.ptp(smoothed_f) if smoothed_f.size > 0 else 1.0
     prominences, left_bases, right_bases = peak_prominences(smoothed_f, peaks)
     widths = peak_widths(smoothed_f, peaks)[0]
-    hierarchy = compute_peak_hierarchy_features(
-        peaks=peaks, prominences=prominences, widths=widths, width_factor=1.5,
-    )
+
+    clusters = build_peak_clusters(peaks, widths, width_factor=1.5)
+    cluster_parent_prom = np.empty(len(peaks), dtype=float)
+    for cl in clusters:
+        parent_prom = float(np.max(prominences[cl]))
+        cluster_parent_prom[cl] = parent_prom
 
     num_peaks = len(peaks)
     spike_keys = []
-    windows_list = []
-    features_list = []
-    labels_list = []
+    spike_records = []
 
     for i, peak in enumerate(peaks):
-        large_window_f, absolute_left_base, absolute_right_base, spike_prom = _create_large_window(
-            smoothed_f, peak, left_bases[i], right_bases[i]
-        )
-        prev_peak = peaks[i - 1] if i > 0 else 0
-        next_peak = peaks[i + 1] if i < num_peaks - 1 else len(smoothed_f)
-        small_window_f, absolute_prev_min, absolute_next_min = _create_small_window(
-            smoothed_f, peak, prev_peak, next_peak
+        large_window_f = smoothed_f[left_bases[i]:right_bases[i]]
+        small_window_f, prev_min, next_min = _create_small_window(
+            smoothed_f, peaks, i
         )
 
-        features = _compute_spike_features(
-            large_window_f, small_window_f, spike_prom,
-            peak, left_bases[i], absolute_prev_min, hierarchy, i,
-            top3=True, trace_range=trace_range,
+        features = agg_spike_feats(
+            prominences[i], cluster_parent_prom[i], small_window_f,
+            trace_range=trace_range,
         )
 
         spike_key = peak if roi_idx is None else f"{roi_idx}_{peak}"
         spike_keys.append(spike_key)
-        features_list.append(features)
-        labels_list.append(create_label_dict(-1, 'unlabeled'))
-        windows_list.append({
-            'large_window': {
-                'window_values': large_window_f,
-                'bounds': (absolute_left_base, absolute_right_base),
+        spike_records.append({
+            "features": features,
+            "windows": {
+                'large_window': {
+                    'window_values': large_window_f,
+                    'bounds': (int(left_bases[i]), int(right_bases[i])),
+                },
+                'small_window': {
+                    'window_values': small_window_f,
+                    'bounds': (prev_min, next_min),
+                },
             },
-            'small_window': {
-                'window_values': small_window_f,
-                'bounds': (absolute_prev_min, absolute_next_min),
-            },
+            "label": create_label_dict(-1, 'unlabeled'),
         })
 
     if mode == "inference":
-        return features_list, spike_keys
+        return [r["features"] for r in spike_records], spike_keys
 
     spike_data = {
-        peak: {"windows": windows, "features": features, "label": label}
-        for peak, windows, features, label in zip(peaks, windows_list, features_list, labels_list)
+        peak: record
+        for peak, record in zip(peaks, spike_records)
     }
     return spike_data, spike_keys
+
+
+# =====================================================================
+#  SPIKE FEATURE EXTRACTION (inference entry point)
+# =====================================================================
+
+
+def _min_peak_distance_frames(fs: float = 15.0) -> int:
+    """Convert a frame rate to a minimum inter-peak distance in frames.
+
+    Inversely proportional to ``fs`` so the minimum refractory period in
+    *seconds* stays constant.  Anchored at ``20 frames @ 30 Hz`` (\u2248 0.67 s).
+    """
+    return max(3, int(round(20 * fs / 15)))
+
+
+def describe_spikes(
+    smoothed_f: np.ndarray,
+    roi_idx=None,
+    mode: str = "inference",
+    fs: float = 15.0,
+) -> Tuple[Any, list, np.ndarray]:
+    """Detect peaks in a trace and compute per-peak features.
+
+    Unified entry point for both training and inference pipelines.
+
+    Parameters
+    ----------
+    smoothed_f : ndarray
+        1-D smoothed fluorescence trace.
+    roi_idx : int or None
+        ROI index (passed through to feature keys).
+    mode : {'inference', 'train'}
+        ``"inference"`` returns a flat list of feature dicts.
+        ``"train"`` returns a dict keyed by peak index with
+        windows / features / labels.
+    fs : float
+        Frame rate in Hz.
+
+    Returns
+    -------
+    (result, spike_keys, peaks)
+        *result* shape depends on *mode*.  *spike_keys* is a list of
+        identifiers.  *peaks* is the ndarray of detected peak indices.
+    """
+    x = np.asarray(smoothed_f, dtype=float)
+    if x.ndim != 1 or x.size < 3 or not np.isfinite(x).all():
+        empty = np.asarray([], dtype=int)
+        return ([] if mode == "inference" else {}), [], empty
+
+    dist = _min_peak_distance_frames(fs)
+    peaks, _ = find_peaks(x, distance=dist)
+    peaks = np.asarray(peaks, dtype=int)
+
+    if peaks.size == 0:
+        return ([] if mode == "inference" else {}), [], peaks
+
+    result, spike_keys = get_spike_feats(
+        x, peaks, mode=mode, roi_idx=roi_idx,
+    )
+    if mode == "inference":
+        result = list(result or [])
+    return result, spike_keys, peaks

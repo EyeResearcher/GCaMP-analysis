@@ -1,23 +1,23 @@
 """
 Spike processing sub-pipeline.
 
-This package contains spike-specific helpers used by pipeline/services/spike_service.py
-(detector -> filter -> factory -> kinetics -> summary).
-
-Nothing here should import from pipeline/services to avoid circular imports.
+Three modules mirroring ``roi_processing``:
+  - features.py   — per-spike feature computation
+  - kinetics.py   — rise/decay time-constants, decay estimators
+  - filtering.py  — detection, classification filtering, spike instantiation, orchestration
 """
 
-from .detector import SpikeDetector, min_peak_distance_frames
-from .filter import SpikeFilter
-from .factory import SpikeFactory
+from .features import get_spike_feats, describe_spikes
+from .filtering import (
+    SpikeFilter,
+    SpikeService,
+)
 from .kinetics import SpikeKinetics
-from .summary import NeuronSpikeSummary
 
 __all__ = [
-    "SpikeDetector",
-    "min_peak_distance_frames",
+    "get_spike_feats",
+    "describe_spikes",
     "SpikeFilter",
-    "SpikeFactory",
     "SpikeKinetics",
-    "NeuronSpikeSummary",
+    "SpikeService",
 ]

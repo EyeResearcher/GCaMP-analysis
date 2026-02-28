@@ -5,7 +5,7 @@ from pathlib import Path
 from utils.label_utils import ( get_label_value, validate_roi_label, 
                                preserve_existing_label, compute_data_summary)
 
-from gcamp_analysis.spike_processing.detector import get_f_events
+from gcamp_analysis.spike_processing.features import describe_spikes
 from classifier_pipeline.io_utils import load_roi_data, save_roi_data
 from classifier_pipeline.verbose_utils import print_data_summary
 
@@ -54,7 +54,7 @@ def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None, fs: 
 
         sm_f = np.asarray(roi_data.get("smoothed_trace", None))
 
-        roi_spike_data, spike_keys = get_f_events(sm_f, fs=fs)
+        roi_spike_data, spike_keys, _ = describe_spikes(sm_f, mode="train", fs=fs)
         existing_spikes = roi_data.get('spikes', {})
 
         for spike_idx in spike_keys:

@@ -6,7 +6,7 @@ from typing import Any, Optional
 from gcamp_analysis.data_classes.video import Video
 from gcamp_analysis.roi_processing.traces import TraceService
 from gcamp_analysis.roi_processing.filtering import ROIService
-from gcamp_analysis.spike_processing.service import SpikeService
+from gcamp_analysis.spike_processing.filtering import SpikeService
 from gcamp_analysis.grouping_processing.service import GroupingService
 
 
