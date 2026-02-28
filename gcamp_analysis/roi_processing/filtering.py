@@ -108,8 +108,7 @@ class ROIService:
     def create_neurons(self, video: "Video", good_rois: List[ROI]) -> List[Neuron]:
         neurons: List[Neuron] = []
 
-        # Prefer video.fs if present; fallback to suite2p ops or default
-        fs = float(getattr(video, "fs", None) or video.suite2p_data.get("ops", {}).get("fs", 15.0))
+        fs = float(video.fs)
 
         for filtered_index, roi in enumerate(good_rois):
             neurons.append(

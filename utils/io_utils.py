@@ -53,9 +53,9 @@ def load_suite2p_data(suite2p_path: Path) -> dict:
 
     if (suite2p_path / 'ops.npy').exists():
         data['ops'] = np.load(suite2p_path / 'ops.npy', allow_pickle=True).item()
-        data['fs'] = data['ops'].get('fs', 30.0)
+        data['fs'] = data['ops'].get('fs', 15.0)
     else:
-        data['fs'] = 30.0
+        data['fs'] = 15.0
 
     return data
     

@@ -49,7 +49,7 @@ class Video:
 
     n_rois: int = field(init=False, default=0)
     n_frames: int = field(init=False, default=0)
-    fs: float = field(init=False, default=30.0)
+    fs: float = field(init=False, default=15.0)
 
     # ---- Traces (populated by TraceService)
     norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
@@ -89,7 +89,7 @@ class Video:
         self.n_rois, self.n_frames = F.shape
 
         # Sampling rate (best-effort)
-        self.fs = float(self.suite2p_data.get("fs", self.suite2p_data.get("ops", {}).get("fs", 30.0)))
+        self.fs = float(self.suite2p_data.get("fs", self.suite2p_data.get("ops", {}).get("fs", 15.0)))
 
         # Parse experiment metadata from folder structure (best-effort)
         self._parse_metadata()

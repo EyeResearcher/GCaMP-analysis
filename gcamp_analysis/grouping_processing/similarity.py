@@ -86,7 +86,7 @@ def compute_sttc_matrix(
     neurons: List["Neuron"],
     n_frames: int,
     time_window: float = 0.033,
-    fs: float = 30.0,
+    fs: float = 15.0,
 ) -> np.ndarray:
     """Spike Time Tiling Coefficient (Cutts & Eglen 2014) — fully vectorized.
 

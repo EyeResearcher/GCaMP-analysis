@@ -78,7 +78,7 @@ class SpikeService:
         Returns flattened feature dataframe for inference.
         """
         f = video.norm_sm_f
-        fs = float(getattr(video, "fs", 30.0))
+        fs = float(video.fs)
         all_n = video.neurons
         results = Parallel(
                     n_jobs=self.n_jobs)(delayed(
@@ -152,7 +152,7 @@ class SpikeService:
         Populates on video:
           - summary_df (pd.DataFrame)
         """
-        kinetics = SpikeKinetics(fs=float(getattr(video, "fs", 30.0)))
+        kinetics = SpikeKinetics(fs=float(video.fs))
 
         for neuron in video.neurons:
             neuron.instantiate_spikes(

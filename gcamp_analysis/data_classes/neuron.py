@@ -21,7 +21,7 @@ class Neuron:
 
     roi: ROI
     filtered_index: int
-    fs: float = 30.0
+    fs: float = 15.0
 
     # pipeline-populated
     spikes: List[Spike] = field(default_factory=list)

@@ -180,7 +180,7 @@ def area_asymmetry_trapz(
 def compute_decay_shape_features(
     window: np.ndarray,
     peak_idx_in_window: int,
-    fs: float = 30.0,
+    fs: float = 15.0,
 ) -> dict:
     """Decay R², residual std, curvature, biphasic ratio."""
     segment = np.asarray(window, dtype=float)

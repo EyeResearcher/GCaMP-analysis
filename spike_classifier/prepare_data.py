@@ -14,7 +14,7 @@ from classifier_pipeline.verbose_utils import print_data_summary
 # Spike Detection
 # =============================================================================
 
-def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None, fs: float = 30.0) -> Dict:
+def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None, fs: float = 15.0) -> Dict:
     """
     Iterate through ROI data and collect spike features for labeled-good ROIs (label == 1).
     
@@ -73,7 +73,7 @@ def process_rois(roi_dict: Dict[str, Dict], max_rois: Optional[int] = None, fs: 
 def prepare_spike_data(input_path: str,
          output_path: Optional[str] = None, 
          max_rois: Optional[int] = None,
-         fs: float = 30.0,
+         fs: float = 15.0,
          verbose = True) -> Dict[str, Dict[int, Dict]]:
     
     roi_dict = load_roi_data(Path(input_path), verbose=verbose)
@@ -116,8 +116,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fs",
         type=float,
-        default=30.0,
-        help="Frame rate in Hz (default: 30.0). Controls minimum inter-peak distance.",
+        default=15.0,
+        help="Frame rate in Hz (default: 15.0). Controls minimum inter-peak distance.",
     )
     args = parser.parse_args()
     roi_dict = prepare_spike_data(input_path=args.input_path,

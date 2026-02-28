@@ -34,7 +34,7 @@ class TraceService:
     sensor_type: str = "gcamp8s"
 
     def run(self, video: "Video") -> TraceReport:
-        fs = float(video.suite2p_data.get("fs", 30.0))
+        fs = float(video.fs)
         video.norm_f = normalize_minmax(video.suite2p_data["F"])
         np.save(video.suite2p_path / "F_minmax.npy", video.norm_f)
         video.norm_sm_f = gaussian_filter1d(video.norm_f, sigma=self.smooth_sigma, axis=1)
