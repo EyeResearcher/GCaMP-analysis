@@ -54,6 +54,8 @@ class VideoRunRecord:
     n_rois_good: int
     n_neurons: int
     n_spikes_kept: int
+    n_neurons_grouped: int = 0
+    n_neurons_ungrouped: int = 0
     n_groups: dict[str, int] = field(default_factory=dict)
 
     kin_unweighted: StatSummary = field(default_factory=StatSummary)
@@ -159,6 +161,9 @@ class ExperimentProcessor:
             grouped_df = pd.DataFrame()
             ungrouped_df = summary_df
 
+        n_neurons_grouped = len(grouped_df)
+        n_neurons_ungrouped = len(ungrouped_df)
+
         kin_grp, _, freq_grp = combine_neuron_level_to_video(
             grouped_df,
             spike_count_col="number_of_spikes",
@@ -178,6 +183,8 @@ class ExperimentProcessor:
             n_rois_good=n_rois_good,
             n_neurons=n_neurons,
             n_spikes_kept=n_spikes_kept,
+            n_neurons_grouped=n_neurons_grouped,
+            n_neurons_ungrouped=n_neurons_ungrouped,
             n_groups=n_groups,
             kin_unweighted=kin_unw,
             kin_weighted_spikes=kin_wspk,
@@ -208,6 +215,8 @@ class ExperimentProcessor:
                 if isinstance(node.payload, VideoRunRecord):
                     node.n_videos = 1
                     node.n_neurons = node.payload.n_neurons
+                    node.n_neurons_grouped = node.payload.n_neurons_grouped
+                    node.n_neurons_ungrouped = node.payload.n_neurons_ungrouped
                     node.n_groups = node.payload.n_groups
                     # For comparisons, define:
                     # - kin_unweighted: unweighted across neurons inside the video
@@ -229,6 +238,8 @@ class ExperimentProcessor:
             # internal node: counts
             node.n_videos = sum(ch.n_videos for ch in node.children.values())
             node.n_neurons = sum(ch.n_neurons for ch in node.children.values())
+            node.n_neurons_grouped = sum(ch.n_neurons_grouped for ch in node.children.values())
+            node.n_neurons_ungrouped = sum(ch.n_neurons_ungrouped for ch in node.children.values())
 
             # merge per-strategy group counts
             merged_groups: dict[str, int] = {}
@@ -321,6 +332,11 @@ class ExperimentProcessor:
             for method in sorted(child.n_groups):
                 row[f"n_groups_{method}"] = child.n_groups[method]
 
+            # Fraction of neurons grouped vs ungrouped
+            total = child.n_neurons_grouped + child.n_neurons_ungrouped
+            row["frac_grouped"] = child.n_neurons_grouped / total if total > 0 else 0.0
+            row["frac_ungrouped"] = child.n_neurons_ungrouped / total if total > 0 else 0.0
+
             # Flatten kinetics (unweighted + weighted + grouped + ungrouped)
             for summary, scheme in [
                 (child.kin_unweighted, "unweighted"),
@@ -358,7 +374,7 @@ class ExperimentProcessor:
         # Reorder columns: core identifiers first, then all means, then
         # variance columns (var/within/between) — so the most-compared
         # values are immediately visible.
-        core = [c for c in df.columns if c in ("child", "n_videos", "n_neurons") or c.startswith("n_groups_")]
+        core = [c for c in df.columns if c in ("child", "n_videos", "n_neurons") or c.startswith("n_groups_") or c.startswith("frac_")]
         rest = [c for c in df.columns if c not in core]
         mean_cols = [c for c in rest if "_mean_" in c]
         var_cols = [c for c in rest if c not in mean_cols]

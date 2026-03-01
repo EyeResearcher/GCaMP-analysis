@@ -46,6 +46,14 @@ def _build_legend(df: pd.DataFrame) -> pd.DataFrame:
             rows.append({"column": col, "description": f"Number of neuron groups found by the '{method}' strategy."})
             continue
 
+        # Fraction grouped/ungrouped
+        if col == "frac_grouped":
+            rows.append({"column": col, "description": "Fraction of neurons belonging to at least one neuron group."})
+            continue
+        if col == "frac_ungrouped":
+            rows.append({"column": col, "description": "Fraction of neurons not belonging to any neuron group."})
+            continue
+
         parts = col.rsplit("_", 2)
         if len(parts) == 3:
             stat, kind, scheme = parts

@@ -68,6 +68,8 @@ class TreeNode:
     # support counts for weighting
     n_videos: int = 0
     n_neurons: int = 0
+    n_neurons_grouped: int = 0
+    n_neurons_ungrouped: int = 0
     n_groups: dict[str, int] = field(default_factory=dict)
 
     # spike summaries over this node's subtree
