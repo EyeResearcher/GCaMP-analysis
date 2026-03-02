@@ -9,6 +9,13 @@ from scipy.spatial.distance import squareform
 
 from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 
+try:
+    import networkx as nx
+    from networkx.algorithms.community import louvain_communities
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
+
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.neuron import Neuron
 
@@ -80,3 +87,92 @@ def cluster_hierarchical(
         for cid in np.unique(labels)
         if sum(labels == cid) >= min_group_size
     ]
+
+
+def cluster_louvain(
+    neurons: List["Neuron"],
+    similarity: np.ndarray,
+    *,
+    edge_threshold: float = 0.0,
+    resolution: float = 1.0,
+    min_group_size: int = 2,
+    method: str = "louvain",
+    group_id_prefix: str = "louv",
+    seed: int | None = 42,
+    **metadata,
+) -> List[NeuronGroup]:
+    """Louvain modularity-based community detection.
+
+    Unlike threshold/hierarchical clustering, Louvain automatically determines
+    the number of communities by maximizing modularity — no fixed threshold
+    on group count.
+
+    Parameters
+    ----------
+    neurons : list of Neuron
+        Neurons to cluster.
+    similarity : np.ndarray
+        Similarity matrix (NOT distance). Higher values = stronger connection.
+        Typically correlation values in [0, 1].
+    edge_threshold : float, default 0.0
+        Minimum similarity to create an edge. Edges below this are excluded.
+    resolution : float, default 1.0
+        Resolution parameter for Louvain. Higher = more smaller communities,
+        lower = fewer larger communities.
+    min_group_size : int, default 2
+        Minimum neurons per group.
+    method : str
+        Method label for metadata.
+    group_id_prefix : str
+        Prefix for group IDs.
+    seed : int or None
+        Random seed for reproducibility.
+    **metadata
+        Additional metadata to attach to groups.
+
+    Returns
+    -------
+    list of NeuronGroup
+    """
+    if not HAS_NETWORKX:
+        raise ImportError("networkx is required for Louvain clustering. Install with: pip install networkx")
+
+    if len(neurons) < 2:
+        return []
+
+    S = np.asarray(similarity, dtype=float)
+    if S.ndim != 2 or S.shape[0] != S.shape[1]:
+        return []
+
+    n = S.shape[0]
+    np.fill_diagonal(S, 0.0)  # No self-loops
+
+    # Build weighted graph from similarity matrix
+    G = nx.Graph()
+    G.add_nodes_from(range(n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            w = S[i, j]
+            if np.isfinite(w) and w > edge_threshold:
+                G.add_edge(i, j, weight=w)
+
+    # Run Louvain community detection
+    communities = louvain_communities(G, weight="weight", resolution=resolution, seed=seed)
+
+    # Convert to NeuronGroups
+    groups = []
+    for k, comm in enumerate(communities, start=1):
+        idxs = sorted(comm)
+        if len(idxs) >= min_group_size:
+            groups.append(
+                NeuronGroup(
+                    group_id=f"{group_id_prefix}_{k}",
+                    neurons=[neurons[i] for i in idxs],
+                    method=method,
+                    resolution=resolution,
+                    edge_threshold=edge_threshold,
+                    **metadata,
+                )
+            )
+
+    return groups

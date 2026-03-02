@@ -21,6 +21,7 @@ from gcamp_analysis.grouping_processing.similarity import (
 )
 from gcamp_analysis.grouping_processing.clustering import (
     cluster_hierarchical,
+    cluster_louvain,
     cluster_threshold_graph,
 )
 
@@ -159,10 +160,74 @@ class DTWStrategy:
         return GroupingResult(groups=groups, matrix=dtw, config_label="dtw")
 
 
+@dataclass
+class LouvainStrategy:
+    """Louvain modularity-based grouping.
+
+    Unlike threshold-based methods, Louvain automatically determines the
+    number of communities by maximizing modularity — useful for testing
+    whether group counts are algorithmic artifacts.
+    """
+
+    name: str = "louvain"
+
+    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
+        trace_key = str(config.get("trace", "norm_sm_f"))
+        corr_method = str(config.get("method", "pearson"))
+        resolution = float(config.get("resolution", 1.0))
+        edge_threshold = float(config.get("edge_threshold", 0.0))
+        min_group = int(config.get("min_group_size", 2))
+        seed = config.get("seed", 42)
+        if seed is not None:
+            seed = int(seed)
+
+        # Get traces (same logic as CorrelationStrategy)
+        if trace_key == "F":
+            traces_full = np.asarray(video.suite2p_data["F"], float)
+        elif trace_key == "savgol_f":
+            traces_full = savgol_filter(
+                np.asarray(video.suite2p_data["F"], float),
+                window_length=config.get("window", 5),
+                polyorder=config.get("polyorder", 2),
+                axis=1,
+            )
+        else:
+            traces_full = np.asarray(getattr(video, trace_key), float)
+
+        traces = traces_full[[n.index for n in video.neurons], :]
+
+        # Compute correlation similarity matrix
+        C = compute_correlation_matrix(
+            traces,
+            method=corr_method,
+            remove_global=bool(config.get("remove_global", True)),
+            use_diff=bool(config.get("use_diff", False)),
+            diff_order=int(config.get("diff_order", 1)),
+            zscore_each=bool(config.get("zscore_each", True)),
+            clip_negatives=bool(config.get("clip_negatives", True)),
+        )
+
+        # Louvain uses similarity (not distance)
+        groups = cluster_louvain(
+            video.neurons,
+            C,
+            edge_threshold=edge_threshold,
+            resolution=resolution,
+            min_group_size=min_group,
+            method="louvain",
+            group_id_prefix="louv",
+            seed=seed,
+        )
+
+        label = f"louvain_res{resolution}_edge{edge_threshold}"
+        return GroupingResult(groups=groups, matrix=C, config_label=label)
+
+
 # ── Registry ─────────────────────────────────────────────────────────
 
 STRATEGY_REGISTRY: Dict[str, type] = {
     "corr": CorrelationStrategy,
     "sttc": STTCStrategy,
     "dtw": DTWStrategy,
+    "louvain": LouvainStrategy,
 }

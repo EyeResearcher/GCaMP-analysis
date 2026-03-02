@@ -1,6 +1,6 @@
 models:
-  roi_model_path: "C:/Users/mzinn1/Desktop/gcamp_model/roi_classifier.joblib"
-  roi_config_path: "C:/Users/mzinn1/Desktop/gcamp_model/roi_classifier_results.json"
+  roi_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-Analysis/models/combined_roi_classifier.joblib"
+  roi_config_path: "C:/Users/mzinn1/DesktopScripts/GCaMP-Analysis/models/combined_roi_classifier_results.json"
   spike_model_path: "C:/Users/mzinn1/Desktop/gcamp_model/spike_classifier.joblib"
   spike_config_path: "C:/Users/mzinn1/Desktop/gcamp_model/spike_classifier_results.json"
   cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
@@ -42,7 +42,16 @@ hp_tuning:
       probability: true
 
 grouping:
-  strategies: ["corr", "sttc"]  # any combination of: corr, sttc, dtw
+  strategies: ["corr", "louvain"]  # Add louvain to the list
+  louvain:
+    trace: "norm_sm_f"
+    method: "pearson"
+    resolution: 1.0        # Higher = more/smaller groups, lower = fewer/larger
+    edge_threshold: 0.7    # Only connect neurons with corr > this
+    min_group_size: 2
+    remove_global: true
+    zscore_each: true
+    clip_negatives: true
   sttc:
     time_window: .4       # 33ms, 50ms, 100ms, 200ms, 300ms
     correlation_threshold: 0.1
