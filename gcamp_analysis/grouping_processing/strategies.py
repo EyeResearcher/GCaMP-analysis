@@ -18,10 +18,12 @@ from gcamp_analysis.grouping_processing.similarity import (
     compute_correlation_matrix,
     compute_dtw_matrix,
     compute_sttc_matrix,
+    pulse_similarity
 )
 from gcamp_analysis.grouping_processing.clustering import (
     cluster_hierarchical,
     cluster_threshold_graph,
+    pulse_cluster
 )
 
 if TYPE_CHECKING:
@@ -158,6 +160,34 @@ class DTWStrategy:
 
         return GroupingResult(groups=groups, matrix=dtw, config_label="dtw")
 
+@dataclass
+class PulseStrategy:
+    """Pulse-based grouping strategy."""
+    name: str = "pulse"
+
+    def _make_sched(self, start, interval, frames):
+        pulses = []
+        current = start
+        while current < frames:
+            pulses.append(current)
+            current += interval
+        return pulses
+
+    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
+        if config.get("program"):
+            f0, inter = config.get("start"), config.get("interval")
+            sched = self._make_sched(f0, inter, video.n_frames)
+        elif config.get("schedule"):
+            sched = config.get("schedule")
+        else:
+            raise ValueError("Either 'program' or 'schedule' must be specified in the config.")
+        
+        activated = pulse_similarity(video.norm_sm_f, bin_size=config.get("bin_size", 3), 
+                                     schedule=sched, n_frames=video.n_frames)
+        
+        groups = pulse_cluster(video.neurons, activated, n_pulses=len(sched))
+        return GroupingResult(groups=groups, matrix=activated, config_label=f"pulse_corr")
+
 
 # ── Registry ─────────────────────────────────────────────────────────
 
@@ -165,4 +195,5 @@ STRATEGY_REGISTRY: Dict[str, type] = {
     "corr": CorrelationStrategy,
     "sttc": STTCStrategy,
     "dtw": DTWStrategy,
+    "pulse": PulseStrategy
 }

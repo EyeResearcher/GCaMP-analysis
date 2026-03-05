@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING, List, Literal, Optional
 
 import numpy as np
-
+from scipy.signal import find_peaks
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.neuron import Neuron
 
@@ -183,3 +183,20 @@ def _soft_dtw_pairwise(traces, device, gamma: float) -> np.ndarray:
             dist[i, j0:j1] = d
             dist[j0:j1, i] = d
     return dist
+
+def pulse_similarity(sm_norm_f : np.ndarray, bin_size: int, schedule: list[int], n_frames: int) -> np.ndarray:
+    pulses = np.zeros(n_frames)
+    pad = (bin_size - 1) // 2
+    bin_idxs = []
+    for pulse in schedule:
+        mid = pulse
+        bin_idxs.extend(range(max(0, mid - pad), min(n_frames, mid + pad + 1)))
+    pulses[bin_idxs] = 1.0
+
+    diff_trace = np.diff(sm_norm_f, axis=1)
+    diff_peaks = [find_peaks(diff_trace[i])[0] for i in range(diff_trace.shape[0])]
+    train_trace = np.zeros_like(sm_norm_f)
+    for i, peaks in enumerate(diff_peaks):
+        train_trace[i, peaks] = 1.0
+    activated = pulses[np.newaxis, :] * train_trace
+    return activated

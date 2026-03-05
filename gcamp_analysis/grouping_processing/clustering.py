@@ -80,3 +80,19 @@ def cluster_hierarchical(
         for cid in np.unique(labels)
         if sum(labels == cid) >= min_group_size
     ]
+
+def pulse_cluster(neurons: List["Neuron"], activated: np.ndarray, n_pulses: int, **metadata) -> List[NeuronGroup]:
+    pulses_by_neuron = np.sum(activated, axis=1)
+    groups = []
+    for n in range(1, n_pulses + 1):
+        idxs = np.where(pulses_by_neuron == n)[0]
+        if len(idxs) > 0:
+            groups.append(
+                NeuronGroup(
+                    group_id=f"{n}_pulses",
+                    neurons=[neurons[i] for i in idxs],
+                    method="pulse",
+                    **metadata,
+                )
+            )
+    return groups
