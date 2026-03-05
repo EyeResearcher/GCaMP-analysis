@@ -40,6 +40,9 @@ class TreeNode:
     n_groups : dict[str, int]
         Neuron groups per grouping strategy across all videos in this
         subtree, keyed by strategy name (e.g. ``{"corr": 5, "sttc": 3}``).
+    group_stats : dict[str, dict[str, float]]
+        Per-strategy group-level scalar statistics:
+        ``mean_group_size``, ``median_group_size``, ``mean_group_corr``.
     kin_unweighted : StatSummary
         Kinetics summary — children weighted equally.
     kin_weighted : StatSummary
@@ -71,6 +74,9 @@ class TreeNode:
     n_neurons_grouped: int = 0
     n_neurons_ungrouped: int = 0
     n_groups: dict[str, int] = field(default_factory=dict)
+
+    # Per-strategy group-level scalar stats (mean/median size, mean correlation)
+    group_stats: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # spike summaries over this node's subtree
     kin_unweighted: StatSummary = field(default_factory=StatSummary)

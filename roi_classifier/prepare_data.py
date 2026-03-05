@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Prepare ROI features from Suite2p fluorescence data.
 
@@ -55,7 +57,27 @@ def process_roi(smoothed_f_trace: np.ndarray, raw_trace: np.ndarray) -> dict:
     }
 
 
-def process_video(video_path: Path, sigma: float = 4.0) -> list[tuple[str, dict]]:
+def _scale_sigma(sigma: float, fs: float, ref_fs: float = 15.0) -> float:
+    """Scale smoothing sigma to maintain equivalent temporal width across frame rates.
+    
+    Parameters
+    ----------
+    sigma : float
+        Sigma calibrated for ``ref_fs``.
+    fs : float
+        Actual sampling rate of the data.
+    ref_fs : float, optional
+        Reference frame rate that ``sigma`` was tuned for, by default 15.0.
+    
+    Returns
+    -------
+    float
+        Scaled sigma (min 0.5 to avoid no smoothing).
+    """
+    return max(0.5, sigma * (fs / ref_fs))
+
+
+def process_video(video_path: Path, sigma: float = 4.0, fs: float | None = None) -> list[tuple[str, dict]]:
     """
     Process a video and extract ROI features.
     
@@ -64,7 +86,11 @@ def process_video(video_path: Path, sigma: float = 4.0) -> list[tuple[str, dict]
     video_path : Path
         Path to video directory containing Suite2p outputs
     sigma : float, optional
-        Gaussian smoothing sigma, by default 4.0
+        Gaussian smoothing sigma (calibrated for 15 fps), by default 4.0.
+        Automatically scaled when *fs* is provided.
+    fs : float or None, optional
+        Sampling rate in Hz. If provided, sigma is scaled to maintain equivalent
+        temporal smoothing. If None, tries to read from Suite2p ops.npy.
     
     Returns
     -------
@@ -78,13 +104,27 @@ def process_video(video_path: Path, sigma: float = 4.0) -> list[tuple[str, dict]
         print(f"Warning: F.npy not found in {video_path}")
         return []
     
+    # Try to determine fs from Suite2p ops if not provided
+    if fs is None:
+        ops_file = video_path / 'suite2p' / 'plane0' / 'ops.npy'
+        if ops_file.exists():
+            try:
+                ops = np.load(ops_file, allow_pickle=True).item()
+                fs = float(ops.get('fs', 15.0))
+            except Exception:
+                fs = 15.0
+        else:
+            fs = 15.0
+    
+    effective_sigma = _scale_sigma(sigma, fs)
+    
     f = np.load(fluorescence_file)
     if scaled_f_file.exists():
         scaled_f = np.load(scaled_f_file)
     else:
         scaled_f = normalize_minmax(f)
         np.save(scaled_f_file, scaled_f)
-    smoothed_f = gaussian_filter1d(scaled_f, sigma=sigma, axis=1)
+    smoothed_f = gaussian_filter1d(scaled_f, sigma=effective_sigma, axis=1)
     
     return [
         (f"{video_path.name}_{idx}", process_roi(smoothed_f[idx], f[idx]))
@@ -96,40 +136,65 @@ def process_video(video_path: Path, sigma: float = 4.0) -> list[tuple[str, dict]
 # Update Existing Data
 # =============================================================================
 
-def update_roi_features(roi_dict: dict[str, dict[str, Any]], verbose: bool = True) -> dict:
+def update_roi_features(roi_dict: dict[str, dict[str, Any]],
+                        sigma: float = 4.0,
+                        fs: float | None = None,
+                        verbose: bool = True) -> dict:
     """
     Update ROI features while preserving labels and spike data.
-    
+
+    Re-smooths from raw traces when available (using frame-rate-scaled sigma),
+    then recomputes all features.
+
     Parameters
     ----------
     roi_dict : dict[str, dict[str, Any]]
         Existing ROI dictionary
+    sigma : float, optional
+        Gaussian smoothing sigma (calibrated for 15 fps), by default 4.0
+    fs : float or None, optional
+        Sampling rate in Hz.  If provided, sigma is scaled via
+        ``_scale_sigma`` to maintain equivalent temporal smoothing.
+        If None, defaults to 15.0 (no scaling).
     verbose : bool, optional
         Whether to print summary, by default True
-    
+
     Returns
     -------
     updated_dict : dict
         Updated ROI dictionary with recomputed features
     """
+    effective_fs = fs if fs is not None else 15.0
+    effective_sigma = _scale_sigma(sigma, effective_fs)
+    if verbose:
+        print(f"  Re-smoothing with sigma={effective_sigma:.2f} (fs={effective_fs}, base sigma={sigma})")
+
     updated_dict = {}
-    stats = {'processed': 0, 'labels_preserved': 0, 'spikes_preserved': 0}
-    
+    stats = {'processed': 0, 'labels_preserved': 0, 'spikes_preserved': 0, 'resmoothed': 0}
+
     for roi_key, roi_data in roi_dict.items():
+        raw_trace = roi_data.get('raw_trace')
         smoothed_trace = roi_data.get('smoothed_trace', np.array([]))
-        if smoothed_trace.size == 0:
-            print(f"Warning: Skipping {roi_key} - missing smoothed trace")
+
+        # Re-smooth from raw trace if available
+        if raw_trace is not None and np.asarray(raw_trace).size > 0:
+            raw = np.asarray(raw_trace, dtype=float)
+            scaled = normalize_minmax(raw.reshape(1, -1)).ravel()
+            smoothed_trace = gaussian_filter1d(scaled, sigma=effective_sigma)
+            stats['resmoothed'] += 1
+        elif smoothed_trace.size == 0:
+            print(f"Warning: Skipping {roi_key} - missing both raw and smoothed trace")
             continue
-        
+
         features, _ = compute_roi_features(smoothed_trace)
         label = roi_data.get('label', create_label_dict(-1, 'unlabeled'))
         spikes = roi_data.get('spikes', {})
-        
+
         # Track preserved data
         if label['value'] in [0, 1] and label['source'] == 'manual':
             stats['labels_preserved'] += 1
         stats['spikes_preserved'] += len(spikes)
-        
+
         updated_dict[roi_key] = {
             'smoothed_trace': smoothed_trace,
             'raw_trace': roi_data.get('raw_trace'),
@@ -138,12 +203,13 @@ def update_roi_features(roi_dict: dict[str, dict[str, Any]], verbose: bool = Tru
             'spikes': spikes
         }
         stats['processed'] += 1
-    
+
     if verbose:
         print(f"\nUpdated {stats['processed']} ROIs")
+        print(f"  - Re-smoothed {stats['resmoothed']} ROIs from raw traces")
         print(f"  - Preserved {stats['labels_preserved']} manual labels")
         print(f"  - Preserved {stats['spikes_preserved']} spikes")
-    
+
     return updated_dict
 
 
@@ -194,7 +260,8 @@ def prepare_roi_data(
     output_file: Path = None,
     update: bool = False,
     backup: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    fs: float | None = None,
 ) -> dict:
     """
     Prepare ROI data by processing videos or updating existing file.
@@ -213,6 +280,10 @@ def prepare_roi_data(
         Whether to create backup in update mode, by default True
     verbose : bool, optional
         Whether to print progress, by default True
+    fs : float or None, optional
+        Sampling rate in Hz. Used to scale smoothing sigma. If None,
+        auto-detected from Suite2p ops (fresh processing) or defaults
+        to 15 Hz (update mode).
     
     Returns
     -------
@@ -239,7 +310,7 @@ def prepare_roi_data(
             summary = compute_data_summary(roi_dict)
             print_data_summary(summary)
         
-        roi_dict = update_roi_features(roi_dict, verbose=verbose)
+        roi_dict = update_roi_features(roi_dict, fs=fs, verbose=verbose)
     else:
         if dataset_root is None or not dataset_root.exists():
             raise ValueError(f"Dataset root required for processing: {dataset_root}")

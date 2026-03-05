@@ -13,7 +13,12 @@ def left_based_prominence(spike_prob: np.ndarray) -> tuple:
     left_vals = spike_prob[left_bases]
     left_base_prominences = peak_vals - left_vals
     prom_mean = float(np.mean(left_base_prominences))
-    prom_skew = float(skew(left_base_prominences)) if len(left_base_prominences) > 0 else 0.0
+    if len(left_base_prominences) > 1 and np.ptp(left_base_prominences) > 0:
+        prom_skew = float(skew(left_base_prominences))
+        if not np.isfinite(prom_skew):
+            prom_skew = 0.0
+    else:
+        prom_skew = 0.0
     return (prom_mean, prom_skew, True)
 
 def derivative_skewness(smoothed_scaled_f: np.ndarray) -> tuple:
@@ -23,7 +28,12 @@ def derivative_skewness(smoothed_scaled_f: np.ndarray) -> tuple:
         return (0.0, False, derivative)
     if np.any(np.isnan(derivative)) or np.any(np.isinf(derivative)):
         return (0.0, False, derivative)
-    return (float(skew(derivative)), True, derivative)
+    if np.ptp(derivative) == 0:          # constant → skew undefined
+        return (0.0, False, derivative)
+    s = float(skew(derivative))
+    if not np.isfinite(s):
+        return (0.0, False, derivative)
+    return (s, True, derivative)
 
 
 def derivative_asymmetry(smoothed_scaled_f: np.ndarray) -> tuple:

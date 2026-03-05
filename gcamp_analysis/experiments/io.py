@@ -46,6 +46,22 @@ def _build_legend(df: pd.DataFrame) -> pd.DataFrame:
             rows.append({"column": col, "description": f"Number of neuron groups found by the '{method}' strategy."})
             continue
 
+        # Per-strategy group size stats
+        if col.startswith("mean_group_size_"):
+            method = col[len("mean_group_size_"):]
+            rows.append({"column": col, "description": f"Mean neuron-group size (number of neurons per group) for the '{method}' strategy."})
+            continue
+        if col.startswith("median_group_size_"):
+            method = col[len("median_group_size_"):]
+            rows.append({"column": col, "description": f"Median neuron-group size for the '{method}' strategy."})
+            continue
+
+        # Per-strategy mean within-group correlation
+        if col.startswith("mean_group_corr_"):
+            method = col[len("mean_group_corr_"):]
+            rows.append({"column": col, "description": f"Mean within-group pairwise correlation (averaged across groups) for the '{method}' strategy."})
+            continue
+
         # Fraction grouped/ungrouped
         if col == "frac_grouped":
             rows.append({"column": col, "description": "Fraction of neurons belonging to at least one neuron group."})

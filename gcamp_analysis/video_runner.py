@@ -54,6 +54,12 @@ class VideoPipelineRunner:
         grouping_cfg = config.get("grouping", {})
         strategies = grouping_cfg.get("strategies", ["corr"])
 
+        # Filter out strategies whose per-strategy config has enabled: false
+        strategies = [
+            s for s in strategies
+            if grouping_cfg.get(s, {}).get("enabled", True)
+        ]
+
         grp = GroupingService(strategies=strategies)
 
         return cls(

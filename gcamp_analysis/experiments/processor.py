@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from gcamp_analysis.experiments.tree import TreeNode, is_video_dir
@@ -57,6 +58,10 @@ class VideoRunRecord:
     n_neurons_grouped: int = 0
     n_neurons_ungrouped: int = 0
     n_groups: dict[str, int] = field(default_factory=dict)
+
+    # Per-strategy group-level scalar stats
+    # {strategy: {"mean_group_size": ..., "median_group_size": ..., "mean_group_corr": ...}}
+    group_stats: dict[str, dict[str, float]] = field(default_factory=dict)
 
     kin_unweighted: StatSummary = field(default_factory=StatSummary)
     kin_weighted_spikes: StatSummary = field(default_factory=StatSummary)
@@ -137,6 +142,29 @@ class ExperimentProcessor:
             for name, r in video.grouping_results.items()
         }
 
+        # Per-strategy group size and mean correlation stats
+        group_stats: dict[str, dict[str, float]] = {}
+        for name, r in video.grouping_results.items():
+            sizes = [g.size for g in r.groups] if r.groups else []
+            corrs = [
+                g.group_mean_similarity(r.matrix)
+                for g in r.groups
+            ] if r.groups and r.matrix is not None else []
+            # Filter out NaN correlations (groups with < 2 members)
+            corrs = [c for c in corrs if np.isfinite(c)]
+            # Mean total spikes per group
+            spikes_per_group = [
+                sum(len(n.spikes) for n in g.neurons)
+                for g in r.groups
+            ] if r.groups else []
+
+            group_stats[name] = {
+                "mean_group_size": float(np.mean(sizes)) if sizes else 0.0,
+                "median_group_size": float(np.median(sizes)) if sizes else 0.0,
+                "mean_group_corr": float(np.mean(corrs)) if corrs else 0.0,
+                "mean_spikes_per_group": float(np.mean(spikes_per_group)) if spikes_per_group else 0.0,
+            }
+
         # Leaf summaries from per-neuron summary_df:
         # - kinetics: unweighted + spike-weighted (number_of_spikes)
         # - frequency: unweighted (never spike-weighted)
@@ -186,6 +214,7 @@ class ExperimentProcessor:
             n_neurons_grouped=n_neurons_grouped,
             n_neurons_ungrouped=n_neurons_ungrouped,
             n_groups=n_groups,
+            group_stats=group_stats,
             kin_unweighted=kin_unw,
             kin_weighted_spikes=kin_wspk,
             freq_unweighted=freq_unw,
@@ -218,6 +247,7 @@ class ExperimentProcessor:
                     node.n_neurons_grouped = node.payload.n_neurons_grouped
                     node.n_neurons_ungrouped = node.payload.n_neurons_ungrouped
                     node.n_groups = node.payload.n_groups
+                    node.group_stats = node.payload.group_stats
                     # For comparisons, define:
                     # - kin_unweighted: unweighted across neurons inside the video
                     # - kin_weighted: spike-weighted across neurons inside the video
@@ -248,7 +278,29 @@ class ExperimentProcessor:
                     merged_groups[method] = merged_groups.get(method, 0) + count
             node.n_groups = merged_groups
 
+            # aggregate per-strategy group stats (weighted average by n_groups)
             kids = list(node.children.values())
+            all_methods = {m for ch in kids for m in ch.group_stats}
+            merged_gstats: dict[str, dict[str, float]] = {}
+            for method in all_methods:
+                accum: dict[str, list[tuple[float, float]]] = {}  # stat -> [(value, weight)]
+                for ch in kids:
+                    gs = ch.group_stats.get(method)
+                    w = float(ch.n_groups.get(method, 0))
+                    if gs is None or w == 0:
+                        continue
+                    for stat_name, stat_val in gs.items():
+                        accum.setdefault(stat_name, []).append((stat_val, w))
+                merged_gstats[method] = {}
+                for stat_name, pairs in accum.items():
+                    total_w = sum(w for _, w in pairs)
+                    if total_w > 0:
+                        merged_gstats[method][stat_name] = sum(v * w for v, w in pairs) / total_w
+                    else:
+                        merged_gstats[method][stat_name] = 0.0
+            node.group_stats = merged_gstats
+
+            # Unweighted: each immediate child counts equally
 
             # Unweighted: each immediate child counts equally
             node.kin_unweighted = aggregate_children([(ch.kin_weighted, 1.0) for ch in kids])
@@ -332,6 +384,14 @@ class ExperimentProcessor:
             for method in sorted(child.n_groups):
                 row[f"n_groups_{method}"] = child.n_groups[method]
 
+            # Per-strategy group size and correlation stats
+            for method in sorted(child.group_stats):
+                gs = child.group_stats[method]
+                row[f"mean_group_size_{method}"] = gs.get("mean_group_size", 0.0)
+                row[f"median_group_size_{method}"] = gs.get("median_group_size", 0.0)
+                row[f"mean_group_corr_{method}"] = gs.get("mean_group_corr", 0.0)
+                row[f"mean_spikes_per_group_{method}"] = gs.get("mean_spikes_per_group", 0.0)
+
             # Fraction of neurons grouped vs ungrouped
             total = child.n_neurons_grouped + child.n_neurons_ungrouped
             row["frac_grouped"] = child.n_neurons_grouped / total if total > 0 else 0.0
@@ -374,7 +434,10 @@ class ExperimentProcessor:
         # Reorder columns: core identifiers first, then all means, then
         # variance columns (var/within/between) — so the most-compared
         # values are immediately visible.
-        core = [c for c in df.columns if c in ("child", "n_videos", "n_neurons") or c.startswith("n_groups_") or c.startswith("frac_")]
+        core = [c for c in df.columns if c in ("child", "n_videos", "n_neurons")
+                or c.startswith("n_groups_") or c.startswith("frac_")
+                or c.startswith("mean_group_size_") or c.startswith("median_group_size_")
+                or c.startswith("mean_group_corr_") or c.startswith("mean_spikes_per_group_")]
         rest = [c for c in df.columns if c not in core]
         mean_cols = [c for c in rest if "_mean_" in c]
         var_cols = [c for c in rest if c not in mean_cols]

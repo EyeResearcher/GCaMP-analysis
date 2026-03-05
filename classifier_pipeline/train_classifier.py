@@ -6,6 +6,7 @@ classifiers, parameterized by a data-loader callable.
 """
 from pathlib import Path
 from typing import Callable
+import numpy as np
 import pandas as pd
 
 from .run_pipeline import PipelineRunner
@@ -66,6 +67,19 @@ def train(
     config = load_config(config_path)
     data = load_roi_data(data_path)
     x, y = load_labeled_data(classifier_type, data, manual_only)
+
+    # Safety net: warn and replace any remaining NaN/Inf in features
+    nan_mask = x.isna()
+    inf_mask = ~np.isfinite(x.values)
+    bad_mask = nan_mask | pd.DataFrame(inf_mask, columns=x.columns, index=x.index)
+    n_bad = int(bad_mask.sum().sum())
+    if n_bad > 0:
+        bad_cols = bad_mask.any()
+        bad_col_names = bad_cols[bad_cols].index.tolist()
+        if verbose:
+            print(f"  Warning: {n_bad} NaN/Inf values found in features {bad_col_names} — filling with 0.")
+        x = x.fillna(0.0)
+        x = x.replace([np.inf, -np.inf], 0.0)
 
     x_train, x_test, y_train, y_test = train_test_split(
         x, y, test_size=0.2, random_state=42
