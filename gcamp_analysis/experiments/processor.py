@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -13,11 +13,21 @@ import pandas as pd
 from gcamp_analysis.experiments.tree import TreeNode, is_video_dir
 from gcamp_analysis.experiments.summary_utils import (
     StatSummary,
-    combine_neuron_level_to_video,
+    summarize_video,
     aggregate_children,
 )
 from gcamp_analysis.data_classes.video import Video, VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
 from gcamp_analysis.video_runner import VideoPipelineRunner
+
+
+class _GroupedPartition(NamedTuple):
+    """Result of partitioning neurons into grouped vs. ungrouped."""
+    n_grouped: int
+    n_ungrouped: int
+    kin_grouped: StatSummary
+    kin_ungrouped: StatSummary
+    freq_grouped: StatSummary
+    freq_ungrouped: StatSummary
 
 
 @dataclass(frozen=True)
@@ -38,7 +48,7 @@ class VideoRunRecord:
         Neurons retained after spike detection.
     n_spikes_kept : int
         Total spikes across all neurons after filtering.
-    n_groups : dict[str, int]
+    n_groups_per_strategy : dict[str, int]
         Number of neuron groups per grouping strategy.
     kin_unweighted : StatSummary
         Kinetics averaged equally across neurons.
@@ -57,17 +67,15 @@ class VideoRunRecord:
     n_spikes_kept: int
     n_neurons_grouped: int = 0
     n_neurons_ungrouped: int = 0
-    n_groups: dict[str, int] = field(default_factory=dict)
+    n_groups_per_strategy: dict[str, int] = field(default_factory=dict)
 
-    # Per-strategy group-level scalar stats
-    # {strategy: {"mean_group_size": ..., "median_group_size": ..., "mean_group_corr": ...}}
     group_stats: dict[str, dict[str, float]] = field(default_factory=dict)
 
     kin_unweighted: StatSummary = field(default_factory=StatSummary)
     kin_weighted_spikes: StatSummary = field(default_factory=StatSummary)
     freq_unweighted: StatSummary = field(default_factory=StatSummary)
 
-    # grouped vs ungrouped neuron summaries
+    
     kin_grouped: StatSummary = field(default_factory=StatSummary)
     kin_ungrouped: StatSummary = field(default_factory=StatSummary)
     freq_grouped: StatSummary = field(default_factory=StatSummary)
@@ -100,12 +108,9 @@ class ExperimentProcessor:
         verbose : bool, optional
             If ``True``, print per-video progress (default ``True``).
         """
-        # 1) process leaves
         for node in root.iter_nodes():
             if is_video_dir(node.path):
                 node.payload = self._process_one_video(node.path, verbose=verbose)
-
-        # 2) compute bottom-up node summaries + counts
         self._compute_bottom_up_summaries(root)
 
     def _process_one_video(self, video_dir: Path, verbose: bool) -> VideoRunRecord:
@@ -137,22 +142,73 @@ class ExperimentProcessor:
         n_rois_good = int(video.n_good_rois)
         n_neurons = int(len(video.neurons))
         n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))
-        n_groups = {
-            name: len(r.groups)
-            for name, r in video.grouping_results.items()
+        n_groups_per_strategy = {
+            name: len(result.groups)
+            for name, result in video.grouping_results.items()
         }
 
-        # Per-strategy group size and mean correlation stats
+        group_stats = self._compute_group_stats(video)
+
+
+        kin_unw, kin_wspk, freq_unw = summarize_video(
+            video.summary_df,
+            spike_count_col="number_of_spikes",
+            spike_freq_col="spike_frequency",
+        )
+
+        part = self._partition_grouped_ungrouped(video.summary_df, video.grouping_results)
+
+        metrics_dir = video_dir / "metrics"
+        return VideoRunRecord(
+            video_dir=video_dir,
+            metrics_dir=metrics_dir,
+            n_rois_total=n_rois_total,
+            n_rois_good=n_rois_good,
+            n_neurons=n_neurons,
+            n_spikes_kept=n_spikes_kept,
+            n_neurons_grouped=part.n_grouped,
+            n_neurons_ungrouped=part.n_ungrouped,
+            n_groups_per_strategy=n_groups_per_strategy,
+            group_stats=group_stats,
+            kin_unweighted=kin_unw,
+            kin_weighted_spikes=kin_wspk,
+            freq_unweighted=freq_unw,
+            kin_grouped=part.kin_grouped,
+            kin_ungrouped=part.kin_ungrouped,
+            freq_grouped=part.freq_grouped,
+            freq_ungrouped=part.freq_ungrouped,
+        )
+
+    @staticmethod
+    def _compute_group_stats(video: Video) -> dict[str, dict[str, float]]:
+        """Compute per-strategy group-level scalar statistics.
+
+        For each grouping strategy, computes the following: 
+
+            mean/median group size
+            mean intra-group correlation 
+            mean spikes per group
+
+        For the ``light-evoked`` strategy, it adds the following: 
+
+            {subtype} per response 
+            {subtype} total
+
+        Parameters
+        ----------
+        video : Video
+            A fully processed video with ``grouping_results`` populated.
+
+        Returns
+        -------
+        dict[str, dict[str, float]]
+            Outer key is the strategy name, inner dict holds the stats.
+        """
         group_stats: dict[str, dict[str, float]] = {}
         for name, r in video.grouping_results.items():
             sizes = [g.size for g in r.groups] if r.groups else []
-            corrs = [
-                g.group_mean_similarity(r.matrix)
-                for g in r.groups
-            ] if r.groups and r.matrix is not None else []
-            # Filter out NaN correlations (groups with < 2 members)
+            corrs = [g.group_mean_similarity(r.matrix) for g in r.groups] if r.groups else []
             corrs = [c for c in corrs if np.isfinite(c)]
-            # Mean total spikes per group
             spikes_per_group = [
                 sum(len(n.spikes) for n in g.neurons)
                 for g in r.groups
@@ -165,22 +221,24 @@ class ExperimentProcessor:
                 "mean_spikes_per_group": float(np.mean(spikes_per_group)) if spikes_per_group else 0.0,
             }
 
-        # Leaf summaries from per-neuron summary_df:
-        # - kinetics: unweighted + spike-weighted (number_of_spikes)
-        # - frequency: unweighted (never spike-weighted)
-        kin_unw, kin_wspk, freq_unw = combine_neuron_level_to_video(
-            video.summary_df,
-            spike_count_col="number_of_spikes",
-            spike_freq_col="spike_frequency",
-        )
+            if name == "light-evoked" and r.groups:
+                ExperimentProcessor._add_light_evoked_cell_counts(
+                    group_stats[name], r.groups,
+                )
 
-        # --- grouped vs ungrouped neuron partition ---
+        return group_stats
+
+    @staticmethod
+    def _partition_grouped_ungrouped(
+        summary_df: pd.DataFrame,
+        grouping_results: dict,
+    ) -> _GroupedPartition:
+        """Split *summary_df* into grouped/ungrouped neurons and summarize each."""
         grouped_indices: set[int] = set()
-        for result in video.grouping_results.values():
+        for result in grouping_results.values():
             for group in result.groups:
                 grouped_indices.update(getattr(group, "neuron_indices", []))
 
-        summary_df = video.summary_df
         if not summary_df.empty and grouped_indices:
             mask = summary_df.index.isin(grouped_indices)
             grouped_df = summary_df.loc[mask]
@@ -189,40 +247,44 @@ class ExperimentProcessor:
             grouped_df = pd.DataFrame()
             ungrouped_df = summary_df
 
-        n_neurons_grouped = len(grouped_df)
-        n_neurons_ungrouped = len(ungrouped_df)
-
-        kin_grp, _, freq_grp = combine_neuron_level_to_video(
+        kin_grp, _, freq_grp = summarize_video(
             grouped_df,
             spike_count_col="number_of_spikes",
             spike_freq_col="spike_frequency",
         )
-        kin_ungrp, _, freq_ungrp = combine_neuron_level_to_video(
+        kin_ungrp, _, freq_ungrp = summarize_video(
             ungrouped_df,
             spike_count_col="number_of_spikes",
             spike_freq_col="spike_frequency",
         )
 
-        metrics_dir = video_dir / "metrics"
-        return VideoRunRecord(
-            video_dir=video_dir,
-            metrics_dir=metrics_dir,
-            n_rois_total=n_rois_total,
-            n_rois_good=n_rois_good,
-            n_neurons=n_neurons,
-            n_spikes_kept=n_spikes_kept,
-            n_neurons_grouped=n_neurons_grouped,
-            n_neurons_ungrouped=n_neurons_ungrouped,
-            n_groups=n_groups,
-            group_stats=group_stats,
-            kin_unweighted=kin_unw,
-            kin_weighted_spikes=kin_wspk,
-            freq_unweighted=freq_unw,
+        return _GroupedPartition(
+            n_grouped=len(grouped_df),
+            n_ungrouped=len(ungrouped_df),
             kin_grouped=kin_grp,
             kin_ungrouped=kin_ungrp,
             freq_grouped=freq_grp,
             freq_ungrouped=freq_ungrp,
         )
+
+    @staticmethod
+    def _add_light_evoked_cell_counts(
+        stats: dict[str, float],
+        groups: list,
+    ) -> None:
+        """
+        Mutates *stats* in place to add total counts for each subtype.
+        It requires that the prefix for the group ID describe the subtype.
+        """
+        type_totals: dict[str, int] = {}
+        for g in groups:
+            gid = str(g.group_id)
+            subtype = gid.split("_")[0]
+            type_totals[subtype] = type_totals.get(subtype, 0) + g.size
+            stats[f"n_cells_{gid}"] = g.size
+
+        for subtype, total in type_totals.items():
+            stats[f"total_{subtype}_cells"] = total
 
     def _compute_bottom_up_summaries(self, root: TreeNode) -> None:
         """Propagate counts and statistics from leaves to root.
@@ -246,19 +308,12 @@ class ExperimentProcessor:
                     node.n_neurons = node.payload.n_neurons
                     node.n_neurons_grouped = node.payload.n_neurons_grouped
                     node.n_neurons_ungrouped = node.payload.n_neurons_ungrouped
-                    node.n_groups = node.payload.n_groups
+                    node.n_groups = node.payload.n_groups_per_strategy
                     node.group_stats = node.payload.group_stats
-                    # For comparisons, define:
-                    # - kin_unweighted: unweighted across neurons inside the video
-                    # - kin_weighted: spike-weighted across neurons inside the video
                     node.kin_unweighted = node.payload.kin_unweighted
                     node.kin_weighted = node.payload.kin_weighted_spikes
-
-                    # Frequency: only unweighted at neuron level
                     node.freq_unweighted = node.payload.freq_unweighted
-                    node.freq_weighted = node.payload.freq_unweighted  # same at leaf
-
-                    # Grouped vs ungrouped
+                    node.freq_weighted = node.payload.freq_unweighted  
                     node.kin_grouped = node.payload.kin_grouped
                     node.kin_ungrouped = node.payload.kin_ungrouped
                     node.freq_grouped = node.payload.freq_grouped
@@ -391,6 +446,13 @@ class ExperimentProcessor:
                 row[f"median_group_size_{method}"] = gs.get("median_group_size", 0.0)
                 row[f"mean_group_corr_{method}"] = gs.get("mean_group_corr", 0.0)
                 row[f"mean_spikes_per_group_{method}"] = gs.get("mean_spikes_per_group", 0.0)
+
+                if method == "light-evoked":
+                    row["total_ON_cells"] = gs.get("total_ON_cells", 0)
+                    row["total_OFF_cells"] = gs.get("total_OFF_cells", 0)
+                    for key, val in gs.items():
+                        if key.startswith("n_cells_"):
+                            row[key] = val
 
             # Fraction of neurons grouped vs ungrouped
             total = child.n_neurons_grouped + child.n_neurons_ungrouped

@@ -67,7 +67,7 @@ def _safe_numeric(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 
-def combine_neuron_level_to_video(
+def summarize_video(
     summary_df: pd.DataFrame,
     *,
     spike_count_col: str = "number_of_spikes",
@@ -87,8 +87,12 @@ def combine_neuron_level_to_video(
 
     Returns
     -------
-    tuple[StatSummary, StatSummary, StatSummary]
-        ``(kin_unweighted, kin_spike_weighted, freq_unweighted)``.
+    kin_unw : StatSummary
+        Unweighted kinetics summary.
+    kin_wspk : StatSummary
+        Spike-weighted kinetics summary.
+    freq_unw : StatSummary
+        Unweighted frequency summary.
     """
     kin_unw = StatSummary()
     kin_wspk = StatSummary()

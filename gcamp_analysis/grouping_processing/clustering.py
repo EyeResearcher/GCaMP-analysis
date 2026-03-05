@@ -81,17 +81,27 @@ def cluster_hierarchical(
         if sum(labels == cid) >= min_group_size
     ]
 
-def pulse_cluster(neurons: List["Neuron"], activated: np.ndarray, n_pulses: int, **metadata) -> List[NeuronGroup]:
+def light_evoked_cluster(neurons: List["Neuron"], activated: np.ndarray, n_pulses: int, **metadata) -> List[NeuronGroup]:
     pulses_by_neuron = np.sum(activated, axis=1)
     groups = []
     for n in range(1, n_pulses + 1):
-        idxs = np.where(pulses_by_neuron == n)[0]
-        if len(idxs) > 0:
+        on_idxs = np.where(pulses_by_neuron == n)[0]
+        if len(on_idxs) > 0:
             groups.append(
                 NeuronGroup(
-                    group_id=f"{n}_pulses",
-                    neurons=[neurons[i] for i in idxs],
-                    method="pulse",
+                    group_id=f"ON_{n}_response(s)",
+                    neurons=[neurons[i] for i in on_idxs],
+                    method="light-evoked",
+                    **metadata,
+                )
+            )
+        off_idxs = np.where(pulses_by_neuron == -n)[0]
+        if len(off_idxs) > 0:
+            groups.append(
+                NeuronGroup(
+                    group_id=f"OFF_{n}_response(s)",
+                    neurons=[neurons[i] for i in off_idxs],
+                    method="light-evoked",
                     **metadata,
                 )
             )

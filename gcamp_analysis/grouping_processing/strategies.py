@@ -18,12 +18,12 @@ from gcamp_analysis.grouping_processing.similarity import (
     compute_correlation_matrix,
     compute_dtw_matrix,
     compute_sttc_matrix,
-    pulse_similarity
+    align_light_evoked
 )
 from gcamp_analysis.grouping_processing.clustering import (
     cluster_hierarchical,
     cluster_threshold_graph,
-    pulse_cluster
+    light_evoked_cluster
 )
 
 if TYPE_CHECKING:
@@ -143,9 +143,6 @@ class DTWStrategy:
         min_group = int(config.get("min_group_size", 2))
 
         dtw = compute_dtw_matrix(video.neurons, downsample_factor=down, use_gpu=gpu)
-        if dtw is None:
-            return GroupingResult(groups=[], matrix=None, config_label="dtw_skipped")
-
         dtw = np.asarray(dtw, dtype=float)
         nonzero = dtw[dtw > 0]
         if nonzero.size == 0:
@@ -161,9 +158,9 @@ class DTWStrategy:
         return GroupingResult(groups=groups, matrix=dtw, config_label="dtw")
 
 @dataclass
-class PulseStrategy:
-    """Pulse-based grouping strategy."""
-    name: str = "pulse"
+class LightEvokedStrategy:
+    """Light-evoked response grouping strategy."""
+    name: str = "light-evoked"
 
     def _make_sched(self, start, interval, frames):
         pulses = []
@@ -174,19 +171,19 @@ class PulseStrategy:
         return pulses
 
     def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        if config.get("program"):
+        if config.get("start") is not None and config.get("interval") is not None:
             f0, inter = config.get("start"), config.get("interval")
             sched = self._make_sched(f0, inter, video.n_frames)
         elif config.get("schedule"):
             sched = config.get("schedule")
         else:
-            raise ValueError("Either 'program' or 'schedule' must be specified in the config.")
+            raise ValueError("Either 'start' and 'interval' or 'schedule' must be specified in the config.")
         
-        activated = pulse_similarity(video.norm_sm_f, bin_size=config.get("bin_size", 3), 
+        activated = align_light_evoked(video.norm_sm_f, bin_size=config.get("bin_size", 3), 
                                      schedule=sched, n_frames=video.n_frames)
         
-        groups = pulse_cluster(video.neurons, activated, n_pulses=len(sched))
-        return GroupingResult(groups=groups, matrix=activated, config_label=f"pulse_corr")
+        groups = light_evoked_cluster(video.neurons, activated, n_pulses=len(sched))
+        return GroupingResult(groups=groups, matrix=activated, config_label=f"light_evoked")
 
 
 # ── Registry ─────────────────────────────────────────────────────────
@@ -195,5 +192,5 @@ STRATEGY_REGISTRY: Dict[str, type] = {
     "corr": CorrelationStrategy,
     "sttc": STTCStrategy,
     "dtw": DTWStrategy,
-    "pulse": PulseStrategy
+    "light-evoked": LightEvokedStrategy
 }

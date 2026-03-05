@@ -136,17 +136,20 @@ def compute_dtw_matrix(
     neurons: List["Neuron"],
     downsample_factor: int = 3,
     use_gpu: bool = True,
-) -> Optional[np.ndarray]:
-    """GPU-accelerated SoftDTW distance matrix.  Returns *None* if GPU unavailable."""
+) -> np.ndarray:
+    """GPU-accelerated SoftDTW distance matrix.
+
+    Returns a zero matrix when PyTorch / GPU is unavailable.
+    """
     try:
         import torch
     except (ImportError, OSError) as e:
         logger.warning("PyTorch not available (%s) — skipping DTW", e.__class__.__name__)
-        return None
+        return np.zeros((len(neurons), len(neurons)), dtype=np.float32)
 
     if use_gpu and not torch.cuda.is_available():
         logger.warning("GPU not available — skipping DTW to avoid hangups")
-        return None
+        return np.zeros((len(neurons), len(neurons)), dtype=np.float32)
 
     traces = []
     for neuron in neurons:
@@ -184,19 +187,49 @@ def _soft_dtw_pairwise(traces, device, gamma: float) -> np.ndarray:
             dist[j0:j1, i] = d
     return dist
 
-def pulse_similarity(sm_norm_f : np.ndarray, bin_size: int, schedule: list[int], n_frames: int) -> np.ndarray:
+def align_light_evoked(sm_norm_f : np.ndarray, bin_size: int, schedule: list[int], n_frames: int) -> np.ndarray:
+    """Detect ON/OFF light-evoked responses aligned to a pulse schedule.
+
+    For each pulse bin, if both an ON peak (positive diff) and an OFF peak
+    (negative diff) are detected for the same neuron, only the earliest one
+    is kept — the first response is the true stimulus response, and the
+    later one is the recovery artifact.
+
+    Returns an (n_neurons, n_frames) array with +1 (ON), -1 (OFF), or 0.
+    """
     pulses = np.zeros(n_frames)
     pad = (bin_size - 1) // 2
-    bin_idxs = []
+    bin_ranges = []
     for pulse in schedule:
-        mid = pulse
-        bin_idxs.extend(range(max(0, mid - pad), min(n_frames, mid + pad + 1)))
-    pulses[bin_idxs] = 1.0
+        lo = max(0, pulse - pad)
+        hi = min(n_frames, pulse + pad + 1)
+        bin_ranges.append((lo, hi))
+        for f in range(lo, hi):
+            pulses[f] = 1.0
 
     diff_trace = np.diff(sm_norm_f, axis=1)
-    diff_peaks = [find_peaks(diff_trace[i])[0] for i in range(diff_trace.shape[0])]
+    on_peaks = [find_peaks(diff_trace[i])[0] for i in range(diff_trace.shape[0])]
+    off_peaks = [find_peaks(-diff_trace[i])[0] for i in range(diff_trace.shape[0])]
+
     train_trace = np.zeros_like(sm_norm_f)
-    for i, peaks in enumerate(diff_peaks):
+    for i, peaks in enumerate(on_peaks):
         train_trace[i, peaks] = 1.0
+    for i, peaks in enumerate(off_peaks):
+        train_trace[i, peaks] = -1.0
+
     activated = pulses[np.newaxis, :] * train_trace
+
+    for lo, hi in bin_ranges:
+        for i in range(activated.shape[0]):
+            window = activated[i, lo:hi]
+            has_on = np.any(window > 0)
+            has_off = np.any(window < 0)
+            if has_on and has_off:
+                first_on = np.argmax(window > 0)
+                first_off = np.argmax(window < 0)
+                if first_on <= first_off:
+                    window[window < 0] = 0.0
+                else:
+                    window[window > 0] = 0.0
+
     return activated
