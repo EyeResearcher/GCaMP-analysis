@@ -187,15 +187,88 @@ def _soft_dtw_pairwise(traces, device, gamma: float) -> np.ndarray:
             dist[j0:j1, i] = d
     return dist
 
-def align_light_evoked(sm_norm_f : np.ndarray, bin_size: int, schedule: list[int], n_frames: int) -> np.ndarray:
+def _enforce_single_direction(activated: np.ndarray) -> None:
+    """Zero out minority-direction peaks so each neuron is purely ON or OFF.
+
+    After per-bin deconfliction a neuron may still have a mix of +1 and -1
+    entries across different bins.  This pass keeps only the dominant
+    direction and removes any residual opposite-sign peaks.  Operates
+    **in-place** on *activated*.
+    """
+    for i in range(activated.shape[0]):
+        total_on = np.sum(activated[i] > 0)
+        total_off = np.sum(activated[i] < 0)
+        if total_on > total_off:
+            activated[i][activated[i] < 0] = 0.0
+        elif total_off > total_on:
+            activated[i][activated[i] > 0] = 0.0
+
+
+def _deconflict_bins(
+    activated: np.ndarray,
+    diff_trace: np.ndarray,
+    bin_ranges: list[tuple[int, int]],
+) -> None:
+    """Resolve simultaneous ON/OFF peaks in every pulse bin.
+
+    For each ``(lo, hi)`` bin and each neuron, if both positive and
+    negative diff-peaks are present, keep only the direction with the
+    larger magnitude in ``diff_trace`` and zero out the other.
+    Operates **in-place** on *activated*.
+    """
+    n_neurons = activated.shape[0]
+    for lo, hi in bin_ranges:
+        for i in range(n_neurons):
+            window = activated[i, lo:hi]
+            on_positions = np.where(window > 0)[0] + lo
+            off_positions = np.where(window < 0)[0] + lo
+            if len(on_positions) == 0 or len(off_positions) == 0:
+                continue
+            on_pos_clipped = np.clip(on_positions, 0, diff_trace.shape[1] - 1)
+            off_pos_clipped = np.clip(off_positions, 0, diff_trace.shape[1] - 1)
+            max_on_mag = np.max(diff_trace[i, on_pos_clipped])
+            max_off_mag = np.max(-diff_trace[i, off_pos_clipped])
+            if max_on_mag >= max_off_mag:
+                window[window < 0] = 0.0
+            else:
+                window[window > 0] = 0.0
+
+
+def align_light_evoked(
+    sm_norm_f: np.ndarray,
+    bin_size: int,
+    schedule: list[int],
+    n_frames: int,
+    *,
+    prominence: float | None = None,
+) -> np.ndarray:
     """Detect ON/OFF light-evoked responses aligned to a pulse schedule.
 
     For each pulse bin, if both an ON peak (positive diff) and an OFF peak
-    (negative diff) are detected for the same neuron, only the earliest one
-    is kept — the first response is the true stimulus response, and the
-    later one is the recovery artifact.
+    (negative diff) are detected for the same neuron, only the one with the
+    larger magnitude in the derivative is kept — the stronger response is
+    the true stimulus response, and the weaker one is a recovery artifact
+    or noise.
 
-    Returns an (n_neurons, n_frames) array with +1 (ON), -1 (OFF), or 0.
+    Parameters
+    ----------
+    sm_norm_f : ndarray, shape (n_neurons, n_frames)
+        Smoothed, normalised fluorescence traces.
+    bin_size : int
+        Width (in frames) of the window centred on each pulse frame.
+    schedule : list[int]
+        Pulse onset frame indices.
+    n_frames : int
+        Total number of frames.
+    prominence : float or None
+        Minimum prominence for ``find_peaks`` on the derivative trace.
+        Raising this value filters out low-amplitude noise peaks.  Use
+        ``None`` (default) for no prominence filtering.
+
+    Returns
+    -------
+    ndarray, shape (n_neurons, n_frames)
+        +1 (ON), -1 (OFF), or 0.
     """
     pulses = np.zeros(n_frames)
     pad = (bin_size - 1) // 2
@@ -208,8 +281,9 @@ def align_light_evoked(sm_norm_f : np.ndarray, bin_size: int, schedule: list[int
             pulses[f] = 1.0
 
     diff_trace = np.diff(sm_norm_f, axis=1)
-    on_peaks = [find_peaks(diff_trace[i])[0] for i in range(diff_trace.shape[0])]
-    off_peaks = [find_peaks(-diff_trace[i])[0] for i in range(diff_trace.shape[0])]
+    peak_kw: dict = {} if prominence is None else {"prominence": prominence}
+    on_peaks = [find_peaks(diff_trace[i], **peak_kw)[0] for i in range(diff_trace.shape[0])]
+    off_peaks = [find_peaks(-diff_trace[i], **peak_kw)[0] for i in range(diff_trace.shape[0])]
 
     train_trace = np.zeros_like(sm_norm_f)
     for i, peaks in enumerate(on_peaks):
@@ -219,17 +293,7 @@ def align_light_evoked(sm_norm_f : np.ndarray, bin_size: int, schedule: list[int
 
     activated = pulses[np.newaxis, :] * train_trace
 
-    for lo, hi in bin_ranges:
-        for i in range(activated.shape[0]):
-            window = activated[i, lo:hi]
-            has_on = np.any(window > 0)
-            has_off = np.any(window < 0)
-            if has_on and has_off:
-                first_on = np.argmax(window > 0)
-                first_off = np.argmax(window < 0)
-                if first_on <= first_off:
-                    window[window < 0] = 0.0
-                else:
-                    window[window > 0] = 0.0
+    _deconflict_bins(activated, diff_trace, bin_ranges)
+    _enforce_single_direction(activated)
 
     return activated

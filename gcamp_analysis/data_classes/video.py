@@ -149,13 +149,28 @@ class VideoStatistics:
     # All strategy matrices keyed by strategy name
     matrices: dict = field(default_factory=dict)
 
+    # Per-group light-evoked detail DataFrames keyed by group_id
+    light_evoked_details: dict = field(default_factory=dict)
+
     @classmethod
     def from_video(cls, video: "Video") -> "VideoStatistics":
         """Convenience constructor; keeps Video dependency out of __init__."""
+        from gcamp_analysis.grouping_processing.light_evoked_detail import (
+            build_light_evoked_detail,
+        )
+
         matrices = {}
         for name, result in getattr(video, "grouping_results", {}).items():
             if result.matrix is not None:
                 matrices[name] = result.matrix
+
+        # Build light-evoked detail tables if the strategy was run
+        light_evoked_details: dict = {}
+        le_result = getattr(video, "grouping_results", {}).get("light-evoked")
+        if le_result is not None:
+            light_evoked_details = build_light_evoked_detail(
+                le_result, fs=float(video.fs),
+            )
 
         return cls(
             video_name=video.path.name,
@@ -163,6 +178,7 @@ class VideoStatistics:
             grouping_stats=video.grouping_stats,
             bad_rois_features=video.bad_rois_features,
             matrices=matrices,
+            light_evoked_details=light_evoked_details,
         )
     
 @dataclass
@@ -208,6 +224,15 @@ class VideoStatisticsWriter:
                 stats.bad_rois_features.to_excel(
                     writer, sheet_name='bad_rois_features', index=True
                 )
+
+            # Light-evoked detail sheets
+            for sheet_key, detail_df in stats.light_evoked_details.items():
+                if detail_df is not None and not detail_df.empty:
+                    # Excel sheet names are limited to 31 chars
+                    sheet_name = sheet_key[:31]
+                    detail_df.to_excel(
+                        writer, sheet_name=sheet_name, index=False
+                    )
         
         manifest["metrics_excel"] = str(excel_path)
 

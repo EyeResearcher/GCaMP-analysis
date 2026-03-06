@@ -81,6 +81,9 @@ class VideoRunRecord:
     freq_grouped: StatSummary = field(default_factory=StatSummary)
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
+    # Per-group light-evoked detail DataFrames keyed by group_id
+    light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
+
 
 class ExperimentProcessor:
     """Walk the experiment tree, process every video leaf, and propagate
@@ -177,6 +180,7 @@ class ExperimentProcessor:
             kin_ungrouped=part.kin_ungrouped,
             freq_grouped=part.freq_grouped,
             freq_ungrouped=part.freq_ungrouped,
+            light_evoked_details=stats.light_evoked_details,
         )
 
     @staticmethod
@@ -318,6 +322,10 @@ class ExperimentProcessor:
                     node.kin_ungrouped = node.payload.kin_ungrouped
                     node.freq_grouped = node.payload.freq_grouped
                     node.freq_ungrouped = node.payload.freq_ungrouped
+                    node.light_evoked_details = {
+                        k: df.assign(source=str(node.path.name))
+                        for k, df in node.payload.light_evoked_details.items()
+                    }
                 return
 
             # internal node: counts
@@ -391,6 +399,17 @@ class ExperimentProcessor:
             node.kin_ungrouped = aggregate_children(wug)
             node.freq_grouped = aggregate_children(wfg)
             node.freq_ungrouped = aggregate_children(wfug)
+
+            # Concatenate light-evoked detail DataFrames from children
+            merged_le: dict[str, list[pd.DataFrame]] = {}
+            for ch in kids:
+                for key, df in getattr(ch, "light_evoked_details", {}).items():
+                    if df is not None and not df.empty:
+                        merged_le.setdefault(key, []).append(df)
+            node.light_evoked_details = {
+                key: pd.concat(dfs, ignore_index=True)
+                for key, dfs in merged_le.items()
+            }
 
         post(root)
 
@@ -492,6 +511,19 @@ class ExperimentProcessor:
             return None
 
         df = pd.DataFrame(rows).sort_values("child")
+
+        # Collect light-evoked detail DataFrames across children
+        le_dfs: dict[str, list[pd.DataFrame]] = {}
+        for child in parent.children.values():
+            for key, detail_df in getattr(child, "light_evoked_details", {}).items():
+                if detail_df is not None and not detail_df.empty:
+                    tagged = detail_df.copy()
+                    if "source" not in tagged.columns:
+                        tagged["source"] = child.name
+                    le_dfs.setdefault(key, []).append(tagged)
+        parent.light_evoked_details = {
+            key: pd.concat(dfs, ignore_index=True) for key, dfs in le_dfs.items()
+        }
 
         # Reorder columns: core identifiers first, then all means, then
         # variance columns (var/within/between) — so the most-compared

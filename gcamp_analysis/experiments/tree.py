@@ -90,6 +90,9 @@ class TreeNode:
     freq_grouped: StatSummary = field(default_factory=StatSummary)
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
+    # Per-group light-evoked detail: concatenated DataFrames from descendants
+    light_evoked_details: dict = field(default_factory=dict)
+
     def is_leaf(self) -> bool:
         """Return ``True`` if the node has no children."""
         return len(self.children) == 0

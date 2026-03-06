@@ -7,7 +7,7 @@ To add a new strategy:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Protocol
 
 import numpy as np
@@ -40,6 +40,7 @@ class GroupingResult:
     groups: list[NeuronGroup]
     matrix: np.ndarray | None
     config_label: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class GroupingStrategy(Protocol):
@@ -179,11 +180,20 @@ class LightEvokedStrategy:
         else:
             raise ValueError("Either 'start' and 'interval' or 'schedule' must be specified in the config.")
         
-        activated = align_light_evoked(video.norm_sm_f, bin_size=config.get("bin_size", 3), 
-                                     schedule=sched, n_frames=video.n_frames)
-        
+        bin_size = config.get("bin_size", 3)
+        prominence = config.get("prominence", None)
+        activated = align_light_evoked(video.norm_sm_f, bin_size=bin_size,
+                                     schedule=sched, n_frames=video.n_frames,
+                                     prominence=prominence)
+
         groups = light_evoked_cluster(video.neurons, activated, n_pulses=len(sched))
-        return GroupingResult(groups=groups, matrix=activated, config_label=f"light_evoked")
+        return GroupingResult(
+            groups=groups,
+            matrix=activated,
+            config_label="light_evoked",
+            metadata={"schedule": sched, "bin_size": bin_size,
+                      "prominence": prominence},
+        )
 
 
 # ── Registry ─────────────────────────────────────────────────────────
