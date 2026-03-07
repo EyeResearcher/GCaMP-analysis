@@ -21,8 +21,7 @@ from gcamp_analysis.grouping_processing.similarity import (
     align_light_evoked
 )
 from gcamp_analysis.grouping_processing.clustering import (
-    cluster_hierarchical,
-    cluster_threshold_graph,
+    cluster,
     light_evoked_cluster
 )
 
@@ -88,10 +87,12 @@ class CorrelationStrategy:
             clip_negatives=bool(config.get("clip_negatives", True)),
         )
 
-        groups = cluster_threshold_graph(
+        groups = cluster(
             video.neurons,
             1.0 - C,
+            cluster_method=str(config.get("cluster", "graph")),
             threshold=float(config.get("distance_threshold", 0.6)),
+            linkage_method=str(config.get("linkage_method", "average")),
             min_group_size=int(config.get("min_group_size", 2)),
             method="corr",
         )
@@ -121,8 +122,9 @@ class STTCStrategy:
 
         sttc = compute_sttc_matrix(video.neurons, video.n_frames, time_window=tw, fs=float(video.fs))
 
-        groups = cluster_hierarchical(
+        groups = cluster(
             video.neurons, 1.0 - sttc,
+            cluster_method=str(config.get("cluster", "hierarchical")),
             threshold=dt, linkage_method=link, min_group_size=min_group,
             method="sttc", group_id_prefix="sttc", t_win=tw, sttc_thresh=1.0 - dt,
         )
@@ -150,13 +152,73 @@ class DTWStrategy:
             return GroupingResult(groups=[], matrix=dtw, config_label="dtw_empty")
 
         thresh = float(np.percentile(nonzero, pctl))
-        groups = cluster_hierarchical(
+        groups = cluster(
             video.neurons, dtw,
+            cluster_method=str(config.get("cluster", "hierarchical")),
             threshold=thresh, linkage_method=link, min_group_size=min_group,
             method="dtw", group_id_prefix="dtw", dtw_thresh=thresh,
         )
 
         return GroupingResult(groups=groups, matrix=dtw, config_label="dtw")
+
+@dataclass
+class WeightedCorrelationStrategy:
+    """Weighted trace-correlation grouping with threshold-graph clustering.
+
+    Functionally identical to ``CorrelationStrategy`` but defaults to
+    ``weighted_pearson`` so the two methods can be compared side-by-side.
+    """
+
+    name: str = "wcorr"
+
+    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
+        trace_key = str(config.get("trace", "norm_sm_f"))
+        method = str(config.get("method", "weighted_pearson"))
+
+        if trace_key == "F":
+            traces_full = np.asarray(video.suite2p_data["F"], float)
+        elif trace_key == "savgol_f":
+            traces_full = savgol_filter(
+                np.asarray(video.suite2p_data["F"], float),
+                window_length=config.get("window", 5),
+                polyorder=config.get("polyorder", 2),
+                axis=1,
+            )
+        else:
+            traces_full = np.asarray(getattr(video, trace_key), float)
+
+        traces = traces_full[[n.index for n in video.neurons], :]
+
+        C = compute_correlation_matrix(
+            traces,
+            method=method,
+            remove_global=bool(config.get("remove_global", True)),
+            use_diff=bool(config.get("use_diff", True)),
+            diff_order=int(config.get("diff_order", 1)),
+            zscore_each=bool(config.get("zscore_each", True)),
+            clip_negatives=bool(config.get("clip_negatives", True)),
+        )
+
+        groups = cluster(
+            video.neurons,
+            1.0 - C,
+            cluster_method=str(config.get("cluster", "graph")),
+            threshold=float(config.get("distance_threshold", 0.6)),
+            linkage_method=str(config.get("linkage_method", "average")),
+            min_group_size=int(config.get("min_group_size", 2)),
+            method="wcorr",
+        )
+
+        label_parts = [f"wcorr_{trace_key}_{method}"]
+        if config.get("remove_global", True):
+            label_parts.append("rmglobal")
+        if config.get("use_diff", True):
+            label_parts.append(f"diff{config.get('diff_order', 1)}")
+        if config.get("zscore_each", True):
+            label_parts.append("z")
+
+        return GroupingResult(groups=groups, matrix=C, config_label="_".join(label_parts))
+
 
 @dataclass
 class LightEvokedStrategy:
@@ -200,7 +262,8 @@ class LightEvokedStrategy:
 
 STRATEGY_REGISTRY: Dict[str, type] = {
     "corr": CorrelationStrategy,
+    "wcorr": WeightedCorrelationStrategy,
     "sttc": STTCStrategy,
     "dtw": DTWStrategy,
-    "light-evoked": LightEvokedStrategy
+    "light-evoked": LightEvokedStrategy,
 }

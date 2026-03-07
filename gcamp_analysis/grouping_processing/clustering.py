@@ -81,6 +81,40 @@ def cluster_hierarchical(
         if sum(labels == cid) >= min_group_size
     ]
 
+def cluster(
+    neurons: List["Neuron"],
+    dist: np.ndarray,
+    *,
+    cluster_method: str = "hierarchical",
+    **kwargs,
+) -> List[NeuronGroup]:
+    """Unified clustering dispatcher.
+
+    Parameters
+    ----------
+    neurons : list of Neuron
+        Neurons to cluster.
+    dist : np.ndarray
+        Pairwise distance matrix.
+    cluster_method : str
+        One of "graph" (connected-component) or "hierarchical" (agglomerative).
+    **kwargs
+        Passed to the underlying clustering function (threshold, min_group_size,
+        linkage_method, method, group_id_prefix, etc.).
+
+    Returns
+    -------
+    list of NeuronGroup
+    """
+    dispatch = {
+        "graph": cluster_threshold_graph,
+        "hierarchical": cluster_hierarchical,
+    }
+    if cluster_method not in dispatch:
+        raise ValueError(f"Unknown cluster_method '{cluster_method}'. Choose from {list(dispatch.keys())}")
+    return dispatch[cluster_method](neurons, dist, **kwargs)
+
+
 def light_evoked_cluster(neurons: List["Neuron"], activated: np.ndarray, n_pulses: int, **metadata) -> List[NeuronGroup]:
     pulses_by_neuron = np.sum(activated, axis=1)
     groups = []

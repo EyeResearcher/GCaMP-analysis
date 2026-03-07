@@ -4,6 +4,7 @@ Pure numerical functions — no strategy or clustering logic.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING, List, Literal, Optional
 
@@ -42,6 +43,53 @@ def _corr_pearson(a: np.ndarray, b: np.ndarray, eps: float = 1e-12) -> float:
 def _corr_spearman(a: np.ndarray, b: np.ndarray) -> float:
     return _corr_pearson(_rankdata_1d(a), _rankdata_1d(b))
 
+def _corr_weighted_pearson(x: np.ndarray, y: np.ndarray, eps: float = 1e-12) -> float:
+    """Weighted Pearson correlation that emphasizes active frames.
+
+    Drop-in replacement for _corr_pearson(x, y).
+
+    Weights are based on the pairwise activity magnitude so frames where either
+    trace is strongly active contribute more than quiet baseline frames.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    valid = np.isfinite(x) & np.isfinite(y)
+    if not np.any(valid):
+        return 0.0
+
+    x = x[valid]
+    y = y[valid]
+
+    if x.size < 2:
+        return 0.0
+    
+    w = np.maximum(np.abs(x), np.abs(y)) ** 2
+
+    w_sum = np.sum(w)
+    if w_sum <= eps:
+        return 0.0
+
+    mx = np.sum(w * x) / w_sum
+    my = np.sum(w * y) / w_sum
+
+    xc = x - mx
+    yc = y - my
+
+    num = np.sum(w * xc * yc)
+    den = np.sqrt(np.sum(w * xc * xc) * np.sum(w * yc * yc))
+
+    if den <= eps:
+        return 0.0
+
+    c = num / den
+
+    # Numerical safety
+    if not np.isfinite(c):
+        return 0.0
+    return float(np.clip(c, -1.0, 1.0))
+
+CORR_REGISTRY = {"pearson": _corr_pearson, "spearman": _corr_spearman, "weighted_pearson": _corr_weighted_pearson}
 
 # ── public functions ─────────────────────────────────────────────────
 
@@ -72,7 +120,9 @@ def compute_correlation_matrix(
 
     n = X.shape[0]
     S = np.eye(n, dtype=float)
-    corr_fn = _corr_spearman if method == "spearman" else _corr_pearson
+    corr_fn = CORR_REGISTRY.get(method)
+    if corr_fn is None:
+        raise ValueError(f"Unknown correlation method {method!r}. Available: {list(CORR_REGISTRY.keys())}")
     for i in range(n):
         for j in range(i + 1, n):
             c = corr_fn(X[i], X[j])
@@ -297,3 +347,4 @@ def align_light_evoked(
     _enforce_single_direction(activated)
 
     return activated
+
