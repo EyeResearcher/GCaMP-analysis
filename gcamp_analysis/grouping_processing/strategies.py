@@ -224,7 +224,9 @@ class WeightedCorrelationStrategy:
 class LightEvokedStrategy:
     """Light-evoked response grouping strategy."""
     name: str = "light-evoked"
-
+    SCHEDULE_OVERRIDES: dict = field(default_factory=lambda: {
+        "5732L-5": [33, 65, 93, 116, 153, 192],  # <-- replace with actual frames
+    })
     def _make_sched(self, start, interval, frames):
         pulses = []
         current = start
@@ -234,7 +236,9 @@ class LightEvokedStrategy:
         return pulses
 
     def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        if config.get("start") is not None and config.get("interval") is not None:
+        if video.video_id in self.SCHEDULE_OVERRIDES:
+            sched = self.SCHEDULE_OVERRIDES[video.video_id]
+        elif config.get("start") is not None and config.get("interval") is not None:
             f0, inter = config.get("start"), config.get("interval")
             sched = self._make_sched(f0, inter, video.n_frames)
         elif config.get("schedule"):
