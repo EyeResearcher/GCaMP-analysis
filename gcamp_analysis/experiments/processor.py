@@ -82,7 +82,9 @@ class VideoRunRecord:
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
     # Per-group light-evoked detail DataFrames keyed by group_id
-    light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
+    light_evoked_details: dict = field(default_factory=dict)
+    # Treatment comparison metrics (concatenated mode)
+    treatment_comparison: dict = field(default_factory=dict)
 
 
 class ExperimentProcessor:
@@ -181,6 +183,7 @@ class ExperimentProcessor:
             freq_grouped=part.freq_grouped,
             freq_ungrouped=part.freq_ungrouped,
             light_evoked_details=stats.light_evoked_details,
+            treatment_comparison=stats.treatment_comparison,
         )
 
     @staticmethod
@@ -322,10 +325,8 @@ class ExperimentProcessor:
                     node.kin_ungrouped = node.payload.kin_ungrouped
                     node.freq_grouped = node.payload.freq_grouped
                     node.freq_ungrouped = node.payload.freq_ungrouped
-                    node.light_evoked_details = {
-                        k: df.assign(source=str(node.path.name))
-                        for k, df in node.payload.light_evoked_details.items()
-                    }
+                    node.light_evoked_details = node.payload.light_evoked_details
+                    node.treatment_comparison = node.payload.treatment_comparison
                 return
 
             # internal node: counts
@@ -400,17 +401,6 @@ class ExperimentProcessor:
             node.freq_grouped = aggregate_children(wfg)
             node.freq_ungrouped = aggregate_children(wfug)
 
-            # Concatenate light-evoked detail DataFrames from children
-            merged_le: dict[str, list[pd.DataFrame]] = {}
-            for ch in kids:
-                for key, df in getattr(ch, "light_evoked_details", {}).items():
-                    if df is not None and not df.empty:
-                        merged_le.setdefault(key, []).append(df)
-            node.light_evoked_details = {
-                key: pd.concat(dfs, ignore_index=True)
-                for key, dfs in merged_le.items()
-            }
-
         post(root)
 
     # ------------------------------------------------------------------
@@ -477,6 +467,34 @@ class ExperimentProcessor:
             total = child.n_neurons_grouped + child.n_neurons_ungrouped
             row["frac_grouped"] = child.n_neurons_grouped / total if total > 0 else 0.0
             row["frac_ungrouped"] = child.n_neurons_ungrouped / total if total > 0 else 0.0
+
+            # Treatment comparison metrics (concatenated mode)
+            tc = getattr(child, "treatment_comparison", {})
+            for method, tc_result in tc.items():
+                if not tc_result:
+                    continue
+                # tc_result may be a TreatmentComparisonResult or a raw list
+                group_metrics_list = getattr(tc_result, "group_metrics", tc_result)
+                if not group_metrics_list:
+                    continue
+                import numpy as _np
+                # Dynamically collect all numeric metric keys from group dicts
+                skip_keys = {"group_id"}
+                all_keys = sorted(
+                    {k for gm in group_metrics_list for k in gm if k not in skip_keys}
+                )
+                for key in all_keys:
+                    vals = [gm.get(key) for gm in group_metrics_list if gm.get(key) is not None]
+                    # Keep only numeric / finite values
+                    finite_vals = []
+                    for v in vals:
+                        try:
+                            if _np.isfinite(v):
+                                finite_vals.append(float(v))
+                        except (TypeError, ValueError):
+                            pass
+                    if finite_vals:
+                        row[f"{key}_{method}"] = float(_np.mean(finite_vals))
 
             # Flatten kinetics (unweighted + weighted + grouped + ungrouped)
             for summary, scheme in [

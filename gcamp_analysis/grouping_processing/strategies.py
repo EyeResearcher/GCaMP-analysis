@@ -62,20 +62,18 @@ class CorrelationStrategy:
     def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
         trace_key = str(config.get("trace", "norm_sm_f"))
         method = str(config.get("method", "pearson"))
-
         if trace_key == "F":
             traces_full = np.asarray(video.suite2p_data["F"], float)
-        elif trace_key == "savgol_f":
-            traces_full = savgol_filter(
-                np.asarray(video.suite2p_data["F"], float),
-                window_length=config.get("window", 5),
-                polyorder=config.get("polyorder", 2),
-                axis=1,
-            )
         else:
-            traces_full = np.asarray(getattr(video, trace_key), float)
-
-        traces = traces_full[[n.index for n in video.neurons], :]
+            traces_full = getattr(video, trace_key, None)
+            if traces_full is None:
+                raise ValueError(f"Trace key '{trace_key}' not found on video object.")
+    
+        if video.is_concatenated and video.split_frame is not None:
+            sf = video.split_frame
+            traces = traces_full[[n.index for n in video.neurons], :sf]
+        else:
+            traces = traces_full[[n.index for n in video.neurons], :]
 
         C = compute_correlation_matrix(
             traces,
@@ -120,7 +118,16 @@ class STTCStrategy:
         link = str(config.get("linkage_method", "average"))
         min_group = int(config.get("min_group_size", 2))
 
-        sttc = compute_sttc_matrix(video.neurons, video.n_frames, time_window=tw, fs=float(video.fs))
+        if video.is_concatenated and video.split_frame is not None:
+            # Only use baseline spikes (those before split_frame)
+            n_frames = video.split_frame
+        else:
+            n_frames = video.n_frames
+
+        sttc = compute_sttc_matrix(
+            video.neurons, n_frames, time_window=tw, fs=float(video.fs),
+            max_frame=video.split_frame if (video.is_concatenated and video.split_frame is not None) else None,
+        )
 
         groups = cluster(
             video.neurons, 1.0 - sttc,
@@ -145,7 +152,17 @@ class DTWStrategy:
         pctl = int(config.get("distance_percentile", 30))
         min_group = int(config.get("min_group_size", 2))
 
-        dtw = compute_dtw_matrix(video.neurons, downsample_factor=down, use_gpu=gpu)
+        # In concatenated mode, only use baseline segment for DTW
+        if video.is_concatenated and video.split_frame is not None:
+            dtw = compute_dtw_matrix(
+                video.neurons, downsample_factor=down, use_gpu=gpu,
+                max_frame=video.split_frame,
+            )
+        else:
+            dtw = compute_dtw_matrix(video.neurons, downsample_factor=down, use_gpu=gpu)
+        if dtw is None:
+            return GroupingResult(groups=[], matrix=None, config_label="dtw_skipped")
+
         dtw = np.asarray(dtw, dtype=float)
         nonzero = dtw[dtw > 0]
         if nonzero.size == 0:
