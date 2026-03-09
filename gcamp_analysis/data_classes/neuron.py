@@ -138,6 +138,76 @@ class Neuron:
         self.summary_stats = dict(summary)
         return self.summary_stats
 
+    def summarize_spikes_segmented(
+        self,
+        f_trace_raw: np.ndarray,
+        split_frame: int,
+    ) -> Dict[str, Any]:
+        """Aggregate per-spike stats into baseline / treatment summaries.
+
+        Produces the normal whole-trace summary (``spike_frequency``, …)
+        *plus* ``baseline_*`` and ``treatment_*`` prefixed versions of
+        every aggregated stat.  Also adds ``baseline_active`` and
+        ``treatment_active`` booleans indicating whether the ROI was
+        classified as active in each segment.
+
+        Parameters
+        ----------
+        f_trace_raw : np.ndarray
+            Full raw fluorescence trace (both segments concatenated).
+        split_frame : int
+            Frame index where baseline ends and treatment begins.
+        """
+        # First, compute the whole-trace summary via the existing method
+        whole = self.summarize_spikes(f_trace_raw)
+        if not whole:
+            return {}
+
+        fs = float(self.fs)
+        raw = np.asarray(f_trace_raw, dtype=float).reshape(-1)
+
+        # Segment metadata from ROI
+        active_segs = getattr(self.roi, "active_segments", {})
+        whole["baseline_active"] = active_segs.get("baseline", True)
+        whole["treatment_active"] = active_segs.get("treatment", True)
+
+        # Split spike stats by segment tag
+        bl_stats = [s for s in self.all_spk_stats if s.get("_segment") == "baseline"]
+        tx_stats = [s for s in self.all_spk_stats if s.get("_segment") == "treatment"]
+
+        bl_spikes = [sp for sp in self.spikes if sp.sm_f_idx < split_frame]
+        tx_spikes = [sp for sp in self.spikes if sp.sm_f_idx >= split_frame]
+
+        n_bl_frames = split_frame
+        n_tx_frames = len(raw) - split_frame
+
+        # --- Baseline summary ---
+        bl_freq = float(len(bl_spikes) / (n_bl_frames / fs)) if n_bl_frames > 0 else 0.0
+        whole["baseline_spike_frequency"] = bl_freq
+        whole["baseline_number_of_spikes"] = len(bl_spikes)
+
+        if bl_stats:
+            bl_df = pd.DataFrame(bl_stats).drop(columns=["_segment"], errors="ignore")
+            for col in bl_df.columns:
+                x = pd.to_numeric(bl_df[col], errors="coerce")
+                whole[f"baseline_mean_{col}"] = float(x.mean())
+                whole[f"baseline_var_{col}"] = float(x.var())
+
+        # --- Treatment summary ---
+        tx_freq = float(len(tx_spikes) / (n_tx_frames / fs)) if n_tx_frames > 0 else 0.0
+        whole["treatment_spike_frequency"] = tx_freq
+        whole["treatment_number_of_spikes"] = len(tx_spikes)
+
+        if tx_stats:
+            tx_df = pd.DataFrame(tx_stats).drop(columns=["_segment"], errors="ignore")
+            for col in tx_df.columns:
+                x = pd.to_numeric(tx_df[col], errors="coerce")
+                whole[f"treatment_mean_{col}"] = float(x.mean())
+                whole[f"treatment_var_{col}"] = float(x.var())
+
+        self.summary_stats = whole
+        return self.summary_stats
+
     def __repr__(self) -> str:
         idx = getattr(self.roi, "index", None)
         return f"Neuron(index={idx}, filtered_index={self.filtered_index}, spikes={len(self.spikes)})"

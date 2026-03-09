@@ -31,6 +31,10 @@ class VideoPipelineRunner:
     spike_model_config: Optional[dict] = None
     grouping_cfg: dict = field(default_factory=dict)
 
+    # Concatenated-video support
+    is_concatenated: bool = False
+    split_frame: Optional[int] = None
+
     @classmethod
     def build(
         cls,
@@ -62,6 +66,13 @@ class VideoPipelineRunner:
 
         grp = GroupingService(strategies=strategies)
 
+        # Concatenated-video support
+        concat_cfg = config.get("concatenated", {})
+        is_concat = bool(concat_cfg.get("enabled", False))
+        split_frame = concat_cfg.get("split_frame", None)
+        if is_concat and split_frame is not None:
+            split_frame = int(split_frame)
+
         return cls(
             trace=trace,
             roi=roi,
@@ -72,11 +83,20 @@ class VideoPipelineRunner:
             spike_model=models["spike"],
             spike_model_config=models.get("spike_config"),
             grouping_cfg=config.get("grouping", {}),
+            is_concatenated=is_concat,
+            split_frame=split_frame,
         )
 
     def run(self, video: "Video", verbose: bool = True) -> None:
         if verbose:
             print(f"\n Processing: {video.video_id}")
+
+        # Set concatenated mode on the video object
+        video.is_concatenated = self.is_concatenated
+        video.split_frame = self.split_frame
+
+        if video.is_concatenated and verbose:
+            print(f"  Concatenated mode: split at frame {video.split_frame}")
 
         # Step 1–2: traces
         tr = self.trace.run(video)
@@ -116,5 +136,24 @@ class VideoPipelineRunner:
                 for pair, val in gr.agreements.items():
                     parts.append(f"{pair}={val:.2f}")
             print("  " + " | ".join(parts))
+
+            # Treatment comparison summary
+            if video.is_concatenated and video.treatment_comparison_results:
+                for strat_name, tc in video.treatment_comparison_results.items():
+                    n_groups_tc = len(tc.group_metrics)
+                    mean_delta = np.nanmean([
+                        gm.get("delta_mean_corr", float("nan"))
+                        for gm in tc.group_metrics
+                    ]) if tc.group_metrics else float("nan")
+                    n_subs = sum(
+                        gm.get("n_treatment_subgroups", 0)
+                        for gm in tc.group_metrics
+                    )
+                    print(
+                        f"  Treatment comparison ({strat_name}): "
+                        f"{n_groups_tc} groups | "
+                        f"mean Δcorr={mean_delta:+.3f} | "
+                        f"{n_subs} surviving sub-groups"
+                    )
 
 

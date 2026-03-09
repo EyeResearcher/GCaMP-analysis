@@ -51,11 +51,23 @@ class Video:
     n_frames: int = field(init=False, default=0)
     fs: float = field(init=False, default=15.0)
 
+    # ---- Concatenated-video support
+    is_concatenated: bool = False
+    split_frame: Optional[int] = None
+
     # ---- Traces (populated by TraceService)
     norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     sm_sp: np.ndarray = field(default_factory=_empty_array, repr=False)  # optional if/when used
+
+    # ---- Per-segment traces (populated by TraceService when is_concatenated)
+    baseline_norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    baseline_norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    baseline_norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    treatment_norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    treatment_norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    treatment_norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
 
     # ---- ROI filtering outputs (populated by ROIService)
     n_good_rois: int = 0
@@ -72,6 +84,9 @@ class Video:
     # ---- Grouping outputs (populated by GroupingService)
     grouping_results: dict = field(default_factory=dict, repr=False)  # {name: GroupingResult}
     grouping_stats: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
+
+    # ---- Treatment comparison outputs (populated by GroupingService when is_concatenated)
+    treatment_comparison_results: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         self.path = Path(self.path)
@@ -93,6 +108,34 @@ class Video:
 
         # Parse experiment metadata from folder structure (best-effort)
         self._parse_metadata()
+
+    # --------- Segment properties ---------
+
+    @property
+    def baseline_slice(self) -> slice:
+        """Frame slice for the baseline (first) half."""
+        if not self.is_concatenated or self.split_frame is None:
+            return slice(0, self.n_frames)
+        return slice(0, self.split_frame)
+
+    @property
+    def treatment_slice(self) -> slice:
+        """Frame slice for the treatment (second) half."""
+        if not self.is_concatenated or self.split_frame is None:
+            return slice(0, self.n_frames)
+        return slice(self.split_frame, self.n_frames)
+
+    @property
+    def baseline_n_frames(self) -> int:
+        if not self.is_concatenated or self.split_frame is None:
+            return self.n_frames
+        return self.split_frame
+
+    @property
+    def treatment_n_frames(self) -> int:
+        if not self.is_concatenated or self.split_frame is None:
+            return self.n_frames
+        return self.n_frames - self.split_frame
 
     # --------- Small helpers (ok to keep on Video) ---------
 
@@ -120,6 +163,14 @@ class Video:
         self.norm_sg_f = _empty_array()
         self.sm_sp = _empty_array()
 
+        # Per-segment traces
+        self.baseline_norm_f = _empty_array()
+        self.baseline_norm_sm_f = _empty_array()
+        self.baseline_norm_sg_f = _empty_array()
+        self.treatment_norm_f = _empty_array()
+        self.treatment_norm_sm_f = _empty_array()
+        self.treatment_norm_sg_f = _empty_array()
+
         self.n_good_rois = 0
         self.n_bad_rois = 0
         self.bad_rois = []
@@ -130,6 +181,7 @@ class Video:
 
         self.grouping_results = {}
         self.grouping_stats = pd.DataFrame()
+        self.treatment_comparison_results = {}
 
     def __repr__(self) -> str:
         return (
@@ -149,6 +201,9 @@ class VideoStatistics:
     # All strategy matrices keyed by strategy name
     matrices: dict = field(default_factory=dict)
 
+    # Treatment comparison results (concatenated mode only)
+    treatment_comparison: dict = field(default_factory=dict)
+
     @classmethod
     def from_video(cls, video: "Video") -> "VideoStatistics":
         """Convenience constructor; keeps Video dependency out of __init__."""
@@ -163,6 +218,7 @@ class VideoStatistics:
             grouping_stats=video.grouping_stats,
             bad_rois_features=video.bad_rois_features,
             matrices=matrices,
+            treatment_comparison=getattr(video, "treatment_comparison_results", {}),
         )
     
 @dataclass
@@ -216,6 +272,21 @@ class VideoStatisticsWriter:
             npy_path = out_dir / f"{base}_{mat_name}_matrix.npy"
             np.save(npy_path, matrix)
             manifest[f"{mat_name}_matrix_npy"] = str(npy_path)
+
+        # Save treatment comparison results (concatenated mode)
+        if stats.treatment_comparison:
+            for strategy_name, tc_result in stats.treatment_comparison.items():
+                # Save per-group metrics as a DataFrame
+                if hasattr(tc_result, "group_metrics") and tc_result.group_metrics:
+                    tc_df = pd.DataFrame(tc_result.group_metrics)
+                    tc_path = out_dir / f"{base}_{strategy_name}_treatment_comparison.csv"
+                    tc_df.to_csv(tc_path, index=False)
+                    manifest[f"{strategy_name}_treatment_comparison"] = str(tc_path)
+                # Save treatment similarity matrix
+                if hasattr(tc_result, "treatment_matrix") and tc_result.treatment_matrix is not None:
+                    tc_mat_path = out_dir / f"{base}_{strategy_name}_treatment_matrix.npy"
+                    np.save(tc_mat_path, tc_result.treatment_matrix)
+                    manifest[f"{strategy_name}_treatment_matrix_npy"] = str(tc_mat_path)
 
         return manifest
     

@@ -87,8 +87,15 @@ def compute_sttc_matrix(
     n_frames: int,
     time_window: float = 0.033,
     fs: float = 15.0,
+    max_frame: int | None = None,
 ) -> np.ndarray:
     """Spike Time Tiling Coefficient (Cutts & Eglen 2014) — fully vectorized.
+
+    Parameters
+    ----------
+    max_frame : int, optional
+        If provided, only spikes with ``sm_f_idx < max_frame`` are used.
+        This enables baseline-only STTC in concatenated mode.
 
     Returns symmetric matrix in [-1, 1].
     """
@@ -101,7 +108,11 @@ def compute_sttc_matrix(
     spike_matrix = np.zeros((n, n_frames), dtype=np.float32)
     for i, neuron in enumerate(neurons):
         if hasattr(neuron, "spikes") and neuron.spikes:
-            valid = [s.sm_f_idx for s in neuron.spikes if 0 <= s.sm_f_idx < n_frames]
+            valid = [
+                s.sm_f_idx for s in neuron.spikes
+                if 0 <= s.sm_f_idx < n_frames
+                and (max_frame is None or s.sm_f_idx < max_frame)
+            ]
             if valid:
                 spike_matrix[i, valid] = 1.0
 
@@ -136,8 +147,16 @@ def compute_dtw_matrix(
     neurons: List["Neuron"],
     downsample_factor: int = 3,
     use_gpu: bool = True,
+    max_frame: int | None = None,
 ) -> Optional[np.ndarray]:
-    """GPU-accelerated SoftDTW distance matrix.  Returns *None* if GPU unavailable."""
+    """GPU-accelerated SoftDTW distance matrix.  Returns *None* if GPU unavailable.
+
+    Parameters
+    ----------
+    max_frame : int, optional
+        If provided, only trace samples up to this frame index are used
+        (baseline-only in concatenated mode).
+    """
     try:
         import torch
     except (ImportError, OSError) as e:
@@ -150,7 +169,10 @@ def compute_dtw_matrix(
 
     traces = []
     for neuron in neurons:
-        t = neuron.f_trace[::downsample_factor] if downsample_factor > 1 else neuron.f_trace
+        raw = neuron.f_trace
+        if max_frame is not None:
+            raw = raw[:max_frame]
+        t = raw[::downsample_factor] if downsample_factor > 1 else raw
         traces.append((t - np.mean(t)) / (np.std(t) + 1e-8))
 
     device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")

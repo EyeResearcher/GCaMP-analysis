@@ -76,25 +76,77 @@ class SpikeService:
           - peaks (np.ndarray)
           - n_peaks_raw (int)
         Returns flattened feature dataframe for inference.
+
+        In concatenated mode, spike detection is run separately on each
+        segment so that the concatenation boundary cannot produce
+        artefacts.  Treatment-half peak indices are shifted by
+        ``split_frame`` so they reference the full-trace coordinate.
         """
-        f = video.norm_sm_f
         fs = float(video.fs)
-        all_n = video.neurons
-        results = Parallel(
-                    n_jobs=self.n_jobs)(delayed(
-                    describe_spikes)(f[n.index, :],
-                                             int(n.index),
-                                            fs=fs)
-                                                      for n in all_n)
 
-        spike_features_flat: list[dict] = []
-        for neuron, (feats_list, _keys, peaks) in zip(video.neurons, results):
-            neuron.spk_features = list(feats_list or [])
-            neuron.peaks = np.asarray(peaks, dtype=int)
-            neuron.n_peaks_raw = int(len(neuron.peaks))
-            spike_features_flat.extend(neuron.spk_features)
+        if video.is_concatenated and video.split_frame is not None:
+            sf = video.split_frame
+            bl_sm = video.baseline_norm_sm_f
+            tx_sm = video.treatment_norm_sm_f
 
-        return pd.DataFrame(spike_features_flat)
+            results_bl = Parallel(n_jobs=self.n_jobs)(
+                delayed(describe_spikes)(bl_sm[n.index, :], int(n.index), fs=fs)
+                for n in video.neurons
+            )
+            results_tx = Parallel(n_jobs=self.n_jobs)(
+                delayed(describe_spikes)(tx_sm[n.index, :], int(n.index), fs=fs)
+                for n in video.neurons
+            )
+
+            spike_features_flat: list[dict] = []
+            for neuron, (bl_feats, _bk, bl_peaks), (tx_feats, _tk, tx_peaks) in zip(
+                video.neurons, results_bl, results_tx
+            ):
+                # Shift treatment peaks to full-trace coordinates
+                tx_peaks_shifted = np.asarray(tx_peaks, dtype=int) + sf
+
+                merged_feats = list(bl_feats or []) + list(tx_feats or [])
+                merged_peaks = np.concatenate([
+                    np.asarray(bl_peaks, dtype=int),
+                    tx_peaks_shifted,
+                ])
+
+                # Tag each feature dict with its segment for downstream use
+                for fd in (bl_feats or []):
+                    fd["_segment"] = "baseline"
+                for fd in (tx_feats or []):
+                    fd["_segment"] = "treatment"
+
+                neuron.spk_features = merged_feats
+                neuron.peaks = merged_peaks
+                neuron.n_peaks_raw = int(len(merged_peaks))
+
+                # Store per-segment peak counts for later summary
+                neuron._baseline_n_peaks_raw = len(bl_peaks)
+                neuron._treatment_n_peaks_raw = len(tx_peaks)
+
+                spike_features_flat.extend(merged_feats)
+
+            return pd.DataFrame(spike_features_flat)
+        else:
+            # --- Original single-video path ---
+            f = video.norm_sm_f
+            all_n = video.neurons
+            results = Parallel(
+                        n_jobs=self.n_jobs)(delayed(
+                        describe_spikes)(f[n.index, :],
+                                                 int(n.index),
+                                                fs=fs)
+                                                          for n in all_n)
+
+            spike_features_flat: list[dict] = []
+            for neuron, (feats_list, _keys, peaks) in zip(video.neurons, results):
+                neuron.spk_features = list(feats_list or [])
+                neuron.peaks = np.asarray(peaks, dtype=int)
+                neuron.n_peaks_raw = int(len(neuron.peaks))
+                spike_features_flat.extend(neuron.spk_features)
+
+            return pd.DataFrame(spike_features_flat)
 
     def filter_spikes(
         self,
@@ -116,8 +168,11 @@ class SpikeService:
             video.neurons = []
             return np.asarray([], dtype=bool)
 
+        # Drop internal bookkeeping columns before preparing features
+        inference_df = spk_feats_df.drop(columns=["_segment"], errors="ignore")
+
         transform = model_config.get("transform") if model_config else None
-        X = prepare_features(spk_feats_df, spike_model, transform)
+        X = prepare_features(inference_df, spike_model, transform)
 
         if X.shape[0] == 0:
             video.neurons = []
@@ -151,28 +206,68 @@ class SpikeService:
           - summary_stats (dict)
         Populates on video:
           - summary_df (pd.DataFrame)
+
+        In concatenated mode, spike instantiation uses the correct
+        per-segment traces and produces baseline_* / treatment_* summary
+        columns alongside the full-trace aggregates.
         """
         kinetics = SpikeKinetics(fs=float(video.fs))
 
+        is_concat = video.is_concatenated and video.split_frame is not None
+
         for neuron in video.neurons:
-            neuron.instantiate_spikes(
-                sm_norm_f=video.norm_sm_f[neuron.index, :],
-                sg_norm_f=video.norm_sg_f[neuron.index, :],
-            )
-            neuron.all_spk_stats = []
+            if is_concat:
+                sf = video.split_frame
+                # Classify each filtered peak into baseline or treatment
+                bl_peaks = [p for p in neuron.peaks_filtered if p < sf]
+                tx_peaks = [p for p in neuron.peaks_filtered if p >= sf]
 
-            for sp in neuron.spikes:
-                if sp.f_small_window_sg is None:
-                    continue
-                sp.stats = kinetics.compute(sp.f_small_window_sg)
-                neuron.all_spk_stats.append(sp.stats)
+                # Instantiate spikes from the full (concatenated) smoothed traces
+                # (these are the per-segment traces concatenated during TraceService)
+                neuron.instantiate_spikes(
+                    sm_norm_f=video.norm_sm_f[neuron.index, :],
+                    sg_norm_f=video.norm_sg_f[neuron.index, :],
+                )
+                neuron.all_spk_stats = []
 
-        per_neuron = {
-            n.index: n.summarize_spikes(
-                f_trace_raw=video.suite2p_data["F"][n.index],
-            )
-            for n in video.neurons
-        }
+                for sp in neuron.spikes:
+                    if sp.f_small_window_sg is None:
+                        continue
+                    sp.stats = kinetics.compute(sp.f_small_window_sg)
+                    sp.stats["_segment"] = "baseline" if sp.sm_f_idx < sf else "treatment"
+                    neuron.all_spk_stats.append(sp.stats)
+
+                # Store segment peak lists for summary
+                neuron._baseline_peaks_filtered = bl_peaks
+                neuron._treatment_peaks_filtered = tx_peaks
+            else:
+                neuron.instantiate_spikes(
+                    sm_norm_f=video.norm_sm_f[neuron.index, :],
+                    sg_norm_f=video.norm_sg_f[neuron.index, :],
+                )
+                neuron.all_spk_stats = []
+
+                for sp in neuron.spikes:
+                    if sp.f_small_window_sg is None:
+                        continue
+                    sp.stats = kinetics.compute(sp.f_small_window_sg)
+                    neuron.all_spk_stats.append(sp.stats)
+
+        if is_concat:
+            per_neuron = {
+                n.index: n.summarize_spikes_segmented(
+                    f_trace_raw=video.suite2p_data["F"][n.index],
+                    split_frame=video.split_frame,
+                )
+                for n in video.neurons
+            }
+        else:
+            per_neuron = {
+                n.index: n.summarize_spikes(
+                    f_trace_raw=video.suite2p_data["F"][n.index],
+                )
+                for n in video.neurons
+            }
         video.summary_df = pd.DataFrame.from_dict(per_neuron, orient="index")
         return video.summary_df
 

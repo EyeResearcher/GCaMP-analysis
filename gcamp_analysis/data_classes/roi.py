@@ -33,6 +33,10 @@ class ROI:
         
         # Classification result
         self.is_good = None
+
+        # Per-segment classification (concatenated mode only)
+        # {"baseline": True/False, "treatment": True/False}
+        self.active_segments: dict[str, bool] = {}
         
     def __repr__(self):
         return f"ROI(index={self.index}, frames={len(self.f_trace)}, is_good={self.is_good})"

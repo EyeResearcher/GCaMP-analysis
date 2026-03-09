@@ -16,6 +16,7 @@ from matplotlib.figure import Figure
 from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 from gcamp_analysis.reports import GroupingReport
 from gcamp_analysis.grouping_processing.strategies import STRATEGY_REGISTRY, GroupingResult
+from gcamp_analysis.grouping_processing.treatment_comparison import TreatmentComparisonService
 from utils.visualization import visualize_neuron_groups, plot_matrix_heatmap
 
 if TYPE_CHECKING:
@@ -249,6 +250,19 @@ class GroupingService:
             results[name] = cls().compute(video, cfg)
 
         video.grouping_results = results
+        names_run = [n for n in self.strategies if n in results]
+
+        # ── Treatment comparison (concatenated mode) ─────────────────
+        if video.is_concatenated and video.split_frame is not None:
+            tc_service = TreatmentComparisonService()
+            tc_results: dict = {}
+            for name in names_run:
+                result = results[name]
+                if not result.groups:
+                    continue
+                cfg = grouping_cfg.get(name, {}) or {}
+                tc_results[name] = tc_service.run(video, result, name, cfg)
+            video.treatment_comparison_results = tc_results
 
         # ── Compare strategies ───────────────────────────────────────
         agreements = compute_pairwise_agreement(results, video.neurons)
@@ -257,7 +271,6 @@ class GroupingService:
         combined = build_combined_summary(results)
         video.grouping_stats = pd.DataFrame(combined) if combined else pd.DataFrame()
 
-        names_run = [n for n in self.strategies if n in results]
         return GroupingReport(
             strategies_run=names_run,
             n_groups={n: len(results[n].groups) for n in names_run},

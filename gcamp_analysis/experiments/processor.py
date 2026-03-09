@@ -73,6 +73,10 @@ class VideoRunRecord:
     freq_grouped: StatSummary = field(default_factory=StatSummary)
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
+    # Treatment comparison metrics (concatenated mode only)
+    # {strategy: list[dict]}  — per-group treatment comparison metrics
+    treatment_comparison: dict[str, list[dict]] = field(default_factory=dict)
+
 
 class ExperimentProcessor:
     """Walk the experiment tree, process every video leaf, and propagate
@@ -203,6 +207,11 @@ class ExperimentProcessor:
             spike_freq_col="spike_frequency",
         )
 
+        # Treatment comparison metrics (concatenated mode)
+        tc_metrics: dict[str, list[dict]] = {}
+        for name, tc_result in getattr(video, "treatment_comparison_results", {}).items():
+            tc_metrics[name] = tc_result.group_metrics
+
         metrics_dir = video_dir / "metrics"
         return VideoRunRecord(
             video_dir=video_dir,
@@ -222,6 +231,7 @@ class ExperimentProcessor:
             kin_ungrouped=kin_ungrp,
             freq_grouped=freq_grp,
             freq_ungrouped=freq_ungrp,
+            treatment_comparison=tc_metrics,
         )
 
     def _compute_bottom_up_summaries(self, root: TreeNode) -> None:
@@ -263,6 +273,9 @@ class ExperimentProcessor:
                     node.kin_ungrouped = node.payload.kin_ungrouped
                     node.freq_grouped = node.payload.freq_grouped
                     node.freq_ungrouped = node.payload.freq_ungrouped
+
+                    # Treatment comparison (concatenated mode)
+                    node.treatment_comparison = node.payload.treatment_comparison
                 return
 
             # internal node: counts
@@ -337,6 +350,15 @@ class ExperimentProcessor:
             node.freq_grouped = aggregate_children(wfg)
             node.freq_ungrouped = aggregate_children(wfug)
 
+            # Merge treatment comparison metrics upward
+            # Concatenate per-group metric dicts from all children
+            merged_tc: dict[str, list[dict]] = {}
+            for ch in kids:
+                ch_tc = getattr(ch, "treatment_comparison", {})
+                for method, gm_list in ch_tc.items():
+                    merged_tc.setdefault(method, []).extend(gm_list)
+            node.treatment_comparison = merged_tc
+
         post(root)
 
     # ------------------------------------------------------------------
@@ -396,6 +418,30 @@ class ExperimentProcessor:
             total = child.n_neurons_grouped + child.n_neurons_ungrouped
             row["frac_grouped"] = child.n_neurons_grouped / total if total > 0 else 0.0
             row["frac_ungrouped"] = child.n_neurons_ungrouped / total if total > 0 else 0.0
+
+            # Treatment comparison metrics (concatenated mode)
+            tc = getattr(child, "treatment_comparison", {})
+            for method, group_metrics_list in tc.items():
+                if not group_metrics_list:
+                    continue
+                import numpy as _np
+                # Dynamically collect all numeric metric keys from group dicts
+                skip_keys = {"group_id"}
+                all_keys = sorted(
+                    {k for gm in group_metrics_list for k in gm if k not in skip_keys}
+                )
+                for key in all_keys:
+                    vals = [gm.get(key) for gm in group_metrics_list if gm.get(key) is not None]
+                    # Keep only numeric / finite values
+                    finite_vals = []
+                    for v in vals:
+                        try:
+                            if _np.isfinite(v):
+                                finite_vals.append(float(v))
+                        except (TypeError, ValueError):
+                            pass
+                    if finite_vals:
+                        row[f"{key}_{method}"] = float(_np.mean(finite_vals))
 
             # Flatten kinetics (unweighted + weighted + grouped + ungrouped)
             for summary, scheme in [

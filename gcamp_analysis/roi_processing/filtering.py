@@ -34,7 +34,26 @@ class ROIService:
                 )
             )
         return rois
+    def _get_preds(self,traces, rois : list[ROI], model : RandomForestClassifier | LogisticRegression, transform):
+        feats = Parallel(n_jobs=self.n_jobs)(
+                delayed(roi.extract_features)(traces[i, :])
+                for i, roi in enumerate(rois)
+            )
+        feats_df = pd.DataFrame(feats)
+        X = prepare_features(feats_df, model, transform)
+        preds = model.predict(X).astype(bool)
+        return preds, feats
 
+    def _assign_roi_status(self, rois: List[ROI], good_roi_mask: np.ndarray, feats: list) -> None:
+        for i, roi in enumerate(rois):
+            if feats:
+                roi.features = feats[i]
+                roi.active_segments = {"baseline": bool(good_roi_mask[i]), "treatment": bool(good_roi_mask[i])}
+            if roi.is_good is False:
+                good_roi_mask[i] = False
+                roi.is_good = False
+                continue  
+            roi.is_good = bool(good_roi_mask[i])
     def filter_rois(
         self,
         video: "Video",
@@ -45,6 +64,11 @@ class ROIService:
         """
         Filter ROIs using the trained classifier.
         
+        In concatenated mode, features are extracted separately for each
+        segment (baseline / treatment) and the classifier is run on each.
+        An ROI is kept if *either* half passes (union logic).  Per-segment
+        pass/fail is recorded in ``roi.active_segments``.
+
         Parameters
         ----------
         video : Video
@@ -63,28 +87,25 @@ class ROIService:
         good_roi_mask : np.ndarray
             Boolean mask of good ROIs
         """
-        
-        all_feats = Parallel(n_jobs=self.n_jobs)(
-            delayed(roi.extract_features)(video.norm_sm_f[i, :])
-            for i, roi in enumerate(all_rois)
-        )
-        for roi, feats in zip(all_rois, all_feats):
-            roi.features = feats
 
-        feats_df = pd.DataFrame(all_feats)
-        
         transform = model_config.get("transform") if model_config else None
-        X = prepare_features(feats_df, roi_model, transform)
 
-        preds = roi_model.predict(X).astype(bool)
-        good_roi_mask = np.asarray(preds, dtype=bool)
+        if video.is_concatenated and video.split_frame is not None:
+            # --- Concatenated piecemeal filtering ---
+            baseline_smoothed = video.baseline_norm_sm_f   # (n_rois, baseline_frames)
+            treatment_smoothed = video.treatment_norm_sm_f  # (n_rois, treatment_frames)
+            preds_bl, _ = self._get_preds(baseline_smoothed, all_rois, roi_model, transform)
+            preds_tx, treatment_feats = self._get_preds(treatment_smoothed, all_rois, roi_model, transform)
 
-        for i, roi in enumerate(all_rois):
-            if roi.is_good is False:
-                good_roi_mask[i] = False
-                roi.is_good = False
-            else:
-                roi.is_good = bool(good_roi_mask[i])
+            good_roi_mask = np.asarray(preds_bl | preds_tx, dtype=bool)
+
+            self._assign_roi_status(all_rois, good_roi_mask, treatment_feats)
+        else:
+            smoothed = video.norm_sm_f 
+            preds, _ = self._get_preds(smoothed, all_rois, roi_model, transform)
+            good_roi_mask = np.asarray(preds, dtype=bool)
+
+            self._assign_roi_status(all_rois, good_roi_mask, None)
 
         good_rois = [roi for roi in all_rois if roi.is_good]
         video.bad_rois = [roi for roi in all_rois if not roi.is_good]
