@@ -53,6 +53,21 @@ class GroupingStrategy(Protocol):
 # ── Concrete strategies ──────────────────────────────────────────────
 
 
+def _baseline_active_neurons(video: "Video") -> list:
+    """Return the subset of ``video.neurons`` whose baseline component was
+    classified as active.
+
+    In non-concatenated mode every neuron is considered active (no
+    segment classification exists), so the full list is returned.
+    """
+    if not (video.is_concatenated and video.split_frame is not None):
+        return list(video.neurons)
+    return [
+        n for n in video.neurons
+        if getattr(getattr(n, "roi", None), "active_segments", {}).get("baseline", True)
+    ]
+
+
 @dataclass
 class CorrelationStrategy:
     """Trace-correlation grouping with threshold-graph clustering."""
@@ -68,12 +83,15 @@ class CorrelationStrategy:
             traces_full = getattr(video, trace_key, None)
             if traces_full is None:
                 raise ValueError(f"Trace key '{trace_key}' not found on video object.")
-    
+
+        all_neurons = list(video.neurons)
+        active = _baseline_active_neurons(video)
+
         if video.is_concatenated and video.split_frame is not None:
             sf = video.split_frame
-            traces = traces_full[[n.index for n in video.neurons], :sf]
+            traces = traces_full[[n.index for n in all_neurons], :sf]
         else:
-            traces = traces_full[[n.index for n in video.neurons], :]
+            traces = traces_full[[n.index for n in all_neurons], :]
 
         C = compute_correlation_matrix(
             traces,
@@ -85,9 +103,13 @@ class CorrelationStrategy:
             clip_negatives=bool(config.get("clip_negatives", True)),
         )
 
+        # Cluster only baseline-active neurons using their sub-matrix
+        active_pos = [n.filtered_index for n in active]
+        C_sub = C[np.ix_(active_pos, active_pos)]
+
         groups = cluster(
-            video.neurons,
-            1.0 - C,
+            active,
+            1.0 - C_sub,
             cluster_method=str(config.get("cluster", "graph")),
             threshold=float(config.get("distance_threshold", 0.6)),
             linkage_method=str(config.get("linkage_method", "average")),
@@ -118,19 +140,25 @@ class STTCStrategy:
         link = str(config.get("linkage_method", "average"))
         min_group = int(config.get("min_group_size", 2))
 
+        all_neurons = list(video.neurons)
+        active = _baseline_active_neurons(video)
+
         if video.is_concatenated and video.split_frame is not None:
-            # Only use baseline spikes (those before split_frame)
             n_frames = video.split_frame
         else:
             n_frames = video.n_frames
 
         sttc = compute_sttc_matrix(
-            video.neurons, n_frames, time_window=tw, fs=float(video.fs),
+            all_neurons, n_frames, time_window=tw, fs=float(video.fs),
             max_frame=video.split_frame if (video.is_concatenated and video.split_frame is not None) else None,
         )
 
+        # Cluster only baseline-active neurons using their sub-matrix
+        active_pos = [n.filtered_index for n in active]
+        sttc_sub = sttc[np.ix_(active_pos, active_pos)]
+
         groups = cluster(
-            video.neurons, 1.0 - sttc,
+            active, 1.0 - sttc_sub,
             cluster_method=str(config.get("cluster", "hierarchical")),
             threshold=dt, linkage_method=link, min_group_size=min_group,
             method="sttc", group_id_prefix="sttc", t_win=tw, sttc_thresh=1.0 - dt,
@@ -152,14 +180,17 @@ class DTWStrategy:
         pctl = int(config.get("distance_percentile", 30))
         min_group = int(config.get("min_group_size", 2))
 
+        all_neurons = list(video.neurons)
+        active = _baseline_active_neurons(video)
+
         # In concatenated mode, only use baseline segment for DTW
         if video.is_concatenated and video.split_frame is not None:
             dtw = compute_dtw_matrix(
-                video.neurons, downsample_factor=down, use_gpu=gpu,
+                all_neurons, downsample_factor=down, use_gpu=gpu,
                 max_frame=video.split_frame,
             )
         else:
-            dtw = compute_dtw_matrix(video.neurons, downsample_factor=down, use_gpu=gpu)
+            dtw = compute_dtw_matrix(all_neurons, downsample_factor=down, use_gpu=gpu)
         if dtw is None:
             return GroupingResult(groups=[], matrix=None, config_label="dtw_skipped")
 
@@ -168,9 +199,16 @@ class DTWStrategy:
         if nonzero.size == 0:
             return GroupingResult(groups=[], matrix=dtw, config_label="dtw_empty")
 
-        thresh = float(np.percentile(nonzero, pctl))
+        # Cluster only baseline-active neurons using their sub-matrix
+        active_pos = [n.filtered_index for n in active]
+        dtw_sub = dtw[np.ix_(active_pos, active_pos)]
+        nonzero_sub = dtw_sub[dtw_sub > 0]
+        if nonzero_sub.size == 0:
+            return GroupingResult(groups=[], matrix=dtw, config_label="dtw_empty")
+
+        thresh = float(np.percentile(nonzero_sub, pctl))
         groups = cluster(
-            video.neurons, dtw,
+            active, dtw_sub,
             cluster_method=str(config.get("cluster", "hierarchical")),
             threshold=thresh, linkage_method=link, min_group_size=min_group,
             method="dtw", group_id_prefix="dtw", dtw_thresh=thresh,
@@ -204,7 +242,9 @@ class WeightedCorrelationStrategy:
         else:
             traces_full = np.asarray(getattr(video, trace_key), float)
 
-        traces = traces_full[[n.index for n in video.neurons], :]
+        all_neurons = list(video.neurons)
+        active = _baseline_active_neurons(video)
+        traces = traces_full[[n.index for n in all_neurons], :]
 
         C = compute_correlation_matrix(
             traces,
@@ -216,9 +256,13 @@ class WeightedCorrelationStrategy:
             clip_negatives=bool(config.get("clip_negatives", True)),
         )
 
+        # Cluster only baseline-active neurons using their sub-matrix
+        active_pos = [n.filtered_index for n in active]
+        C_sub = C[np.ix_(active_pos, active_pos)]
+
         groups = cluster(
-            video.neurons,
-            1.0 - C,
+            active,
+            1.0 - C_sub,
             cluster_method=str(config.get("cluster", "graph")),
             threshold=float(config.get("distance_threshold", 0.6)),
             linkage_method=str(config.get("linkage_method", "average")),
@@ -263,13 +307,18 @@ class LightEvokedStrategy:
         else:
             raise ValueError("Either 'start' and 'interval' or 'schedule' must be specified in the config.")
         
+        neurons = _baseline_active_neurons(video)
+        traces = video.norm_sm_f[[n.index for n in neurons], :]
+
         bin_size = config.get("bin_size", 3)
         prominence = config.get("prominence", None)
-        activated = align_light_evoked(video.norm_sm_f, bin_size=bin_size,
+        activated = align_light_evoked(traces, bin_size=bin_size,
                                      schedule=sched, n_frames=video.n_frames,
                                      prominence=prominence)
 
-        groups = light_evoked_cluster(video.neurons, activated, n_pulses=len(sched))
+        groups = light_evoked_cluster(neurons, activated, n_pulses=len(sched),
+                                        schedule=sched, bin_size=bin_size,
+                                        response_window=config.get("response_window", 10))
         return GroupingResult(
             groups=groups,
             matrix=activated,

@@ -81,10 +81,9 @@ class VideoRunRecord:
     freq_grouped: StatSummary = field(default_factory=StatSummary)
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
-    # Per-group light-evoked detail DataFrames keyed by group_id
-    light_evoked_details: dict = field(default_factory=dict)
-    # Treatment comparison metrics (concatenated mode)
-    treatment_comparison: dict = field(default_factory=dict)
+    light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
+    treatment_comparison_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)
+    treatment_comparison_metrics: dict[str, list[dict]] = field(default_factory=dict)
 
 
 class ExperimentProcessor:
@@ -183,7 +182,12 @@ class ExperimentProcessor:
             freq_grouped=part.freq_grouped,
             freq_ungrouped=part.freq_ungrouped,
             light_evoked_details=stats.light_evoked_details,
-            treatment_comparison=stats.treatment_comparison,
+            treatment_comparison_dfs=self._build_treatment_comparison_dfs(video),
+            treatment_comparison_metrics={
+                name: list(tc.group_metrics)
+                for name, tc in getattr(video, "treatment_comparison_results", {}).items()
+                if tc.group_metrics
+            },
         )
 
     @staticmethod
@@ -275,6 +279,25 @@ class ExperimentProcessor:
         )
 
     @staticmethod
+    def _build_treatment_comparison_dfs(video: Video) -> dict[str, pd.DataFrame]:
+        """Convert per-strategy treatment comparison results into flat DataFrames.
+
+        Drops nested / list columns that don't tabulate well.
+        """
+        tc_results = getattr(video, "treatment_comparison_results", {})
+        if not tc_results:
+            return {}
+
+
+        dfs: dict[str, pd.DataFrame] = {}
+        for strat_name, tc_result in tc_results.items():
+            if not tc_result.group_metrics:
+                continue
+            df = pd.DataFrame(tc_result.group_metrics)
+            dfs[strat_name] = df
+        return dfs
+
+    @staticmethod
     def _add_light_evoked_cell_counts(
         stats: dict[str, float],
         groups: list,
@@ -325,8 +348,18 @@ class ExperimentProcessor:
                     node.kin_ungrouped = node.payload.kin_ungrouped
                     node.freq_grouped = node.payload.freq_grouped
                     node.freq_ungrouped = node.payload.freq_ungrouped
-                    node.light_evoked_details = node.payload.light_evoked_details
-                    node.treatment_comparison = node.payload.treatment_comparison
+                    node.light_evoked_details = {
+                        k: df.assign(source=str(node.path.name))
+                        for k, df in node.payload.light_evoked_details.items()
+                    }
+                    node.treatment_comparison_df = {
+                        strat: df.assign(source=str(node.path.name))
+                        for strat, df in node.payload.treatment_comparison_dfs.items()
+                    }
+                    node.treatment_comparison_metrics = {
+                        strat: metrics
+                        for strat, metrics in node.payload.treatment_comparison_metrics.items()
+                    }
                 return
 
             # internal node: counts
@@ -401,6 +434,35 @@ class ExperimentProcessor:
             node.freq_grouped = aggregate_children(wfg)
             node.freq_ungrouped = aggregate_children(wfug)
 
+            # Concatenate light-evoked detail DataFrames from children
+            merged_le: dict[str, list[pd.DataFrame]] = {}
+            for ch in kids:
+                for key, df in getattr(ch, "light_evoked_details", {}).items():
+                    if df is not None and not df.empty:
+                        merged_le.setdefault(key, []).append(df)
+            node.light_evoked_details = {
+                key: pd.concat(dfs, ignore_index=True)
+                for key, dfs in merged_le.items()
+            }
+
+            # Concatenate treatment comparison DataFrames from children
+            merged_tc: dict[str, list[pd.DataFrame]] = {}
+            for ch in kids:
+                for strat, tc_df in getattr(ch, "treatment_comparison_df", {}).items():
+                    if tc_df is not None and not tc_df.empty:
+                        merged_tc.setdefault(strat, []).append(tc_df)
+            node.treatment_comparison_df = {
+                strat: pd.concat(dfs, ignore_index=True)
+                for strat, dfs in merged_tc.items()
+            }
+
+            # Concatenate raw treatment comparison metrics from children
+            merged_tc_metrics: dict[str, list[dict]] = {}
+            for ch in kids:
+                for strat, metrics in getattr(ch, "treatment_comparison_metrics", {}).items():
+                    merged_tc_metrics.setdefault(strat, []).extend(metrics)
+            node.treatment_comparison_metrics = merged_tc_metrics
+
         post(root)
 
     # ------------------------------------------------------------------
@@ -467,34 +529,6 @@ class ExperimentProcessor:
             total = child.n_neurons_grouped + child.n_neurons_ungrouped
             row["frac_grouped"] = child.n_neurons_grouped / total if total > 0 else 0.0
             row["frac_ungrouped"] = child.n_neurons_ungrouped / total if total > 0 else 0.0
-
-            # Treatment comparison metrics (concatenated mode)
-            tc = getattr(child, "treatment_comparison", {})
-            for method, tc_result in tc.items():
-                if not tc_result:
-                    continue
-                # tc_result may be a TreatmentComparisonResult or a raw list
-                group_metrics_list = getattr(tc_result, "group_metrics", tc_result)
-                if not group_metrics_list:
-                    continue
-                import numpy as _np
-                # Dynamically collect all numeric metric keys from group dicts
-                skip_keys = {"group_id"}
-                all_keys = sorted(
-                    {k for gm in group_metrics_list for k in gm if k not in skip_keys}
-                )
-                for key in all_keys:
-                    vals = [gm.get(key) for gm in group_metrics_list if gm.get(key) is not None]
-                    # Keep only numeric / finite values
-                    finite_vals = []
-                    for v in vals:
-                        try:
-                            if _np.isfinite(v):
-                                finite_vals.append(float(v))
-                        except (TypeError, ValueError):
-                            pass
-                    if finite_vals:
-                        row[f"{key}_{method}"] = float(_np.mean(finite_vals))
 
             # Flatten kinetics (unweighted + weighted + grouped + ungrouped)
             for summary, scheme in [

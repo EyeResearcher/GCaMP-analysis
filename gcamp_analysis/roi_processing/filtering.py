@@ -44,11 +44,22 @@ class ROIService:
         preds = model.predict(X).astype(bool)
         return preds, feats
 
-    def _assign_roi_status(self, rois: List[ROI], good_roi_mask: np.ndarray, feats: list) -> None:
+    def _assign_roi_status(
+        self,
+        rois: List[ROI],
+        good_roi_mask: np.ndarray,
+        feats: list,
+        preds_bl: Optional[np.ndarray] = None,
+        preds_tx: Optional[np.ndarray] = None,
+    ) -> None:
         for i, roi in enumerate(rois):
             if feats:
                 roi.features = feats[i]
-                roi.active_segments = {"baseline": bool(good_roi_mask[i]), "treatment": bool(good_roi_mask[i])}
+            if preds_bl is not None and preds_tx is not None:
+                roi.active_segments = {
+                    "baseline": bool(preds_bl[i]),
+                    "treatment": bool(preds_tx[i]),
+                }
             if roi.is_good is False:
                 good_roi_mask[i] = False
                 roi.is_good = False
@@ -94,12 +105,12 @@ class ROIService:
             # --- Concatenated piecemeal filtering ---
             baseline_smoothed = video.baseline_norm_sm_f   # (n_rois, baseline_frames)
             treatment_smoothed = video.treatment_norm_sm_f  # (n_rois, treatment_frames)
-            preds_bl, _ = self._get_preds(baseline_smoothed, all_rois, roi_model, transform)
+            preds_bl, _ = self._get_preds(baseline_smoothed[:,:-2], all_rois, roi_model, transform)
             preds_tx, treatment_feats = self._get_preds(treatment_smoothed, all_rois, roi_model, transform)
 
             good_roi_mask = np.asarray(preds_bl | preds_tx, dtype=bool)
 
-            self._assign_roi_status(all_rois, good_roi_mask, treatment_feats)
+            self._assign_roi_status(all_rois, good_roi_mask, treatment_feats, preds_bl, preds_tx)
         else:
             smoothed = video.norm_sm_f 
             preds, _ = self._get_preds(smoothed, all_rois, roi_model, transform)

@@ -13,6 +13,7 @@ from .service import (
     compute_group_summary_rows,
     make_matrix_heatmap,
     visualize_grouping,
+    visualize_treatment_comparison,
 )
 from .treatment_comparison import (
     TreatmentComparisonService,
@@ -33,6 +34,7 @@ __all__ = [
     "compute_group_summary_rows",
     "make_matrix_heatmap",
     "visualize_grouping",
+    "visualize_treatment_comparison",
     "TreatmentComparisonService",
     "TreatmentComparisonResult",
     "TREATMENT_METRIC_REGISTRY",

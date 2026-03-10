@@ -288,3 +288,138 @@ def plot_matrix_heatmap(
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     return ax
+
+
+# =====================================================================
+#  Treatment comparison spatial plots
+# =====================================================================
+
+_STATUS_COLORS = {
+    "grouped": "#2ca02c",
+    "ungrouped": "#d62728",
+    "inactive": "#7f7f7f",
+}
+
+
+def plot_delta_corr_vs_dispersion(
+    group_metrics: List[dict],
+    *,
+    ax: Optional[plt.Axes] = None,
+    exclude_inactive_groups: bool = True,
+    title: str = "ΔCorrelation vs. Baseline Spatial Dispersion",
+) -> plt.Axes:
+    """Scatter plot of delta_mean_corr vs baseline_mean_pairwise_dist.
+
+    Each point is one baseline group. Groups where all neurons became
+    inactive in treatment are excluded (or labelled) based on
+    *exclude_inactive_groups*.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+
+    xs, ys, sizes, colors = [], [], [], []
+    for gm in group_metrics:
+        x = gm.get("baseline_mean_pairwise_dist")
+        y = gm.get("delta_mean_corr")
+        n_active = gm.get("n_treatment_active", gm.get("n_neurons", 0))
+        if x is None or y is None:
+            continue
+        if not np.isfinite(x) or not np.isfinite(y):
+            continue
+        if n_active == 0 and exclude_inactive_groups:
+            continue
+        xs.append(x)
+        ys.append(y)
+        sizes.append(gm.get("n_neurons", 1))
+        colors.append("#7f7f7f" if n_active == 0 else "#1f77b4")
+
+    # Scale marker area by group size (min 20, max 300)
+    if sizes:
+        min_s, max_s = min(sizes), max(sizes)
+        if max_s > min_s:
+            scaled = [20 + 280 * (s - min_s) / (max_s - min_s) for s in sizes]
+        else:
+            scaled = [80] * len(sizes)
+    else:
+        scaled = []
+
+    ax.scatter(xs, ys, c=colors, s=scaled, edgecolors="k", linewidths=0.5, zorder=3)
+
+    ax.axhline(0, color="k", ls="--", lw=0.8, alpha=0.5)
+    ax.set_xlabel("Baseline mean pairwise distance (px)")
+    ax.set_ylabel("Δ mean correlation (treatment − baseline)")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    return ax
+
+
+def plot_neuron_centroid_distances(
+    group_metrics: List[dict],
+    *,
+    ax: Optional[plt.Axes] = None,
+    title: str = "Per-neuron distance from group centroids",
+) -> plt.Axes:
+    """Scatter of each neuron's distance from baseline centroid vs treatment
+    subgroup centroid, coloured by treatment status.
+
+    Only neurons from baseline groups that produced at least one treatment
+    subgroup are included.  Ungrouped neurons (active but not re-clustered)
+    are plotted along the top edge with a distinct marker.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 6))
+
+    # Collect per-neuron rows — skip groups with no treatment subgroups
+    bl_dists: dict[str, list] = {"grouped": [], "ungrouped": []}
+    tx_dists: dict[str, list] = {"grouped": [], "ungrouped": []}
+
+    for gm in group_metrics:
+        if gm.get("n_treatment_subgroups", 0) == 0:
+            continue
+        detail = gm.get("neuron_spatial_detail", [])
+        for nd in detail:
+            status = nd.get("treatment_status", "ungrouped")
+            if status == "inactive":
+                continue
+            d_bl = nd.get("dist_from_baseline_centroid")
+            d_tx = nd.get("dist_from_treatment_centroid")
+            if d_bl is None or not np.isfinite(d_bl):
+                continue
+            bl_dists[status].append(d_bl)
+            tx_dists[status].append(d_tx if (d_tx is not None and np.isfinite(d_tx)) else np.nan)
+
+    # Find y-axis ceiling for ungrouped/inactive strip
+    all_finite_tx = [v for vs in tx_dists.values() for v in vs if np.isfinite(v)]
+    y_ceil = max(all_finite_tx) * 1.15 if all_finite_tx else 100
+
+    handles = []
+    for status in ("grouped", "ungrouped"):
+        xs = bl_dists[status]
+        ys = tx_dists[status]
+        if not xs:
+            continue
+        color = _STATUS_COLORS[status]
+        # Replace NaN y with y_ceil for display
+        ys_plot = [y if np.isfinite(y) else y_ceil for y in ys]
+        marker = "o" if status == "grouped" else "X"
+        ax.scatter(xs, ys_plot, c=color, marker=marker, s=40,
+                   edgecolors="k", linewidths=0.3, alpha=0.8, zorder=3,
+                   label=status)
+        handles.append(Patch(facecolor=color, label=status))
+
+    # Dashed line showing where ungrouped/inactive sit
+    if any(not np.isfinite(y) for ys in tx_dists.values() for y in ys):
+        ax.axhline(y_ceil, color="grey", ls=":", lw=0.8, alpha=0.5)
+        ax.text(ax.get_xlim()[0], y_ceil, " no tx subgroup", fontsize=7,
+                va="bottom", color="grey")
+
+    ax.plot([0, max(max(bl_dists[s]) for s in bl_dists if bl_dists[s])],
+            [0, max(max(bl_dists[s]) for s in bl_dists if bl_dists[s])],
+            "k--", lw=0.6, alpha=0.4, label="identity")
+
+    ax.set_xlabel("Distance from baseline centroid (px)")
+    ax.set_ylabel("Distance from treatment subgroup centroid (px)")
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    return ax

@@ -265,21 +265,25 @@ class VideoStatisticsWriter:
 
         # Tables
         excel_path = out_dir / f"{base}_metrics.xlsx"
+        sheets_written = False
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
             if not stats.per_neuron_spike_summaries.empty:
                 stats.per_neuron_spike_summaries.to_excel(
                     writer, sheet_name='spike_summary', index=False
                 )
+                sheets_written = True
             
             if not stats.grouping_stats.empty:
                 stats.grouping_stats.to_excel(
                     writer, sheet_name='grouping_stats', index=False
                 )
+                sheets_written = True
             
             if not stats.bad_rois_features.empty:
                 stats.bad_rois_features.to_excel(
                     writer, sheet_name='bad_rois_features', index=True
                 )
+                sheets_written = True
 
             # Light-evoked detail sheets
             for sheet_key, detail_df in stats.light_evoked_details.items():
@@ -289,7 +293,11 @@ class VideoStatisticsWriter:
                     detail_df.to_excel(
                         writer, sheet_name=sheet_name, index=False
                     )
-        
+                    sheets_written = True
+
+            if not sheets_written:
+                pd.DataFrame().to_excel(writer, sheet_name='empty', index=False)
+
         manifest["metrics_excel"] = str(excel_path)
 
         # Save all strategy matrices
@@ -307,6 +315,7 @@ class VideoStatisticsWriter:
                     tc_path = out_dir / f"{base}_{strategy_name}_treatment_comparison.csv"
                     tc_df.to_csv(tc_path, index=False)
                     manifest[f"{strategy_name}_treatment_comparison"] = str(tc_path)
+
                 # Save treatment similarity matrix
                 if hasattr(tc_result, "treatment_matrix") and tc_result.treatment_matrix is not None:
                     tc_mat_path = out_dir / f"{base}_{strategy_name}_treatment_matrix.npy"
@@ -355,6 +364,32 @@ class VideoFiguresWriter:
 
         return (overlay_path if overlay_fig else None, heatmap_path if heatmap_fig else None)
 
+    def write_treatment_figures(
+        self,
+        video: "Video",
+        *,
+        out_dir: Path,
+    ) -> dict:
+        """Generate and save treatment-comparison spatial dispersion figures."""
+        from gcamp_analysis.grouping_processing.service import visualize_treatment_comparison
+
+        manifest: dict = {}
+        tc_results = getattr(video, "treatment_comparison_results", {})
+        base = video.path.name
+        for strategy_name in tc_results:
+            delta_fig, centroid_fig = visualize_treatment_comparison(
+                video, strategy_name=strategy_name,
+            )
+            if delta_fig is not None:
+                p = out_dir / f"{base}_{strategy_name}_delta_corr_vs_dispersion.png"
+                self.save_fig(delta_fig, p)
+                manifest[f"{strategy_name}_delta_corr_png"] = str(p)
+            if centroid_fig is not None:
+                p = out_dir / f"{base}_{strategy_name}_centroid_distances.png"
+                self.save_fig(centroid_fig, p)
+                manifest[f"{strategy_name}_centroid_dist_png"] = str(p)
+        return manifest
+
     def write(self, video: "Video") -> dict:
         """Write all grouping figures for *video*. Returns a manifest of saved paths."""
         out_dir = video.path / "metrics"
@@ -371,5 +406,8 @@ class VideoFiguresWriter:
                 manifest[f"{name}_overlay_png"] = str(overlay)
             if heat:
                 manifest[f"{name}_heatmap_png"] = str(heat)
+
+        # Treatment comparison figures (concatenated mode)
+        manifest.update(self.write_treatment_figures(video, out_dir=out_dir))
 
         return manifest

@@ -18,6 +18,10 @@ from gcamp_analysis.reports import GroupingReport
 from gcamp_analysis.grouping_processing.strategies import STRATEGY_REGISTRY, GroupingResult
 from gcamp_analysis.grouping_processing.treatment_comparison import TreatmentComparisonService
 from utils.visualization import visualize_neuron_groups, plot_matrix_heatmap
+from utils.visualization import (
+    plot_delta_corr_vs_dispersion,
+    plot_neuron_centroid_distances,
+)
 
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.video import Video
@@ -212,6 +216,36 @@ def visualize_grouping(
     )
 
     return overlay_fig, heatmap_fig
+
+
+def visualize_treatment_comparison(
+    video: "Video",
+    *,
+    strategy_name: str = "corr",
+) -> Tuple[Optional[Figure], Optional[Figure]]:
+    """Generate spatial-dispersion figures for one treatment comparison.
+
+    Returns ``(delta_corr_fig, centroid_dist_fig)`` or ``(None, None)``
+    if no treatment comparison data exists for *strategy_name*.
+    """
+    tc_results = getattr(video, "treatment_comparison_results", {})
+    tc_result = tc_results.get(strategy_name)
+    if tc_result is None or not getattr(tc_result, "group_metrics", None):
+        return None, None
+
+    gm = tc_result.group_metrics
+    label = getattr(video, "path", None)
+    name = label.name if label else "video"
+
+    fig1, ax1 = plt.subplots(figsize=(7, 5))
+    plot_delta_corr_vs_dispersion(gm, ax=ax1, title=f"{name} \u2014 {strategy_name}")
+    fig1.tight_layout()
+
+    fig2, ax2 = plt.subplots(figsize=(7, 6))
+    plot_neuron_centroid_distances(gm, ax=ax2, title=f"{name} \u2014 {strategy_name}")
+    fig2.tight_layout()
+
+    return fig1, fig2
 
 
 # =====================================================================

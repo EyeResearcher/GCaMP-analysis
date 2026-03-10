@@ -1,13 +1,13 @@
 models:
-  roi_model_path: "C:/Users/mzinn1/Desktop/gcamp_model/roi_classifier.joblib"
-  roi_config_path: "C:/Users/mzinn1/Desktop/gcamp_model/roi_classifier_results.json"
-  spike_model_path: "C:/Users/mzinn1/Desktop/gcamp_model/spike_classifier.joblib"
-  spike_config_path: "C:/Users/mzinn1/Desktop/gcamp_model/spike_classifier_results.json"
+  roi_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/invivo_roi_classifier.joblib"
+  roi_config_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/invivo_roi_classifier_results.json"
+  spike_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/invivo_spike_classifier.joblib"
+  spike_config_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/invivo_spike_classifier_results.json"
   cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
   cascade_model_dir: "Cascade/Pretrained_models"
 traces: 
-  smooth_sigma: 4.0
-  sensor_type: "gcamp8s"   # gcamp8s, gcamp6f, or generic
+  smooth_sigma: .8
+  sensor_type: "gcamp6f"   # gcamp8s, gcamp6f, or generic
 hp_tuning: 
   model_searches:
     RF:
@@ -42,16 +42,20 @@ hp_tuning:
       probability: true
 
 grouping:
-  strategies: ["corr", "sttc"]  # any combination of: corr, sttc, dtw
+  strategies: ["corr","wcorr", "sttc", "light-evoked"]  # any combination of: corr, sttc, dtw
   sttc:
+    enabled: False
     time_window: .4       # 33ms, 50ms, 100ms, 200ms, 300ms
     correlation_threshold: 0.1
     linkage_method: "average"
     distance_threshold: 0.2
     min_group_size: 2
   corr:
+    enabled: false
     trace: "norm_sm_f"  
     method: "pearson"
+    cluster : "hierarchical"
+    linkage_method: "complete"
     remove_global: true
     use_diff: False
     diff_order: 2
@@ -61,5 +65,28 @@ grouping:
     min_group_size: 2
     window : 10
     polyorder: 2
+  wcorr:
+    enabled: false
+    trace: "norm_sm_f"  
+    method: "weighted_pearson"
+    cluster : "hierarchical"
+    linkage_method: "average"
+    remove_global: true
+    use_diff: False
+    diff_order: 2
+    zscore_each: true
+    clip_negatives: true
+    distance_threshold: 0.15
+    min_group_size: 2
+    window : 10
+    polyorder: 2
+  light-evoked:
+    enabled: true
+    start: 30 
+    interval : 30
+    schedule : 
 
+concatenated:
+  enabled: false          # set true for concatenated baseline+treatment videos
+  split_frame: 901       # frame index where baseline ends and treatment begins
   

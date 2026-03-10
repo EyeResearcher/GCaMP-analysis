@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
+import argparse
 import numpy as np
 import subprocess
 
@@ -14,7 +17,7 @@ TMP_DIR = Path(r"C:\Users\mzinn1\Desktop\s2p_temp")
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 ROOTS = [
-    r"C:\Users\mzinn1\Desktop\Morgan 1-20-26"
+    r"C:\Users\mzinn1\Desktop\concat_exp"
 
 ]
 
@@ -27,7 +30,7 @@ GUI_DEFAULT_OPS = {
     "nchannels": 1,
     "functional_chan": 1,
     "tau": 1.0,
-    "fs": 15.0,
+    "fs": 15,
     "do_bidiphase": 0,
     "bidiphase": 0.0,
     "multiplane_parallel": 0,
@@ -103,19 +106,44 @@ def is_already_processed(folder: Path) -> bool:
 def is_experiment_leaf(folder: Path) -> bool:
     return len(folder.parts) <= 6
 
-def load_base_ops() -> dict:
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Batch-run Suite2p on folders of TIFFs."
+    )
+    parser.add_argument(
+        "--fs", type=float, default=None,
+        help="Sampling rate (Hz). Overrides the value in GUI ops.",
+    )
+    parser.add_argument(
+        "--pretrained_model", type=str, default=None,
+        help="Pretrained model name for cellpose. Overrides the value in GUI ops.",
+    )
+    return parser.parse_args()
+
+
+def load_base_ops(cli_overrides: dict | None = None) -> dict:
     if GUI_OPS_PATH.exists():
         try:
             ops = np.load(GUI_OPS_PATH, allow_pickle=True).item()
-            return ops
         except Exception as e:
             print(f"!! failed to load GUI ops, using defaults: {e}")
-    return GUI_DEFAULT_OPS.copy()
+            ops = GUI_DEFAULT_OPS.copy()
+    else:
+        ops = GUI_DEFAULT_OPS.copy()
 
-def run_suite2p_on_folder(folder: Path):
+    # Apply any CLI overrides
+    if cli_overrides:
+        for key, value in cli_overrides.items():
+            if value is not None:
+                print(f"  CLI override: {key} = {value}")
+                ops[key] = value
+
+    return ops
+
+def run_suite2p_on_folder(folder: Path, cli_overrides: dict | None = None):
     print(f"\n=== Running Suite2p on: {folder} ===")
 
-    ops = load_base_ops()
+    ops = load_base_ops(cli_overrides)
     ops["reg_tif"] = 0
     ops["delete_bin"] = 1
     # per-folder
@@ -155,6 +183,14 @@ def run_suite2p_on_folder(folder: Path):
     subprocess.run(cmd, check=True)
 
 def main():
+    args = parse_args()
+
+    # Build override dict from CLI args
+    cli_overrides = {
+        "fs": args.fs,
+        "pretrained_model": args.pretrained_model,
+    }
+
     for root_str in ROOTS:
         root = Path(root_str)
         if not root.exists():
@@ -170,7 +206,7 @@ def main():
                 print(f"↳ Skipping (already processed): {folder}")
                 continue
             try:
-                run_suite2p_on_folder(folder)
+                run_suite2p_on_folder(folder, cli_overrides)
             except Exception as e:
                 print(f"!! Error processing {folder}: {e}")
 

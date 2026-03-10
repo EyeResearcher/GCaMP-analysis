@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
+import matplotlib.pyplot as plt
 import pandas as pd
 
 from gcamp_analysis.experiments.tree import TreeNode
+from utils.visualization import plot_delta_corr_vs_dispersion, plot_neuron_centroid_distances
 
 
 # Column suffixes that the legend explains automatically.
@@ -116,3 +119,46 @@ def save_comparisons(
         with pd.ExcelWriter(out_dir / filename, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="summary")
             legend_df.to_excel(writer, index=False, sheet_name="legend")
+
+
+def save_treatment_comparisons(
+    root: TreeNode,
+    output_subdir: str = "metrics",
+) -> None:
+    """Save aggregate treatment comparison DataFrames at every tree node.
+
+    At each node that has ``treatment_comparison_df``, writes one CSV
+    per strategy containing the concatenated per-group metrics from all
+    descendant videos.  Also saves delta-correlation vs. dispersion and
+    centroid-distance figures when raw group metrics are available.
+    """
+    for node in root.iter_nodes():
+        tc_dfs = getattr(node, "treatment_comparison_df", {})
+        if not tc_dfs:
+            continue
+        out_dir = node.path / output_subdir
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for strat, df in tc_dfs.items():
+            path = out_dir / f"{node.name}_{strat}_treatment_comparison.csv"
+            df.to_csv(path, index=False)
+
+        # Generate treatment comparison figures from raw group metrics
+        tc_metrics = getattr(node, "treatment_comparison_metrics", {})
+        for strat, metrics in tc_metrics.items():
+            if not metrics:
+                continue
+            title_prefix = f"{node.name} \u2014 {strat}"
+
+            fig1, ax1 = plt.subplots(figsize=(7, 5))
+            plot_delta_corr_vs_dispersion(metrics, ax=ax1, title=title_prefix)
+            fig1.tight_layout()
+            fig1.savefig(out_dir / f"{node.name}_{strat}_delta_corr_vs_dispersion.png",
+                         dpi=150, bbox_inches="tight")
+            plt.close(fig1)
+
+            fig2, ax2 = plt.subplots(figsize=(7, 6))
+            plot_neuron_centroid_distances(metrics, ax=ax2, title=title_prefix)
+            fig2.tight_layout()
+            fig2.savefig(out_dir / f"{node.name}_{strat}_centroid_distances.png",
+                         dpi=150, bbox_inches="tight")
+            plt.close(fig2)

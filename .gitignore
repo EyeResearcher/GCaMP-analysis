@@ -17,3 +17,6 @@ data/all_roi_features_spike_keys.csv
 **data/
 **saved_models/
 **logs/
+checklist.md
+sandbox/
+preprocessing/concat_videos.py

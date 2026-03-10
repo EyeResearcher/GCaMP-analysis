@@ -1,7 +1,7 @@
 """Clustering functions used by grouping strategies."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -114,27 +114,104 @@ def cluster(
         raise ValueError(f"Unknown cluster_method '{cluster_method}'. Choose from {list(dispatch.keys())}")
     return dispatch[cluster_method](neurons, dist, **kwargs)
 
+def recluster_within_group(
+    neurons: List["Neuron"],
+    corr_sub: np.ndarray,
+    *,
+    parent_group_id: str = "",
+    method: str = "corr",
+    distance_threshold: float = 0.6,
+    min_group_size: int = 2,
+    corr_config: Optional[dict] = None,
+) -> List[NeuronGroup]:
+    """Re-cluster treatment-active neurons from a baseline group.
 
-def light_evoked_cluster(neurons: List["Neuron"], activated: np.ndarray, n_pulses: int, **metadata) -> List[NeuronGroup]:
-    pulses_by_neuron = np.sum(activated, axis=1)
+    Parameters
+    ----------
+    neurons : list[Neuron]
+        Treatment-active neurons to re-cluster (pre-filtered by caller).
+    corr_sub : np.ndarray
+        ``(N_neurons, N_neurons)`` correlation sub-matrix for *neurons*,
+        extracted from the full treatment correlation matrix so that
+        global-signal removal reflects the whole population — not just
+        the small subset.
+    parent_group_id : str
+        Group ID of the parent baseline group (used to label sub-groups).
+    method : str
+        Clustering method used at baseline (``"corr"``, ``"sttc"``, etc.).
+    distance_threshold : float
+        Distance threshold for clustering.
+    min_group_size : int
+        Minimum cluster size.
+    corr_config : dict, optional
+        Extra clustering parameters (cluster method, etc.).
+
+    Returns
+    -------
+    list[NeuronGroup]
+        Sub-groups found within the treatment segment.  May be empty if
+        no cluster meets ``min_group_size``.
+    """
+    if len(neurons) < min_group_size:
+        return []
+
+    cfg = corr_config or {}
+
+    sub_groups = cluster(
+        neurons,
+        1.0 - corr_sub,
+        cluster_method=cfg.get("cluster", "hierarchical"),
+        threshold=distance_threshold,
+        min_group_size=min_group_size,
+        method=method,
+    )
+
+    # Re-label sub-group IDs to reflect parent
+    for i, sg in enumerate(sub_groups):
+        sg.group_id = f"{parent_group_id}_sub{i}"
+        sg.metadata["parent_group_id"] = parent_group_id
+
+    return sub_groups
+
+def light_evoked_cluster(
+    neurons: List["Neuron"],
+    activated: np.ndarray,
+    n_pulses: int,
+    schedule: list[int],
+    bin_size: int = 3,
+    response_window: int = 10,
+    **metadata,
+) -> List[NeuronGroup]:
+    # Count per-pulse responses using each neuron's actual detected spikes,
+    # not derivative peaks.  A spike is matched to a pulse if its peak frame
+    # falls within [pulse_frame, pulse_frame + response_window].
+    n_neurons = len(neurons)
+    pulse_counts = np.zeros(n_neurons, dtype=int)
+    for i, neuron in enumerate(neurons):
+        matched_pulses: set[int] = set()
+        used_spikes: set[int] = set()
+        for p_idx, pulse_frame in enumerate(schedule):
+            best_si: int | None = None
+            best_dist = float("inf")
+            for si, spike in enumerate(neuron.spikes):
+                if si in used_spikes:
+                    continue
+                dist = spike.sm_f_idx - pulse_frame
+                if 0 <= dist <= response_window and dist < best_dist:
+                    best_dist = dist
+                    best_si = si
+            if best_si is not None:
+                matched_pulses.add(p_idx)
+                used_spikes.add(best_si)
+        pulse_counts[i] = len(matched_pulses)
     groups = []
     for n in range(1, n_pulses + 1):
-        on_idxs = np.where(pulses_by_neuron == n)[0]
-        if len(on_idxs) > 0:
+        idxs = np.where(pulse_counts == n)[0]
+        if len(idxs) > 0:
             groups.append(
                 NeuronGroup(
                     group_id=f"ON_{n}_response(s)",
-                    neurons=[neurons[i] for i in on_idxs],
-                    method="light-evoked",
-                    **metadata,
-                )
-            )
-        off_idxs = np.where(pulses_by_neuron == -n)[0]
-        if len(off_idxs) > 0:
-            groups.append(
-                NeuronGroup(
-                    group_id=f"OFF_{n}_response(s)",
-                    neurons=[neurons[i] for i in off_idxs],
+                    neurons=[neurons[i] for i in idxs],
                     method="light-evoked",
                     **metadata,
                 )
