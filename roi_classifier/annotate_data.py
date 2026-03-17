@@ -132,12 +132,14 @@ class AnnotationSession(AnnotationSessionBase):
         ax_raw.set_title(f"Raw F Trace - {title}")
         ax_raw.set_xlabel("Frame #")
         ax_raw.set_ylabel("Raw F")
+        ax_raw.set_ylim(bottom=0)
         ax_raw.grid(True, alpha=0.3)
 
         ax_smooth.plot(roi['smoothed_trace'], color='red', linewidth=1)
         ax_smooth.set_title(f"Smoothed F Trace - {title}")
         ax_smooth.set_xlabel("Frame #")
         ax_smooth.set_ylabel("Smoothed F")
+        ax_smooth.set_ylim(-3, 3)
         ax_smooth.grid(True, alpha=0.3)
 
         self.fig.tight_layout()

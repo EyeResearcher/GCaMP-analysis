@@ -33,7 +33,9 @@ def derivative_skewness(smoothed_scaled_f: np.ndarray) -> tuple:
     s = float(skew(derivative))
     if not np.isfinite(s):
         return (0.0, False, derivative)
-    return (s, True, derivative)
+    abs_s = abs(s)
+
+    return (s, True, abs_s)
 
 
 def derivative_asymmetry(smoothed_scaled_f: np.ndarray) -> tuple:
@@ -161,7 +163,7 @@ def peak_density_and_prominence(smoothed_f_trace: np.ndarray) -> tuple:
         return (0.0, 0.0, False)
 
     prom_thresh = 0.05 * dyn_range
-    peaks, _ = find_peaks(x, prominence=prom_thresh)
+    peaks, _ = find_peaks(x)
 
     if len(peaks) == 0:
         return (0.0, 0.0, False)
@@ -170,6 +172,42 @@ def peak_density_and_prominence(smoothed_f_trace: np.ndarray) -> tuple:
     peak_density = len(peaks) / float(x.size)
     median_prom = float(np.median(proms))
     return (peak_density, median_prom, True)
+
+
+def prominence_weighted_peak_density(smoothed_f_trace: np.ndarray) -> tuple:
+    """
+    Peak density weighted by normalized prominence.
+
+    Instead of counting each peak equally, each peak contributes its
+    prominence / trace_dynamic_range to the density sum, then divided
+    by trace length.  This yields a single scalar that is high when a
+    trace has many *prominent* peaks and low when peaks are absent or
+    weak (noise).
+
+    Good ROIs:  fewer peaks but each prominent → moderate weighted density.
+    Noise ROIs: many tiny peaks → low weighted density (prominences near 0).
+    """
+    x = np.asarray(smoothed_f_trace, float)
+    if x.size == 0:
+        return (0.0, False)
+
+    dyn_range = float(np.nanmax(x) - np.nanmin(x))
+    if not np.isfinite(dyn_range) or dyn_range <= 0:
+        return (0.0, False)
+
+    prom_thresh = 0.05 * dyn_range
+    peaks, _ = find_peaks(x)
+
+    if len(peaks) == 0:
+        return (0.0, False)
+
+    proms, _, _ = peak_prominences(x, peaks)
+    norm_proms = proms / dyn_range          # each in [0, 1]
+    weighted_density = float(np.sum(norm_proms) / x.size)
+
+    if not np.isfinite(weighted_density):
+        return (0.0, False)
+    return (weighted_density, True)
 
 
 # =============================================================================
@@ -195,7 +233,7 @@ def compute_roi_features(smoothed_f_trace: np.ndarray) -> tuple[dict, dict]:
     assert smoothed_f_trace.ndim == 1
     
     # Derivative-based metrics
-    deriv_skew, valid_deriv_skew, derivative = derivative_skewness(smoothed_f_trace)
+    deriv_skew, valid_deriv_skew, abs_deriv_skew = derivative_skewness(smoothed_f_trace)
     deriv_asym, valid_deriv_asym = derivative_asymmetry(smoothed_f_trace)
     spike_prom_mean, spike_prom_skew, valid_prom = left_based_prominence(smoothed_f_trace)
     var_of_var, valid_vov = rolling_variance_of_variance(smoothed_f_trace, window=30)
@@ -206,10 +244,13 @@ def compute_roi_features(smoothed_f_trace: np.ndarray) -> tuple[dict, dict]:
 
     peak_density, median_spike_prom, valid_peak = peak_density_and_prominence(smoothed_f_trace)
 
+    prom_weighted_density, valid_pwd = prominence_weighted_peak_density(smoothed_f_trace)
+
     trace_range = float(np.nanmax(smoothed_f_trace) - np.nanmin(smoothed_f_trace))
 
     features = {
                 "derivative_skew": float(deriv_skew),
+                "absolute_derivative_skew": float(abs_deriv_skew),
                 "derivative_asymmetry": float(deriv_asym),
                 "spike_prom_mean": float(spike_prom_mean),
                 "spike_prom_skew": float(spike_prom_skew),
@@ -219,6 +260,7 @@ def compute_roi_features(smoothed_f_trace: np.ndarray) -> tuple[dict, dict]:
                 "snr_estimate": float(snr),
                 "peak_density": float(peak_density),
                 "median_spike_prom": float(median_spike_prom),
+                "w_peak_density": float(prom_weighted_density),
                 }
 
     validity = {
@@ -229,6 +271,7 @@ def compute_roi_features(smoothed_f_trace: np.ndarray) -> tuple[dict, dict]:
         "valid_ac": bool(valid_ac),
         "valid_snr": bool(valid_snr),
         "valid_peak": bool(valid_peak),
+        "valid_w_peak_density": bool(valid_pwd),
     }
 
     return features, validity

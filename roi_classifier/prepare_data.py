@@ -173,18 +173,18 @@ def update_roi_features(roi_dict: dict[str, dict[str, Any]],
     stats = {'processed': 0, 'labels_preserved': 0, 'spikes_preserved': 0, 'resmoothed': 0}
 
     for roi_key, roi_data in roi_dict.items():
-        raw_trace = roi_data.get('raw_trace')
-        smoothed_trace = roi_data.get('smoothed_trace', np.array([]))
+        raw_trace = roi_data.get('raw_trace', np.array([]))
 
-        # Re-smooth from raw trace if available
-        if raw_trace is not None and np.asarray(raw_trace).size > 0:
-            raw = np.asarray(raw_trace, dtype=float)
-            scaled = normalize_minmax(raw.reshape(1, -1)).ravel()
-            smoothed_trace = gaussian_filter1d(scaled, sigma=effective_sigma)
-            stats['resmoothed'] += 1
-        elif smoothed_trace.size == 0:
-            print(f"Warning: Skipping {roi_key} - missing both raw and smoothed trace")
+        if raw_trace.size == 0:
+            raw_trace = None
+            print(f"Warning: Skipping {roi_key} - missing raw trace")
             continue
+       
+        raw = np.asarray(raw_trace, dtype=float) if not isinstance(raw_trace, np.ndarray) else raw_trace
+        z_scored = (raw - np.nanmean(raw)) / (np.nanstd(raw) + 1e-9)
+        smoothed_trace = gaussian_filter1d(z_scored, sigma=effective_sigma)
+        stats['resmoothed'] += 1
+    
 
         features, _ = compute_roi_features(smoothed_trace)
         label = roi_data.get('label', create_label_dict(-1, 'unlabeled'))
@@ -194,7 +194,7 @@ def update_roi_features(roi_dict: dict[str, dict[str, Any]],
         if label['value'] in [0, 1] and label['source'] == 'manual':
             stats['labels_preserved'] += 1
         stats['spikes_preserved'] += len(spikes)
-
+        print(f"  - ROI {roi_key}: max={np.max(smoothed_trace):.2f}, min={np.min(smoothed_trace):.2f}")
         updated_dict[roi_key] = {
             'smoothed_trace': smoothed_trace,
             'raw_trace': roi_data.get('raw_trace'),

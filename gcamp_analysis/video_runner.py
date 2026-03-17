@@ -52,7 +52,16 @@ class VideoPipelineRunner:
             smooth_sigma=config.get("traces", {}).get("smooth_sigma", 4.0),
             sensor_type=resolved_sensor,
         )
-        roi = ROIService(n_jobs=n_jobs)
+
+        # Load manual ROI labels if configured
+        manual_labels = None
+        manual_path = config.get("models", {}).get("roi_manual_labels_path")
+        if manual_path:
+            manual_path = Path(manual_path)
+            if manual_path.exists():
+                manual_labels = np.load(manual_path, allow_pickle=True).item()
+
+        roi = ROIService(n_jobs=n_jobs, manual_labels=manual_labels)
         spike = SpikeService(n_jobs=n_jobs)
         # Resolve grouping strategies from config
         grouping_cfg = config.get("grouping", {})

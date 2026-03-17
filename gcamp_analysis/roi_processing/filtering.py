@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 @dataclass
 class ROIService:
     n_jobs: int = -1
+    manual_labels: Optional[dict] = None
 
     def create_rois(self, video: "Video") -> List[ROI]:
         rois: List[ROI] = []
@@ -65,6 +66,29 @@ class ROIService:
                 roi.is_good = False
                 continue  
             roi.is_good = bool(good_roi_mask[i])
+    def filter_rois_manual(
+        self,
+        video: "Video",
+        all_rois: List[ROI],
+    ) -> tuple[List[ROI], np.ndarray]:
+        """Filter ROIs using pre-existing manual labels.
+
+        Looks up each ROI by ``{video.video_id}_{roi.index}`` in
+        ``self.manual_labels``.  ROIs with label value 1 are kept;
+        everything else (0, -1, or missing) is rejected.
+        """
+        from utils.label_utils import get_label_value
+
+        good_roi_mask = np.zeros(len(all_rois), dtype=bool)
+        for i, roi in enumerate(all_rois):
+            key = f"{video.video_id}_{roi.index}"
+            entry = self.manual_labels.get(key)
+            if entry is not None:
+                good_roi_mask[i] = get_label_value(entry.get("label", -1)) == 1
+
+        self._assign_roi_status(all_rois, good_roi_mask, None)
+        return [roi for roi in all_rois if roi.is_good], good_roi_mask
+
     def filter_rois(
         self,
         video: "Video",
@@ -163,7 +187,10 @@ class ROIService:
         Returns counts for narration.
         """
         all_rois = self.create_rois(video)
-        good_rois, good_roi_mask = self.filter_rois(video, all_rois, roi_model, model_config=model_config)
+        if self.manual_labels is not None:
+            good_rois, good_roi_mask = self.filter_rois_manual(video, all_rois)
+        else:
+            good_rois, good_roi_mask = self.filter_rois(video, all_rois, roi_model, model_config=model_config)
 
         self.build_bad_rois_features_df(video)
 
