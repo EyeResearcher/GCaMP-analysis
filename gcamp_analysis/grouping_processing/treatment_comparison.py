@@ -209,6 +209,20 @@ METRIC_REGISTRY: List[MetricFn] = [
 ]
 
 
+def _subgroup_mean_correlations(
+    subs: List[NeuronGroup], tx_matrix: np.ndarray,
+) -> tuple:
+    """Per-subgroup and size-weighted mean intra-subgroup correlation."""
+    if not subs:
+        return [], np.nan
+    corrs = [sg.group_mean_similarity(tx_matrix) for sg in subs]
+    sizes = np.array([sg.size for sg in subs], dtype=float)
+    vals = np.array(corrs)
+    finite = np.isfinite(vals)
+    mean = float(np.average(vals[finite], weights=sizes[finite])) if finite.any() else np.nan
+    return corrs, mean
+
+
 def _recluster_group(
     group: NeuronGroup,
     active_neurons: list,
@@ -250,6 +264,11 @@ def _recluster_group(
             list(getattr(sg, "filtered_idxs", [])) for sg in subs
         ],
     }
+
+    # Mean intra-subgroup correlation on treatment traces
+    corrs, mean_corr = _subgroup_mean_correlations(subs, tx_matrix)
+    updates["subgroup_mean_corrs"] = corrs
+    updates["treatment_subgroup_mean_corr"] = mean_corr
 
     # Spatial dispersion per subgroup
     subgroup_mpds = []
@@ -376,6 +395,8 @@ class TreatmentComparisonService:
                 "subgroup_mean_pairwise_dists": [],
                 "subgroup_dists_from_baseline_centroid": [],
                 "subgroup_dispersion_ratios": [],
+                "subgroup_mean_corrs": [],
+                "treatment_subgroup_mean_corr": np.nan,
                 "n_ungrouped": 0,
                 "ungrouped_dist_from_baseline_centroid": np.nan,
             })
