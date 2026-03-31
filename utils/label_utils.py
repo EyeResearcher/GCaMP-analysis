@@ -151,7 +151,7 @@ def reset_spike_labels(roi_dict: dict) -> tuple[dict, int]:
 # Label-Based Filtering
 # =============================================================================
 
-def matches_label_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bool:
+def matches_label_mode(label, *, unlabeled_only: bool, labeled_only: bool, auto: bool = False) -> bool:
     """Check whether a label passes the unlabeled_only / labeled_only filter."""
     if unlabeled_only and labeled_only:
         raise ValueError("Choose at most one of unlabeled_only or labeled_only.")
@@ -161,6 +161,8 @@ def matches_label_mode(label, *, unlabeled_only: bool, labeled_only: bool) -> bo
         return value == -1
     if labeled_only:
         return value != -1
+    if auto:   
+        return isinstance(label, dict) and get_label_source(label) == 'auto'
     return True
 
 def get_keys(
@@ -169,6 +171,7 @@ def get_keys(
     level: str = "roi",
     unlabeled_only: bool = False,
     labeled_only: bool = False,
+    auto: bool = False,
     verbose: bool = False,
 ) -> list[str]:
     """Return ROI keys matching the label filter at the given level ('roi' or 'spike')."""

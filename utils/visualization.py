@@ -32,8 +32,8 @@ def plot_trace_with_spikes(
     all_spike_indices: list[int],
     title: str,
     y_label: str,
-    windows: Any = None,
-) -> None:
+    windows: list[np.ndarray] ,
+    ylim : tuple[float, float]) -> None:
     """Full-trace plot with spike markers and window shading.
     
     Parameters
@@ -74,22 +74,22 @@ def plot_trace_with_spikes(
             ax.plot(x[pm:nm], y[pm:nm], linewidth=2)
 
     # All spike peaks
-    y_lim = ax.get_ylim()
-    y_bottom = y_lim[0]
+    
     for other_idx in all_spike_indices:
         oi = int(other_idx)
         if 0 <= oi < len(y):
-            ax.plot([oi, oi], [y_bottom, y[oi]], color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+            ax.plot([oi, oi], [ylim[0], y[oi]], color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
 
     # Current spike peak
     si = int(spike_idx)
     if 0 <= si < len(y):
-        ax.plot([si, si], [y_bottom, y[si]], color="red", linestyle="-", linewidth=2, label="Current spike")
+        ax.plot([si, si], [ylim[0], y[si]], color="red", linestyle="-", linewidth=2, label="Current spike")
 
     ax.set_title(title)
     ax.set_xlabel("Frame")
     ax.set_ylabel(y_label)
     ax.set_xlim(0, len(y))
+    ax.set_ylim(ylim)  # Keep consistent y-limits after adding lines
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right")
 

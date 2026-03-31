@@ -326,7 +326,7 @@ def align_light_evoked(
     sm_norm_f : ndarray, shape (n_neurons, n_frames)
         Smoothed, normalised fluorescence traces.
     bin_size : int
-        Width (in frames) of the window centred on each pulse frame.
+        Width (in frames) of the window starting at each pulse frame.
     schedule : list[int]
         Pulse onset frame indices.
     n_frames : int
@@ -342,16 +342,15 @@ def align_light_evoked(
         +1 (ON), -1 (OFF), or 0.
     """
     pulses = np.zeros(n_frames)
-    pad = (bin_size - 1) // 2
     bin_ranges = []
     for pulse in schedule:
-        lo = max(0, pulse - pad)
-        hi = min(n_frames, pulse + pad + 1)
+        lo = max(0, pulse)
+        hi = min(n_frames, pulse + bin_size)
         bin_ranges.append((lo, hi))
         for f in range(lo, hi):
             pulses[f] = 1.0
 
-    diff_trace = np.diff(sm_norm_f, axis=1)
+    diff_trace = np.diff(sm_norm_f, axis=1, prepend=sm_norm_f[:, :1])
     peak_kw: dict = {} if prominence is None else {"prominence": prominence}
     on_peaks = [find_peaks(diff_trace[i], **peak_kw)[0] for i in range(diff_trace.shape[0])]
     off_peaks = [find_peaks(-diff_trace[i], **peak_kw)[0] for i in range(diff_trace.shape[0])]

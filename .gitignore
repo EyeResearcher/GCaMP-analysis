@@ -20,3 +20,5 @@ data/all_roi_features_spike_keys.csv
 checklist.md
 sandbox/
 preprocessing/concat_videos.py
+models/
+config/
