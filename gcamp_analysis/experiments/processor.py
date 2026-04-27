@@ -82,8 +82,8 @@ class VideoRunRecord:
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
     light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
-    treatment_comparison_dfs: dict[str, pd.DataFrame] = field(default_factory=dict)
-    treatment_comparison_metrics: dict[str, list[dict]] = field(default_factory=dict)
+    section_comparison_dfs: dict[str, dict[str, pd.DataFrame]] = field(default_factory=dict)
+    section_comparison_metrics: dict[str, dict[str, list[dict]]] = field(default_factory=dict)
 
 
 class ExperimentProcessor:
@@ -137,7 +137,6 @@ class ExperimentProcessor:
             path=video_dir,
             suite2p_path=suite2p_plane0,
             is_concatenated=self.runner.is_concatenated,
-            split_frame=self.runner.split_frame,
         )
         self.runner.run(video, verbose=verbose)
 
@@ -187,11 +186,15 @@ class ExperimentProcessor:
             freq_grouped=part.freq_grouped,
             freq_ungrouped=part.freq_ungrouped,
             light_evoked_details=stats.light_evoked_details,
-            treatment_comparison_dfs=self._build_treatment_comparison_dfs(video),
-            treatment_comparison_metrics={
-                name: list(tc.group_metrics)
-                for name, tc in getattr(video, "treatment_comparison_results", {}).items()
-                if tc.group_metrics
+            section_comparison_dfs=self._build_section_comparison_dfs(video),
+            section_comparison_metrics={
+                strategy_name: {
+                    section_key: list(comparison.group_metrics)
+                    for section_key, comparison in section_results.items()
+                    if comparison.group_metrics
+                }
+                for strategy_name, section_results in getattr(video, "section_comparison_results", {}).items()
+                if section_results
             },
         )
 
@@ -284,22 +287,24 @@ class ExperimentProcessor:
         )
 
     @staticmethod
-    def _build_treatment_comparison_dfs(video: Video) -> dict[str, pd.DataFrame]:
-        """Convert per-strategy treatment comparison results into flat DataFrames.
+    def _build_section_comparison_dfs(video: Video) -> dict[str, dict[str, pd.DataFrame]]:
+        """Convert per-strategy section comparison results into flat DataFrames.
 
         Drops nested / list columns that don't tabulate well.
         """
-        tc_results = getattr(video, "treatment_comparison_results", {})
-        if not tc_results:
+        comparison_results = getattr(video, "section_comparison_results", {})
+        if not comparison_results:
             return {}
 
-
-        dfs: dict[str, pd.DataFrame] = {}
-        for strat_name, tc_result in tc_results.items():
-            if not tc_result.group_metrics:
-                continue
-            df = pd.DataFrame(tc_result.group_metrics)
-            dfs[strat_name] = df
+        dfs: dict[str, dict[str, pd.DataFrame]] = {}
+        for strategy_name, section_results in comparison_results.items():
+            strategy_dfs: dict[str, pd.DataFrame] = {}
+            for section_key, comparison_result in section_results.items():
+                if not comparison_result.group_metrics:
+                    continue
+                strategy_dfs[section_key] = pd.DataFrame(comparison_result.group_metrics)
+            if strategy_dfs:
+                dfs[strategy_name] = strategy_dfs
         return dfs
 
     @staticmethod
@@ -357,13 +362,19 @@ class ExperimentProcessor:
                         k: df.assign(source=str(node.path.name))
                         for k, df in node.payload.light_evoked_details.items()
                     }
-                    node.treatment_comparison_df = {
-                        strat: df.assign(source=str(node.path.name))
-                        for strat, df in node.payload.treatment_comparison_dfs.items()
+                    node.section_comparison_df = {
+                        strategy_name: {
+                            section_key: df.assign(source=str(node.path.name))
+                            for section_key, df in strategy_dfs.items()
+                        }
+                        for strategy_name, strategy_dfs in node.payload.section_comparison_dfs.items()
                     }
-                    node.treatment_comparison_metrics = {
-                        strat: metrics
-                        for strat, metrics in node.payload.treatment_comparison_metrics.items()
+                    node.section_comparison_metrics = {
+                        strategy_name: {
+                            section_key: metrics
+                            for section_key, metrics in strategy_metrics.items()
+                        }
+                        for strategy_name, strategy_metrics in node.payload.section_comparison_metrics.items()
                     }
                 return
 
@@ -450,23 +461,28 @@ class ExperimentProcessor:
                 for key, dfs in merged_le.items()
             }
 
-            # Concatenate treatment comparison DataFrames from children
-            merged_tc: dict[str, list[pd.DataFrame]] = {}
+            # Concatenate section comparison DataFrames from children
+            merged_section_dfs: dict[str, dict[str, list[pd.DataFrame]]] = {}
             for ch in kids:
-                for strat, tc_df in getattr(ch, "treatment_comparison_df", {}).items():
-                    if tc_df is not None and not tc_df.empty:
-                        merged_tc.setdefault(strat, []).append(tc_df)
-            node.treatment_comparison_df = {
-                strat: pd.concat(dfs, ignore_index=True)
-                for strat, dfs in merged_tc.items()
+                for strategy_name, strategy_dfs in getattr(ch, "section_comparison_df", {}).items():
+                    for section_key, section_df in strategy_dfs.items():
+                        if section_df is not None and not section_df.empty:
+                            merged_section_dfs.setdefault(strategy_name, {}).setdefault(section_key, []).append(section_df)
+            node.section_comparison_df = {
+                strategy_name: {
+                    section_key: pd.concat(section_dfs, ignore_index=True)
+                    for section_key, section_dfs in strategy_dfs.items()
+                }
+                for strategy_name, strategy_dfs in merged_section_dfs.items()
             }
 
-            # Concatenate raw treatment comparison metrics from children
-            merged_tc_metrics: dict[str, list[dict]] = {}
+            # Concatenate raw section comparison metrics from children
+            merged_section_metrics: dict[str, dict[str, list[dict]]] = {}
             for ch in kids:
-                for strat, metrics in getattr(ch, "treatment_comparison_metrics", {}).items():
-                    merged_tc_metrics.setdefault(strat, []).extend(metrics)
-            node.treatment_comparison_metrics = merged_tc_metrics
+                for strategy_name, strategy_metrics in getattr(ch, "section_comparison_metrics", {}).items():
+                    for section_key, metrics in strategy_metrics.items():
+                        merged_section_metrics.setdefault(strategy_name, {}).setdefault(section_key, []).extend(metrics)
+            node.section_comparison_metrics = merged_section_metrics
 
         post(root)
 

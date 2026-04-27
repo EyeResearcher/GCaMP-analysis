@@ -4,7 +4,7 @@ from pathlib import Path
 import argparse
 import numpy as np
 import subprocess
-
+# EXAMPLE USAGE: python preprocessing/batch_s2p.py --fs 15 --pretrained_model invitro_rgcs_max
 # ---------------------------------------------------------------------
 # WHERE YOUR REAL GUI OPS LIVE (we'll read from here only)
 # ---------------------------------------------------------------------
@@ -17,8 +17,12 @@ TMP_DIR = Path(r"C:\Users\mzinn1\Desktop\s2p_temp")
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 ROOTS = [
-    r"C:\Users\mzinn1\Desktop\concat_exp"
-
+r"G:\Calcium Imaging\GCaMP6s_EX328",
+r"G:\Calcium Imaging\GCaMP6s_EX330",
+r"G:\Calcium Imaging\GCaMP6s_EX329",
+r"E:\EX345",
+r"E:\EX344",
+r"E:\GCaMP6s_EX357"
 ]
 
 SKIP_IF_PROCESSED = False
@@ -182,16 +186,8 @@ def run_suite2p_on_folder(folder: Path, cli_overrides: dict | None = None):
     ]
     subprocess.run(cmd, check=True)
 
-def main():
-    args = parse_args()
-
-    # Build override dict from CLI args
-    cli_overrides = {
-        "fs": args.fs,
-        "pretrained_model": args.pretrained_model,
-    }
-
-    for root_str in ROOTS:
+def batch_s2p(roots, cli_overrides: dict | None = None, skip_if_processed: bool = SKIP_IF_PROCESSED):
+    for root_str in roots:
         root = Path(root_str)
         if not root.exists():
             print(f"!! root not found: {root}")
@@ -202,13 +198,23 @@ def main():
                 continue
             if not folder_has_tifs(folder):
                 continue
-            if SKIP_IF_PROCESSED and is_already_processed(folder):
+            if skip_if_processed and is_already_processed(folder):
                 print(f"↳ Skipping (already processed): {folder}")
                 continue
             try:
                 run_suite2p_on_folder(folder, cli_overrides)
             except Exception as e:
                 print(f"!! Error processing {folder}: {e}")
+def main():
+    args = parse_args()
+
+    # Build override dict from CLI args
+    cli_overrides = {
+        "fs": args.fs,
+        "pretrained_model": args.pretrained_model,
+    }
+
+    batch_s2p(ROOTS, cli_overrides=cli_overrides, skip_if_processed=SKIP_IF_PROCESSED)
 
     print("\n✅ done.")
 

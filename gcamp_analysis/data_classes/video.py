@@ -26,7 +26,7 @@ class ConcatSection:
 
     index: int
     source_file_name: str
-    section_type: str
+    section_kind: str
     section_key: str
     start_frame: int
     end_frame: int
@@ -38,6 +38,16 @@ class ConcatSection:
     @property
     def n_frames(self) -> int:
         return self.end_frame - self.start_frame
+
+    @property
+    def section_type(self) -> str:
+        """Backward-compatible alias for the normalized section kind."""
+        return self.section_kind
+
+    @property
+    def attribute_name(self) -> str:
+        """Backward-compatible alias for callers that used attribute-style names."""
+        return self.section_key
 
 
 @dataclass
@@ -116,8 +126,8 @@ class Video:
     grouping_results: dict = field(default_factory=dict, repr=False)  # {name: GroupingResult}
     grouping_stats: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
 
-    # ---- Treatment comparison outputs (populated by GroupingService when is_concatenated)
-    treatment_comparison_results: dict = field(default_factory=dict, repr=False)
+    # ---- Baseline-vs-section comparison outputs (concatenated mode)
+    section_comparison_results: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         self.path = Path(self.path)
@@ -160,6 +170,20 @@ class Video:
         """Return a section descriptor by normalized section key."""
         return self.sections_dict.get(self._section_key(section_name))
 
+    @property
+    def baseline_section(self) -> Optional[ConcatSection]:
+        """Return the unique baseline section when present."""
+        return self.get_section("baseline")
+
+    def get_sections_by_kind(self, kind: str) -> list[ConcatSection]:
+        """Return all sections matching the requested canonical kind."""
+        normalized = self._section_kind(kind)
+        return [section for section in self.concat_sections if section.section_kind == normalized]
+
+    def iter_nonbaseline_sections(self) -> list[ConcatSection]:
+        """Return all non-baseline sections in concat order."""
+        return [section for section in self.concat_sections if section.section_kind != "baseline"]
+
     def clear_results(self) -> None:
         """Reset all computed fields to defaults. Useful for re-running in notebooks."""
         self.norm_f = _empty_array()
@@ -186,7 +210,7 @@ class Video:
 
         self.grouping_results = {}
         self.grouping_stats = pd.DataFrame()
-        self.treatment_comparison_results = {}
+        self.section_comparison_results = {}
 
     def __repr__(self) -> str:
         return (
@@ -240,14 +264,23 @@ class Video:
         sections: list[ConcatSection] = []
         previous_end = 0
         seen_keys: set[str] = set()
+        kind_counts = {"baseline": 0, "treatment": 0, "recovery": 0}
         for row_number, row in enumerate(df.itertuples(index=False, name=None), start=1):
             index_value = int(row[0])
             source_file_name = str(row[1]).strip()
-            section_type = str(row[2]).strip()
+            section_kind = self._section_kind(str(row[2]).strip())
             start_frame = int(row[3])
             end_frame = int(row[4])
 
-            section_key = self._section_key(section_type)
+            kind_counts[section_kind] += 1
+            if section_kind == "baseline":
+                if kind_counts[section_kind] > 1:
+                    raise ValueError(
+                        f"Concatenated video '{self.path}' must define exactly one baseline section."
+                    )
+                section_key = "baseline"
+            else:
+                section_key = f"{section_kind}_{kind_counts[section_kind]}"
             if section_key in seen_keys:
                 raise ValueError(f"Duplicate section key '{section_key}' in concat summary.")
             seen_keys.add(section_key)
@@ -271,14 +304,14 @@ class Video:
                 ConcatSection(
                     index=index_value,
                     source_file_name=source_file_name,
-                    section_type=section_type,
+                    section_kind=section_kind,
                     section_key=section_key,
                     start_frame=start_frame,
                     end_frame=end_frame,
                 )
             )
 
-        if not any(section.section_key == "baseline" for section in sections):
+        if kind_counts["baseline"] != 1:
             raise ValueError(f"Concatenated video '{self.path}' must define an explicit baseline section.")
 
         return sections
@@ -289,6 +322,18 @@ class Video:
         normalized = section_type.strip().lower().replace(" ", "_").replace("-", "_")
         if not normalized:
             raise ValueError(f"Could not normalize section type '{section_type}'.")
+        return normalized
+
+    @staticmethod
+    def _section_kind(section_type: str) -> str:
+        """Validate the canonical section type stored in the concat CSV."""
+        normalized = Video._section_key(section_type)
+        allowed = {"baseline", "treatment", "recovery"}
+        if normalized not in allowed:
+            raise ValueError(
+                "Concatenation summary CSV section type must be one of "
+                f"{sorted(allowed)}. Got '{section_type}'."
+            )
         return normalized
 
 @dataclass(frozen=True)
@@ -306,8 +351,8 @@ class VideoStatistics:
     # Per-group light-evoked detail DataFrames keyed by group_id
     light_evoked_details: dict = field(default_factory=dict)
 
-    # Treatment comparison results (concatenated mode only)
-    treatment_comparison: dict = field(default_factory=dict)
+    # Baseline-vs-section comparison results (concatenated mode only)
+    section_comparison: dict = field(default_factory=dict)
 
     @classmethod
     def from_video(cls, video: "Video") -> "VideoStatistics":
@@ -336,7 +381,7 @@ class VideoStatistics:
             bad_rois_features=video.bad_rois_features,
             matrices=matrices,
             light_evoked_details=light_evoked_details,
-            treatment_comparison=getattr(video, "treatment_comparison_results", {}),
+            section_comparison=getattr(video, "section_comparison_results", {}),
         )
     
 @dataclass
@@ -364,6 +409,19 @@ class VideoStatisticsWriter:
 
         base = stats.video_name
         manifest: dict[str, str] = {}
+        used_sheet_names: set[str] = set()
+
+        def _unique_sheet_name(preferred: str) -> str:
+            """Return an Excel-safe unique sheet name capped at 31 chars."""
+            base_name = preferred[:31] or "sheet"
+            candidate = base_name
+            counter = 1
+            while candidate in used_sheet_names:
+                suffix = f"_{counter}"
+                candidate = f"{base_name[: 31 - len(suffix)]}{suffix}"
+                counter += 1
+            used_sheet_names.add(candidate)
+            return candidate
 
         # Tables
         excel_path = out_dir / f"{base}_metrics.xlsx"
@@ -371,34 +429,44 @@ class VideoStatisticsWriter:
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
             if not stats.per_neuron_spike_summaries.empty:
                 stats.per_neuron_spike_summaries.to_excel(
-                    writer, sheet_name='spike_summary', index=False
+                    writer, sheet_name=_unique_sheet_name('spike_summary'), index=False
                 )
                 sheets_written = True
             
             if not stats.grouping_stats.empty:
                 stats.grouping_stats.to_excel(
-                    writer, sheet_name='grouping_stats', index=False
+                    writer, sheet_name=_unique_sheet_name('grouping_stats'), index=False
                 )
                 sheets_written = True
             
             if not stats.bad_rois_features.empty:
                 stats.bad_rois_features.to_excel(
-                    writer, sheet_name='bad_rois_features', index=True
+                    writer, sheet_name=_unique_sheet_name('bad_rois_features'), index=True
                 )
                 sheets_written = True
 
             # Light-evoked detail sheets
             for sheet_key, detail_df in stats.light_evoked_details.items():
                 if detail_df is not None and not detail_df.empty:
-                    # Excel sheet names are limited to 31 chars
-                    sheet_name = sheet_key[:31]
                     detail_df.to_excel(
-                        writer, sheet_name=sheet_name, index=False
+                        writer, sheet_name=_unique_sheet_name(sheet_key), index=False
                     )
                     sheets_written = True
 
+            # Section comparison sheets
+            for strategy_name, section_results in stats.section_comparison.items():
+                for section_key, comparison_result in section_results.items():
+                    if not getattr(comparison_result, "group_metrics", None):
+                        continue
+                    section_df = pd.DataFrame(comparison_result.group_metrics)
+                    if section_df.empty:
+                        continue
+                    sheet_name = _unique_sheet_name(f"baseline-{section_key}")
+                    section_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    sheets_written = True
+
             if not sheets_written:
-                pd.DataFrame().to_excel(writer, sheet_name='empty', index=False)
+                pd.DataFrame().to_excel(writer, sheet_name=_unique_sheet_name('empty'), index=False)
 
         manifest["metrics_excel"] = str(excel_path)
 
@@ -408,21 +476,20 @@ class VideoStatisticsWriter:
             np.save(npy_path, matrix)
             manifest[f"{mat_name}_matrix_npy"] = str(npy_path)
 
-        # Save treatment comparison results (concatenated mode)
-        if stats.treatment_comparison:
-            for strategy_name, tc_result in stats.treatment_comparison.items():
-                # Save per-group metrics as a DataFrame
-                if hasattr(tc_result, "group_metrics") and tc_result.group_metrics:
-                    tc_df = pd.DataFrame(tc_result.group_metrics)
-                    tc_path = out_dir / f"{base}_{strategy_name}_treatment_comparison.csv"
-                    tc_df.to_csv(tc_path, index=False)
-                    manifest[f"{strategy_name}_treatment_comparison"] = str(tc_path)
+        # Save section comparison results (concatenated mode)
+        if stats.section_comparison:
+            for strategy_name, section_results in stats.section_comparison.items():
+                for section_key, comparison_result in section_results.items():
+                    if hasattr(comparison_result, "group_metrics") and comparison_result.group_metrics:
+                        section_df = pd.DataFrame(comparison_result.group_metrics)
+                        section_path = out_dir / f"{base}_{strategy_name}_{section_key}_section_comparison.csv"
+                        section_df.to_csv(section_path, index=False)
+                        manifest[f"{strategy_name}_{section_key}_section_comparison"] = str(section_path)
 
-                # Save treatment similarity matrix
-                if hasattr(tc_result, "treatment_matrix") and tc_result.treatment_matrix is not None:
-                    tc_mat_path = out_dir / f"{base}_{strategy_name}_treatment_matrix.npy"
-                    np.save(tc_mat_path, tc_result.treatment_matrix)
-                    manifest[f"{strategy_name}_treatment_matrix_npy"] = str(tc_mat_path)
+                    if hasattr(comparison_result, "section_matrix") and comparison_result.section_matrix is not None:
+                        section_mat_path = out_dir / f"{base}_{strategy_name}_{section_key}_section_matrix.npy"
+                        np.save(section_mat_path, comparison_result.section_matrix)
+                        manifest[f"{strategy_name}_{section_key}_section_matrix_npy"] = str(section_mat_path)
 
         return manifest
     
@@ -466,30 +533,31 @@ class VideoFiguresWriter:
 
         return (overlay_path if overlay_fig else None, heatmap_path if heatmap_fig else None)
 
-    def write_treatment_figures(
+    def write_section_figures(
         self,
         video: "Video",
         *,
         out_dir: Path,
     ) -> dict:
-        """Generate and save treatment-comparison spatial dispersion figures."""
-        from gcamp_analysis.grouping_processing.service import visualize_treatment_comparison
+        """Generate and save section-comparison spatial dispersion figures."""
+        from gcamp_analysis.grouping_processing.service import visualize_section_comparison
 
         manifest: dict = {}
-        tc_results = getattr(video, "treatment_comparison_results", {})
+        comparison_results = getattr(video, "section_comparison_results", {})
         base = video.path.name
-        for strategy_name in tc_results:
-            delta_fig, centroid_fig = visualize_treatment_comparison(
-                video, strategy_name=strategy_name,
-            )
-            if delta_fig is not None:
-                p = out_dir / f"{base}_{strategy_name}_delta_corr_vs_dispersion.png"
-                self.save_fig(delta_fig, p)
-                manifest[f"{strategy_name}_delta_corr_png"] = str(p)
-            if centroid_fig is not None:
-                p = out_dir / f"{base}_{strategy_name}_centroid_distances.png"
-                self.save_fig(centroid_fig, p)
-                manifest[f"{strategy_name}_centroid_dist_png"] = str(p)
+        for strategy_name, section_results in comparison_results.items():
+            for section_key in section_results:
+                delta_fig, centroid_fig = visualize_section_comparison(
+                    video, strategy_name=strategy_name, section_key=section_key,
+                )
+                if delta_fig is not None:
+                    p = out_dir / f"{base}_{strategy_name}_{section_key}_delta_corr_vs_dispersion.png"
+                    self.save_fig(delta_fig, p)
+                    manifest[f"{strategy_name}_{section_key}_delta_corr_png"] = str(p)
+                if centroid_fig is not None:
+                    p = out_dir / f"{base}_{strategy_name}_{section_key}_centroid_distances.png"
+                    self.save_fig(centroid_fig, p)
+                    manifest[f"{strategy_name}_{section_key}_centroid_dist_png"] = str(p)
         return manifest
 
     def write(self, video: "Video") -> dict:
@@ -509,7 +577,7 @@ class VideoFiguresWriter:
             if heat:
                 manifest[f"{name}_heatmap_png"] = str(heat)
 
-        # Treatment comparison figures (concatenated mode)
-        manifest.update(self.write_treatment_figures(video, out_dir=out_dir))
+        # Section comparison figures (concatenated mode)
+        manifest.update(self.write_section_figures(video, out_dir=out_dir))
 
         return manifest

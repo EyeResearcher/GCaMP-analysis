@@ -1,36 +1,30 @@
-"""Grouping service: orchestration, comparison, summary, and visualization.
-
-Houses the public ``GroupingService`` entry point plus the helper functions
-that compare, summarise and visualise grouping results.
-"""
+"""Grouping service: orchestration, comparison, summary, and visualization."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from gcamp_analysis.data_classes.neuron_group import NeuronGroup
-from gcamp_analysis.reports import GroupingReport
 from gcamp_analysis.grouping_processing.strategies import STRATEGY_REGISTRY
 from gcamp_analysis.grouping_processing.treatment_comparison import (
-    run_treatment_comparison,
-    TreatmentComparisonResult,
+    SectionComparisonResult,
+    run_section_comparison,
 )
-from utils.visualization import visualize_neuron_groups, plot_matrix_heatmap
+from gcamp_analysis.reports import GroupingReport
 from utils.visualization import (
     plot_delta_corr_vs_dispersion,
+    plot_matrix_heatmap,
     plot_neuron_centroid_distances,
+    visualize_neuron_groups,
 )
 
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.video import Video
-
-
-# ── Result container ─────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -43,42 +37,31 @@ class GroupingResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-# =====================================================================
-#  DICT → NEURON-GROUP CONVERSION
-# =====================================================================
-
-
 def neuron_groups_from_dicts(
     group_dicts: List[dict],
     neurons: list,
     *,
     method: str = "combined",
 ) -> List[NeuronGroup]:
-    """Convert plain group dicts (from ``build_groups_from_labels``) into
-    ``NeuronGroup`` objects by looking up neurons by index.
-
-    Each dict must have ``group_id`` and ``neuron_indices`` keys.
-    """
-    idx_to_neuron = {n.index: n for n in neurons}
+    idx_to_neuron = {neuron.index: neuron for neuron in neurons}
     groups: List[NeuronGroup] = []
-    for gd in group_dicts:
-        group_neurons = [idx_to_neuron[i] for i in gd["neuron_indices"] if i in idx_to_neuron]
+    for group_dict in group_dicts:
+        group_neurons = [
+            idx_to_neuron[index]
+            for index in group_dict["neuron_indices"]
+            if index in idx_to_neuron
+        ]
         if not group_neurons:
             continue
         groups.append(
             NeuronGroup(
-                group_id=gd["group_id"],
+                group_id=group_dict["group_id"],
                 neurons=group_neurons,
                 method=method,
-                row_indices=gd.get("row_indices"),
+                row_indices=group_dict.get("row_indices"),
             )
         )
     return groups
-
-
-# =====================================================================
-#  PER-GROUP SUMMARY
-# =====================================================================
 
 
 def compute_group_summary_rows(
@@ -87,59 +70,43 @@ def compute_group_summary_rows(
     method: str,
     matrices: Dict[str, Optional[np.ndarray]],
 ) -> List[Dict[str, Any]]:
-    """Return one summary dict per group.
-
-    Parameters
-    ----------
-    groups : list of NeuronGroup
-    method : strategy name that produced these groups
-    matrices : ``{strategy_name: matrix_or_None}`` for connectivity stats
-    """
     rows: List[Dict[str, Any]] = []
-    for g in groups:
-        ss = [getattr(n, "summary_stats", {}) for n in g.neurons]
-        df = pd.DataFrame(ss)
+    for group in groups:
+        summary_stats = [getattr(neuron, "summary_stats", {}) for neuron in group.neurons]
+        stats_df = pd.DataFrame(summary_stats)
 
-        rates = df.get("spike_frequency", pd.Series(dtype=float))
-        num_spikes = df.get("number_of_spikes", pd.Series(dtype=float))
-        mean_of_means = df.filter(like="mean_").mean(numeric_only=True).to_dict()
+        rates = stats_df.get("spike_frequency", pd.Series(dtype=float))
+        num_spikes = stats_df.get("number_of_spikes", pd.Series(dtype=float))
+        mean_of_means = stats_df.filter(like="mean_").mean(numeric_only=True).to_dict()
 
         row: Dict[str, Any] = {
-            "group_id": g.group_id,
+            "group_id": group.group_id,
             "method": method,
-            "number_neurons": int(g.size),
-            "neuron_indices": list(getattr(g, "neuron_indices", [])),
-            "filtered_idxs": list(getattr(g, "filtered_idxs", [])),
+            "number_neurons": int(group.size),
+            "neuron_indices": list(getattr(group, "neuron_indices", [])),
+            "filtered_idxs": list(getattr(group, "filtered_idxs", [])),
             "spike_rate": float(np.nanmean(rates)) if len(rates) else 0.0,
             "number_of_spikes": float(np.nanmean(num_spikes)) if len(num_spikes) else 0.0,
             **mean_of_means,
         }
 
-        for mat_name, mat in matrices.items():
+        for matrix_name, matrix in matrices.items():
             try:
-                row[f"mean_{mat_name}"] = g.group_mean_similarity(mat)
+                row[f"mean_{matrix_name}"] = group.group_mean_similarity(matrix)
             except Exception:
-                row[f"mean_{mat_name}"] = np.nan
+                row[f"mean_{matrix_name}"] = np.nan
 
         for key in ("t_win", "corr_thresh", "sttc_thresh", "dtw_thresh"):
-            val = g.metadata.get(key)
-            if val is not None:
-                row[key] = val
+            value = group.metadata.get(key)
+            if value is not None:
+                row[key] = value
 
         rows.append(row)
     return rows
 
 
-# =====================================================================
-#  COMBINED SUMMARY
-# =====================================================================
-
-
-def build_combined_summary(
-    results: Dict[str, GroupingResult],
-) -> List[dict]:
-    """Collect per-group summary rows from all strategies."""
-    matrices = {name: r.matrix for name, r in results.items()}
+def build_combined_summary(results: Dict[str, GroupingResult]) -> List[dict]:
+    matrices = {name: result.matrix for name, result in results.items()}
     all_rows: list[dict] = []
     for name, result in results.items():
         all_rows.extend(
@@ -148,16 +115,11 @@ def build_combined_summary(
     return all_rows
 
 
-# =====================================================================
-#  VISUALIZATION
-# =====================================================================
-
-
 def _infer_img_size(video: "Video", default=(1024, 1024)) -> tuple[int, int]:
     ops = getattr(video, "suite2p_data", {}).get("ops", {}) if getattr(video, "suite2p_data", None) else {}
-    Ly = int(ops.get("Ly", default[0]))
-    Lx = int(ops.get("Lx", default[1]))
-    return (Ly, Lx)
+    ly = int(ops.get("Ly", default[0]))
+    lx = int(ops.get("Lx", default[1]))
+    return (ly, lx)
 
 
 def make_matrix_heatmap(
@@ -169,15 +131,14 @@ def make_matrix_heatmap(
     vmax: Optional[float] = None,
     figsize=(6, 5),
 ) -> Optional[Figure]:
-    """Create a heatmap figure for a similarity/distance matrix."""
     if matrix is None:
         return None
-    m = np.asarray(matrix)
-    if m.ndim != 2 or m.size == 0:
+    matrix = np.asarray(matrix)
+    if matrix.ndim != 2 or matrix.size == 0:
         return None
 
     fig, ax = plt.subplots(figsize=figsize)
-    plot_matrix_heatmap(m, title=title, cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, show_colorbar=True)
+    plot_matrix_heatmap(matrix, title=title, cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, show_colorbar=True)
     fig.tight_layout()
     return fig
 
@@ -191,19 +152,6 @@ def visualize_grouping(
     heatmap_vmin: Optional[float] = None,
     heatmap_vmax: Optional[float] = None,
 ) -> Tuple[Optional[Figure], Optional[Figure]]:
-    """Generate overlay + heatmap figures for a single grouping strategy.
-
-    Parameters
-    ----------
-    video : Video
-        Must have ``grouping_results`` populated.
-    strategy_name : str
-        Key into ``video.grouping_results``.
-
-    Returns
-    -------
-    (overlay_fig, heatmap_fig)
-    """
     result = video.grouping_results.get(strategy_name)
     if result is None:
         return None, None
@@ -214,7 +162,6 @@ def visualize_grouping(
     label = config_label or strategy_name
     heat_title = f"{strategy_name} matrix ({label})"
 
-    # Overlay
     overlay_fig: Optional[Figure] = None
     if groups:
         img_size = _infer_img_size(video)
@@ -227,7 +174,6 @@ def visualize_grouping(
             config_label=label,
         )
 
-    # Heatmap
     heatmap_fig = make_matrix_heatmap(
         matrix,
         title=heat_title,
@@ -235,135 +181,135 @@ def visualize_grouping(
         vmin=heatmap_vmin,
         vmax=heatmap_vmax,
     )
-
     return overlay_fig, heatmap_fig
 
 
-def visualize_treatment_comparison(
+def visualize_section_comparison(
     video: "Video",
     *,
-    strategy_name: str = "corr",
+    strategy_name: str,
+    section_key: str,
 ) -> Tuple[Optional[Figure], Optional[Figure]]:
-    """Generate spatial-dispersion figures for one treatment comparison.
-
-    Returns ``(delta_corr_fig, centroid_dist_fig)`` or ``(None, None)``
-    if no treatment comparison data exists for *strategy_name*.
-    """
-    tc_results = getattr(video, "treatment_comparison_results", {})
-    tc_result = tc_results.get(strategy_name)
-    if tc_result is None or not getattr(tc_result, "group_metrics", None):
+    strategy_results = getattr(video, "section_comparison_results", {}).get(strategy_name, {})
+    comparison_result = strategy_results.get(section_key)
+    if comparison_result is None or not getattr(comparison_result, "group_metrics", None):
         return None, None
 
-    gm = tc_result.group_metrics
+    group_metrics = comparison_result.group_metrics
     label = getattr(video, "path", None)
     name = label.name if label else "video"
+    title = f"{name} - {strategy_name} - {section_key}"
 
     fig1, ax1 = plt.subplots(figsize=(7, 5))
-    plot_delta_corr_vs_dispersion(gm, ax=ax1, title=f"{name} \u2014 {strategy_name}")
+    plot_delta_corr_vs_dispersion(group_metrics, ax=ax1, title=title)
     fig1.tight_layout()
 
     fig2, ax2 = plt.subplots(figsize=(7, 6))
-    plot_neuron_centroid_distances(gm, ax=ax2, title=f"{name} \u2014 {strategy_name}")
+    plot_neuron_centroid_distances(group_metrics, ax=ax2, title=title)
     fig2.tight_layout()
-
     return fig1, fig2
-
-
-# =====================================================================
-#  GROUPING SERVICE (entry point)
-# =====================================================================
 
 
 @dataclass
 class GroupingService:
-    """Run one or more grouping strategies and compare them.
-
-    Parameters
-    ----------
-    strategies : list of strategy names (keys in ``STRATEGY_REGISTRY``).
-        Default: ``["corr"]``.
-    """
+    """Run one or more grouping strategies and compare them."""
 
     strategies: list[str] = field(default_factory=lambda: ["combined"])
 
-    def _get_grouping_kwargs(self, video):
+    def _get_grouping_kwargs(self, video: "Video") -> dict[str, Any]:
         all_neurons = list(getattr(video, "neurons", []))
-        active_neurons = [
-            n for n in all_neurons
-            if getattr(getattr(n, "roi", None), "active_segments", {}).get("baseline", True)
-        ]
-
         is_concat = bool(getattr(video, "is_concatenated", False))
-        split_frame = getattr(video, "split_frame", None)
+        baseline_section = video.baseline_section if is_concat else None
+        baseline_key = baseline_section.section_key if baseline_section is not None else "baseline"
         n_frames = getattr(video, "n_frames", None)
         fs = float(getattr(video, "fs", 15.0))
-        baseline_source = video.section_traces.get("baseline", {}) if is_concat else {}
-        baseline_savgol = baseline_source.get("savgol_z_f", getattr(video, "baseline_savgol_z_f", None))
-        baseline_norm_sm = baseline_source.get("norm_sm_f", getattr(video, "baseline_norm_sm_f", None))
+
+        active_neurons = [
+            neuron
+            for neuron in all_neurons
+            if getattr(getattr(neuron, "roi", None), "active_segments", {}).get(baseline_key, True)
+        ]
+
+        baseline_source = (
+            video.section_traces.get(baseline_key, {})
+            if is_concat and baseline_section is not None
+            else {}
+        )
+        baseline_savgol = baseline_source.get("savgol_z_f", video.savgol_z_f)
+        baseline_norm_sm = baseline_source.get("norm_sm_f", video.norm_sm_f)
         if baseline_savgol is None or np.asarray(baseline_savgol).size == 0:
             baseline_savgol = video.savgol_z_f
         if baseline_norm_sm is None or np.asarray(baseline_norm_sm).size == 0:
             baseline_norm_sm = video.norm_sm_f
 
-        dtw_source = video.suite2p_data["F"][:, video.baseline_slice] if is_concat else video.suite2p_data["F"]
-        traces = np.asarray(baseline_savgol[[n.index for n in active_neurons]], dtype=float)
-        light_evoked_traces = np.asarray(baseline_norm_sm[[n.index for n in active_neurons]], dtype=float)
-        dtw_traces = np.asarray(dtw_source[[n.index for n in active_neurons]], dtype=float)
-        max_frame = video.baseline_n_frames if is_concat and video.baseline_n_frames else n_frames
+        dtw_source = (
+            video.suite2p_data["F"][:, baseline_section.frame_slice]
+            if baseline_section is not None
+            else video.suite2p_data["F"]
+        )
+        traces = np.asarray(baseline_savgol[[neuron.index for neuron in active_neurons]], dtype=float)
+        light_evoked_traces = np.asarray(
+            baseline_norm_sm[[neuron.index for neuron in active_neurons]],
+            dtype=float,
+        )
+        dtw_traces = np.asarray(dtw_source[[neuron.index for neuron in active_neurons]], dtype=float)
 
-        # Spike trains as sorted time arrays (seconds) for active neurons
+        baseline_start = baseline_section.start_frame if baseline_section is not None else 0
+        baseline_frames = baseline_section.n_frames if baseline_section is not None else n_frames
+
         spike_trains = []
-        for n in active_neurons:
+        for neuron in active_neurons:
             times = sorted(
-                s.sm_f_idx / fs for s in n.spikes
-                if 0 <= s.sm_f_idx < max_frame
+                (spike.sm_f_idx - baseline_start) / fs
+                for spike in neuron.spikes
+                if baseline_start <= spike.sm_f_idx < baseline_start + baseline_frames
             )
             spike_trains.append(np.asarray(times, dtype=np.float64))
 
-        t_stop = max_frame / fs
-
-        # Map from trimmed index (row in traces / spike_trains) → original neuron index
-        neuron_indices = np.array([n.index for n in active_neurons])
-
-        result = {
+        result: dict[str, Any] = {
             "all_neurons": all_neurons,
             "active_neurons": active_neurons,
             "traces": traces,
             "dtw_traces": dtw_traces,
             "light_evoked_traces": light_evoked_traces,
             "spike_trains": spike_trains,
-            "t_stop": t_stop,
-            "neuron_indices": neuron_indices,
+            "t_stop": baseline_frames / fs,
+            "neuron_indices": np.array([neuron.index for neuron in active_neurons]),
             "is_concatenated": is_concat,
-            "split_frame": split_frame,
             "n_frames": n_frames,
             "fs": fs,
             "video_id": str(getattr(video, "video_id", "")),
             "schedule_overrides": {"5732L-5": [33, 65, 93, 116, 153, 192]},
+            "section_inputs": {},
         }
 
-        # Treatment data for concatenated videos (same active neurons)
-        treatment_section = video.get_legacy_treatment_section() if is_concat else None
-        treatment_source = (
-            video.section_traces.get(treatment_section.attribute_name, {})
-            if treatment_section is not None
-            else {}
-        )
-        treatment_savgol = treatment_source.get("savgol_z_f", getattr(video, "treatment_savgol_z_f", None))
+        if is_concat:
+            for section in video.iter_nonbaseline_sections():
+                section_source = video.section_traces.get(section.section_key, {})
+                section_savgol = section_source.get("savgol_z_f")
+                if section_savgol is None or np.asarray(section_savgol).size == 0:
+                    continue
 
-        if is_concat and split_frame is not None and treatment_savgol is not None and np.asarray(treatment_savgol).size:
-            result["tx_traces"] = np.asarray(treatment_savgol[[n.index for n in active_neurons]], dtype=float)
-
-            tx_spike_trains = []
-            for n in active_neurons:
-                times = sorted(
-                    (s.sm_f_idx - split_frame) / fs
-                    for s in n.spikes
-                    if split_frame <= s.sm_f_idx < n_frames
+                section_traces = np.asarray(
+                    section_savgol[[neuron.index for neuron in active_neurons]],
+                    dtype=float,
                 )
-                tx_spike_trains.append(np.asarray(times, dtype=np.float64))
-            result["tx_spike_trains"] = tx_spike_trains
-            result["tx_t_stop"] = (n_frames - split_frame) / fs
+                section_spike_trains = []
+                for neuron in active_neurons:
+                    times = sorted(
+                        (spike.sm_f_idx - section.start_frame) / fs
+                        for spike in neuron.spikes
+                        if section.start_frame <= spike.sm_f_idx < section.end_frame
+                    )
+                    section_spike_trains.append(np.asarray(times, dtype=np.float64))
+
+                result["section_inputs"][section.section_key] = {
+                    "section_key": section.section_key,
+                    "section_kind": section.section_kind,
+                    "section_traces": section_traces,
+                    "section_spike_trains": section_spike_trains,
+                    "section_t_stop": section.n_frames / fs,
+                }
 
         return result
 
@@ -371,16 +317,16 @@ class GroupingService:
         if len(video.neurons) < 2:
             video.grouping_results = {}
             video.grouping_stats = pd.DataFrame()
+            video.section_comparison_results = {}
             return None
-        grouping_cfg = grouping_cfg.copy() 
+
+        grouping_cfg = grouping_cfg.copy()
         strat_args = self._get_grouping_kwargs(video)
 
-        # ── Run each enabled strategy ────────────────────────────────
         results: dict[str, GroupingResult] = {}
         all_neurons = strat_args["all_neurons"]
-
         for name in self.strategies:
-            entry  = STRATEGY_REGISTRY.get(name)
+            entry = STRATEGY_REGISTRY.get(name)
             if entry is None:
                 raise ValueError(
                     f"Unknown grouping strategy {name!r}. "
@@ -396,7 +342,6 @@ class GroupingService:
             else:
                 raw = entry(cfg, **strat_args)
 
-            # Convert dict-based groups to NeuronGroup objects
             groups = raw.get("groups", [])
             if groups and isinstance(groups[0], dict):
                 groups = neuron_groups_from_dicts(groups, all_neurons, method=name)
@@ -409,48 +354,49 @@ class GroupingService:
             )
 
         video.grouping_results = results
-        names_run = [n for n in self.strategies if n in results]
+        names_run = [name for name in self.strategies if name in results]
 
-        # ── Treatment comparison (concatenated mode) ─────────────────
-        if (
-            video.is_concatenated
-            and video.split_frame is not None
-            and "tx_traces" in strat_args
-            and "tx_spike_trains" in strat_args
-            and "tx_t_stop" in strat_args
-        ):
-            tc_results: dict = {}
+        comparison_results: dict[str, dict[str, SectionComparisonResult]] = {}
+        section_inputs = strat_args["section_inputs"]
+        if video.is_concatenated and section_inputs:
             for name in names_run:
+                if name != "combined":
+                    continue
                 result = results[name]
-                if not result.groups:
+                if not result.groups or result.matrix is None:
                     continue
                 cfg = grouping_cfg.get(name, {}) or {}
-
-                if name == "combined":
-                    tc_raw = run_treatment_comparison(
-                        strat_args["tx_traces"],
-                        strat_args["tx_spike_trains"],
-                        strat_args["tx_t_stop"],
+                strategy_results: dict[str, SectionComparisonResult] = {}
+                for section_key, section_input in section_inputs.items():
+                    comparison_raw = run_section_comparison(
+                        section_input["section_traces"],
+                        section_input["section_spike_trains"],
+                        section_input["section_t_stop"],
                         strat_args["neuron_indices"],
                         result.groups,
                         result.matrix,
+                        section_key=section_input["section_key"],
+                        section_kind=section_input["section_kind"],
                         corr_config=cfg.get("corr", {}) or {},
                         sttc_config=cfg.get("sttc", {}) or {},
                         cluster_config=cfg.get("cluster", {}) or {},
                     )
-                    tc_results[name] = TreatmentComparisonResult(
+                    strategy_results[section_key] = SectionComparisonResult(
                         strategy_name=name,
-                        group_metrics=tc_raw["group_metrics"],
-                        treatment_matrix=tc_raw["treatment_matrix"],
-                        subgroups=tc_raw.get("subgroups", {}),
+                        section_key=section_input["section_key"],
+                        section_kind=section_input["section_kind"],
+                        group_metrics=comparison_raw["group_metrics"],
+                        section_matrix=comparison_raw["section_matrix"],
+                        subgroups=comparison_raw.get("subgroups", {}),
                     )
-            video.treatment_comparison_results = tc_results
+                if strategy_results:
+                    comparison_results[name] = strategy_results
+        video.section_comparison_results = comparison_results
 
-        # ── Summary stats ────────────────────────────────────────────
         combined = build_combined_summary(results)
         video.grouping_stats = pd.DataFrame(combined) if combined else pd.DataFrame()
 
         return GroupingReport(
             strategies_run=names_run,
-            n_groups={n: len(results[n].groups) for n in names_run},
+            n_groups={name: len(results[name].groups) for name in names_run},
         )

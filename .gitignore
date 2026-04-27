@@ -22,3 +22,8 @@ sandbox/
 preprocessing/concat_videos.py
 models/
 config/
+
+# Ignore To-Do markdown files
+ToDo_Contexts/
+
+configs/

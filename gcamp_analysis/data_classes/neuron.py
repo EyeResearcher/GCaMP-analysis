@@ -138,72 +138,48 @@ class Neuron:
         self.summary_stats = dict(summary)
         return self.summary_stats
 
-    def summarize_spikes_segmented(
+    def summarize_spikes_by_section(
         self,
         f_trace_raw: np.ndarray,
-        split_frame: int,
+        sections: list,
     ) -> Dict[str, Any]:
-        """Aggregate per-spike stats into baseline / treatment summaries.
-
-        Produces the normal whole-trace summary (``spike_frequency``, …)
-        *plus* ``baseline_*`` and ``treatment_*`` prefixed versions of
-        every aggregated stat.  Also adds ``baseline_active`` and
-        ``treatment_active`` booleans indicating whether the ROI was
-        classified as active in each segment.
-
-        Parameters
-        ----------
-        f_trace_raw : np.ndarray
-            Full raw fluorescence trace (both segments concatenated).
-        split_frame : int
-            Frame index where baseline ends and treatment begins.
-        """
-        # First, compute the whole-trace summary via the existing method
+        """Aggregate per-spike stats into section-keyed summaries."""
         whole = self.summarize_spikes(f_trace_raw)
         if not whole:
             return {}
 
         fs = float(self.fs)
-        raw = np.asarray(f_trace_raw, dtype=float).reshape(-1)
-
-        # Segment metadata from ROI
         active_segs = getattr(self.roi, "active_segments", {})
-        whole["baseline_active"] = active_segs.get("baseline", True)
-        whole["treatment_active"] = active_segs.get("treatment", True)
 
-        # Split spike stats by segment tag
-        bl_stats = [s for s in self.all_spk_stats if s.get("_segment") == "baseline"]
-        tx_stats = [s for s in self.all_spk_stats if s.get("_segment") == "treatment"]
+        for section in sections:
+            section_key = section.section_key
+            whole[f"{section_key}_active"] = active_segs.get(section_key, True)
 
-        bl_spikes = [sp for sp in self.spikes if sp.sm_f_idx < split_frame]
-        tx_spikes = [sp for sp in self.spikes if sp.sm_f_idx >= split_frame]
+            section_stats = [
+                stat for stat in self.all_spk_stats
+                if stat.get("_section_key") == section_key
+            ]
+            section_spikes = [
+                sp for sp in self.spikes
+                if section.start_frame <= sp.sm_f_idx < section.end_frame
+            ]
+            n_section_frames = section.n_frames
+            section_freq = (
+                float(len(section_spikes) / (n_section_frames / fs))
+                if n_section_frames > 0 else 0.0
+            )
+            whole[f"{section_key}_spike_frequency"] = section_freq
+            whole[f"{section_key}_number_of_spikes"] = len(section_spikes)
 
-        n_bl_frames = split_frame
-        n_tx_frames = len(raw) - split_frame
-
-        # --- Baseline summary ---
-        bl_freq = float(len(bl_spikes) / (n_bl_frames / fs)) if n_bl_frames > 0 else 0.0
-        whole["baseline_spike_frequency"] = bl_freq
-        whole["baseline_number_of_spikes"] = len(bl_spikes)
-
-        if bl_stats:
-            bl_df = pd.DataFrame(bl_stats).drop(columns=["_segment"], errors="ignore")
-            for col in bl_df.columns:
-                x = pd.to_numeric(bl_df[col], errors="coerce")
-                whole[f"baseline_mean_{col}"] = float(x.mean())
-                whole[f"baseline_var_{col}"] = float(x.var())
-
-        # --- Treatment summary ---
-        tx_freq = float(len(tx_spikes) / (n_tx_frames / fs)) if n_tx_frames > 0 else 0.0
-        whole["treatment_spike_frequency"] = tx_freq
-        whole["treatment_number_of_spikes"] = len(tx_spikes)
-
-        if tx_stats:
-            tx_df = pd.DataFrame(tx_stats).drop(columns=["_segment"], errors="ignore")
-            for col in tx_df.columns:
-                x = pd.to_numeric(tx_df[col], errors="coerce")
-                whole[f"treatment_mean_{col}"] = float(x.mean())
-                whole[f"treatment_var_{col}"] = float(x.var())
+            if section_stats:
+                section_df = pd.DataFrame(section_stats).drop(
+                    columns=["_section_key", "_section_kind"],
+                    errors="ignore",
+                )
+                for col in section_df.columns:
+                    x = pd.to_numeric(section_df[col], errors="coerce")
+                    whole[f"{section_key}_mean_{col}"] = float(x.mean())
+                    whole[f"{section_key}_var_{col}"] = float(x.var())
 
         self.summary_stats = whole
         return self.summary_stats

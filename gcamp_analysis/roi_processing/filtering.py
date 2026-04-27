@@ -49,18 +49,35 @@ class ROIService:
         self,
         rois: List[ROI],
         good_roi_mask: np.ndarray,
-        feats: list,
-        preds_bl: Optional[np.ndarray] = None,
-        preds_tx: Optional[np.ndarray] = None,
+        feats: Optional[list],
+        section_predictions: Optional[dict[str, np.ndarray]] = None,
+        section_features: Optional[dict[str, list]] = None,
     ) -> None:
+        baseline_features = None
+        if section_features:
+            baseline_features = section_features.get("baseline")
+
         for i, roi in enumerate(rois):
             if feats:
                 roi.features = feats[i]
-            if preds_bl is not None and preds_tx is not None:
+            elif section_predictions is not None:
                 roi.active_segments = {
-                    "baseline": bool(preds_bl[i]),
-                    "treatment": bool(preds_tx[i]),
+                    section_key: bool(preds[i])
+                    for section_key, preds in section_predictions.items()
                 }
+
+                chosen_features = None
+                if baseline_features is not None and roi.active_segments.get("baseline", False):
+                    chosen_features = baseline_features[i]
+                else:
+                    for section in section_features or {}:
+                        if roi.active_segments.get(section, False):
+                            chosen_features = section_features[section][i]
+                            break
+                if chosen_features is None and baseline_features is not None:
+                    chosen_features = baseline_features[i]
+                if chosen_features is not None:
+                    roi.features = chosen_features
             if roi.is_good is False:
                 good_roi_mask[i] = False
                 roi.is_good = False
@@ -100,8 +117,8 @@ class ROIService:
         Filter ROIs using the trained classifier.
         
         In concatenated mode, features are extracted separately for each
-        segment (baseline / treatment) and the classifier is run on each.
-        An ROI is kept if *either* half passes (union logic).  Per-segment
+        parsed concat section and the classifier is run on each section.
+        An ROI is kept if *any* section passes (union logic). Per-section
         pass/fail is recorded in ``roi.active_segments``.
 
         Parameters
@@ -125,16 +142,31 @@ class ROIService:
 
         transform = model_config.get("transform") if model_config else None
 
-        if video.is_concatenated and video.split_frame is not None:
-            # --- Concatenated piecemeal filtering ---
-            baseline_smoothed = video.baseline_norm_sm_f   # (n_rois, baseline_frames)
-            treatment_smoothed = video.treatment_norm_sm_f  # (n_rois, treatment_frames)
-            preds_bl, _ = self._get_preds(baseline_smoothed[:,:-2], all_rois, roi_model, transform)
-            preds_tx, treatment_feats = self._get_preds(treatment_smoothed, all_rois, roi_model, transform)
+        if video.is_concatenated and video.concat_sections:
+            section_predictions: dict[str, np.ndarray] = {}
+            section_features: dict[str, list] = {}
 
-            good_roi_mask = np.asarray(preds_bl | preds_tx, dtype=bool)
+            for section in video.concat_sections:
+                smoothed = video.section_traces[section.section_key]["norm_sm_f"]
+                if section.section_key == "baseline" and smoothed.shape[1] > 2:
+                    section_input = smoothed[:, :-2]
+                else:
+                    section_input = smoothed
+                preds, feats = self._get_preds(section_input, all_rois, roi_model, transform)
+                section_predictions[section.section_key] = np.asarray(preds, dtype=bool)
+                section_features[section.section_key] = feats
 
-            self._assign_roi_status(all_rois, good_roi_mask, treatment_feats, preds_bl, preds_tx)
+            good_roi_mask = np.zeros(len(all_rois), dtype=bool)
+            for preds in section_predictions.values():
+                good_roi_mask |= preds
+
+            self._assign_roi_status(
+                all_rois,
+                good_roi_mask,
+                None,
+                section_predictions=section_predictions,
+                section_features=section_features,
+            )
         else:
             smoothed = video.norm_sm_f 
             preds, feats = self._get_preds(smoothed, all_rois, roi_model, transform)
