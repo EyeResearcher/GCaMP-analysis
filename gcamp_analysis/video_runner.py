@@ -65,7 +65,7 @@ class VideoPipelineRunner:
         spike = SpikeService(n_jobs=n_jobs)
         # Resolve grouping strategies from config
         grouping_cfg = config.get("grouping", {})
-        strategies = grouping_cfg.get("strategies", ["corr"])
+        strategies = grouping_cfg.get("strategies", ["combined"])
 
         # Filter out strategies whose per-strategy config has enabled: false
         strategies = [
@@ -102,10 +102,17 @@ class VideoPipelineRunner:
 
         # Set concatenated mode on the video object
         video.is_concatenated = self.is_concatenated
-        video.split_frame = self.split_frame
+        if video.split_frame is None:
+            video.split_frame = self.split_frame
 
         if video.is_concatenated and verbose:
-            print(f"  Concatenated mode: split at frame {video.split_frame}")
+            if getattr(video, "concat_sections", None):
+                print(
+                    f"  Concatenated mode: {len(video.concat_sections)} section(s), "
+                    f"legacy split at frame {video.split_frame}"
+                )
+            else:
+                print(f"  Concatenated mode: split at frame {video.split_frame}")
 
         # Step 1–2: traces
         tr = self.trace.run(video)
@@ -141,9 +148,6 @@ class VideoPipelineRunner:
             parts = [f"Grouping ({'+'.join(gr.strategies_run)}):"]
             for name, count in gr.n_groups.items():
                 parts.append(f"{name}={count}")
-            if gr.agreements:
-                for pair, val in gr.agreements.items():
-                    parts.append(f"{pair}={val:.2f}")
             print("  " + " | ".join(parts))
 
             # Treatment comparison summary

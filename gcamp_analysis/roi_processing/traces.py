@@ -17,62 +17,73 @@ def normalize_minmax(f: np.ndarray) -> np.ndarray:
     scaled_flat = scaler.fit_transform(flat_f)
     return scaled_flat.reshape(f.shape)
 
-def get_savgol_params(fs: float, sensor_type: str = "gcamp8s") -> tuple[int, int]:
-    if sensor_type == "gcamp8s":
-        window_frames = int(0.6 * fs)
-    elif sensor_type == "gcamp6f":
-        window_frames = int(0.3 * fs)
-    else:
-        window_frames = int(0.4 * fs)
-    window_length = 2 * (window_frames // 2) + 1
-    window_length = max(9, window_length)
-    return window_length, 3
 
 @dataclass
 class TraceService:
     smooth_sigma: float = 4.0
     sensor_type: str = "gcamp8s"
-    def _process_traces(self, traces, fs) -> TraceReport:
+
+    @staticmethod
+    def _resolve_savgol_window(n_frames: int, preferred: int = 51, polyorder: int = 3) -> int | None:
+        """Return a valid odd Savitzky-Golay window for the given trace length."""
+        if n_frames <= polyorder:
+            return None
+        window = min(preferred, n_frames)
+        if window % 2 == 0:
+            window -= 1
+        if window <= polyorder:
+            minimum = polyorder + 1
+            window = minimum + 1 if minimum % 2 == 0 else minimum
+        return window if window <= n_frames else None
+
+    def _process_traces(self, traces, fs):
         norm = normalize_minmax(traces)
         smoothed = gaussian_filter1d(norm, sigma=self.smooth_sigma, axis=1)
-        wl, po = get_savgol_params(fs=fs, sensor_type=self.sensor_type)
-        savgol = savgol_filter(norm, window_length=wl, polyorder=po, axis=1)
-        return norm, smoothed, savgol
+        window = self._resolve_savgol_window(norm.shape[1])
+        mean = np.mean(traces, axis=1, keepdims=True)
+        std = np.std(traces, axis=1, keepdims=True)
+        zscore = (traces - mean) / std
+        if window is None:
+            savgol = norm.copy()
+            savgol_z = zscore.copy()
+        else:
+            savgol = savgol_filter(norm, window_length=window, polyorder=3, axis=1)
+            savgol_z = savgol_filter(zscore, window_length=window, polyorder=3, axis=1)
+
+        return norm, smoothed, savgol, zscore, savgol_z
+
+    def _assign_section_traces(self, video: "Video", trace_map: dict[str, np.ndarray]) -> None:
+        """Slice processed traces into the section-keyed trace mapping on ``Video``."""
+        video.section_traces = {}
+        for section in getattr(video, "concat_sections", []):
+            per_section: dict[str, np.ndarray] = {}
+            for trace_name, trace_values in trace_map.items():
+                sliced = np.asarray(trace_values[:, section.start_frame:section.end_frame])
+                per_section[trace_name] = sliced
+            video.section_traces[section.section_key] = per_section
+
     def run(self, video: "Video") -> TraceReport:
         fs = float(video.fs)
         F = video.suite2p_data["F"]
+        norm, smoothed, savgol, zscore, savgol_z = self._process_traces(F, fs)
 
-        if video.is_concatenated and video.split_frame is not None:
-            # --- Per-segment normalization ---
-            sf = video.split_frame
-            F_bl, F_tx = F[:, :sf], F[:, sf:]
+        video.norm_f = norm
+        video.norm_sm_f = smoothed
+        video.norm_sg_f = savgol
+        video.z_f = zscore
+        video.savgol_z_f = savgol_z
+        np.save(video.suite2p_path / "F_minmax.npy", video.norm_f)
 
-            # Baseline
-            norm_bl, sm_bl, sg_bl = self._process_traces(F_bl, fs)
-
-            video.baseline_norm_f = norm_bl
-            video.baseline_norm_sm_f = sm_bl
-            video.baseline_norm_sg_f = sg_bl
-
-            # Treatment
-            norm_tx, sm_tx, sg_tx = self._process_traces(F_tx, fs)
-
-            video.treatment_norm_f = norm_tx
-            video.treatment_norm_sm_f = sm_tx
-            video.treatment_norm_sg_f = sg_tx
-
-            # Also populate full-trace fields by concatenating the
-            video.norm_f = np.concatenate([norm_bl, norm_tx], axis=1)
-            video.norm_sm_f = np.concatenate([sm_bl, sm_tx], axis=1)
-            video.norm_sg_f = np.concatenate([sg_bl, sg_tx], axis=1)
-
-            np.save(video.suite2p_path / "F_minmax.npy", video.norm_f)
-        else:
-            # --- Original single-video path ---
-            norm, smoothed, savgol = self._process_traces(F, fs)
-            video.norm_f = norm
-            np.save(video.suite2p_path / "F_minmax.npy", video.norm_f)
-            video.norm_sm_f = smoothed
-            video.norm_sg_f = savgol
+        if video.is_concatenated:
+            self._assign_section_traces(
+                video,
+                {
+                    "norm_f": video.norm_f,
+                    "norm_sm_f": video.norm_sm_f,
+                    "norm_sg_f": video.norm_sg_f,
+                    "z_f": video.z_f,
+                    "savgol_z_f": video.savgol_z_f,
+                },
+            )
 
         return TraceReport(n_rois=int(video.n_rois), n_frames=int(video.n_frames), fs=fs)

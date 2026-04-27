@@ -5,6 +5,11 @@ this module computes per-group metrics that quantify how each functional
 group changed after treatment — and optionally re-clusters group members
 on the treatment segment.
 
+The public entry point ``run_treatment_comparison`` mirrors
+``run_combined_grouping``: it takes pre-processed numerical data and
+returns a plain dict.  The service layer wraps the dict into a
+``TreatmentComparisonResult`` dataclass.
+
 Metric functions are registered in ``METRIC_REGISTRY`` so that new
 comparison metrics can be added by simply writing a function and
 appending it to the list.
@@ -18,13 +23,19 @@ import numpy as np
 from scipy.spatial.distance import pdist
 
 from gcamp_analysis.data_classes.neuron_group import NeuronGroup
-from gcamp_analysis.grouping_processing.similarity import compute_correlation_matrix
-from gcamp_analysis.grouping_processing.clustering import recluster_within_group
+from gcamp_analysis.grouping_processing.similarity import (
+    max_crosscorr_similarity,
+    compute_sttc_matrix,
+    compute_combined_similarities,
+)
+from gcamp_analysis.grouping_processing.clustering import (
+    cluster_hierarchical,
+    build_groups_from_labels,
+)
 
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.neuron import Neuron
     from gcamp_analysis.data_classes.video import Video
-    from gcamp_analysis.grouping_processing.strategies import GroupingResult
 
 
 # =====================================================================
@@ -126,21 +137,36 @@ def _build_neuron_detail(
 
 
 # =====================================================================
-#  Metric functions  (signature: group, bl_matrix, tx_matrix, config) -> dict)
+#  Matrix helpers
 # =====================================================================
 
-MetricFn = Callable[[NeuronGroup, np.ndarray, np.ndarray, dict], Dict[str, Any]]
+
+def _mean_upper_tri_rows(matrix: np.ndarray | None, rows: list) -> float:
+    """Mean of upper-triangle entries for the sub-matrix at *rows*."""
+    if matrix is None or len(rows) < 2:
+        return np.nan
+    sub = matrix[np.ix_(rows, rows)]
+    tri = sub[np.triu_indices(len(rows), k=1)]
+    return float(np.nanmean(tri))
+
+
+# =====================================================================
+#  Metric functions  (group, group_rows, bl_matrix, tx_matrix, config) -> dict
+# =====================================================================
+
+MetricFn = Callable[[NeuronGroup, list, np.ndarray, np.ndarray, dict], Dict[str, Any]]
 
 
 def _delta_mean_correlation(
     group: NeuronGroup,
+    group_rows: list,
     bl_matrix: np.ndarray,
     tx_matrix: np.ndarray,
     config: dict,
 ) -> Dict[str, Any]:
-    """Change in mean intra-group correlation from baseline to treatment."""
-    bl_corr = group._mean_upper_tri(bl_matrix)
-    tx_corr = group._mean_upper_tri(tx_matrix)
+    """Change in mean intra-group similarity from baseline to treatment."""
+    bl_corr = _mean_upper_tri_rows(bl_matrix, group_rows)
+    tx_corr = _mean_upper_tri_rows(tx_matrix, group_rows)
     return {
         "baseline_mean_corr": bl_corr,
         "treatment_mean_corr": tx_corr,
@@ -150,41 +176,43 @@ def _delta_mean_correlation(
 
 def _frac_pairs_above_threshold(
     group: NeuronGroup,
+    group_rows: list,
     bl_matrix: np.ndarray,
     tx_matrix: np.ndarray,
     config: dict,
 ) -> Dict[str, Any]:
-    """Fraction of within-group neuron pairs whose treatment correlation
+    """Fraction of within-group neuron pairs whose treatment similarity
     still exceeds the clustering threshold used at baseline."""
-    threshold = float(config.get("distance_threshold", 0.6))
-    corr_thresh = 1.0 - threshold  # distance_threshold → correlation threshold
+    cluster_param = float(config.get("cluster_param", 0.65))
+    sim_thresh = 1.0 - cluster_param
 
-    idxs = group.filtered_idxs
-    if len(idxs) < 2 or tx_matrix is None:
+    if len(group_rows) < 2 or tx_matrix is None:
         return {"frac_pairs_above_thresh": np.nan}
 
-    sub = tx_matrix[np.ix_(idxs, idxs)]
-    tri = sub[np.triu_indices(len(idxs), k=1)]
+    sub = tx_matrix[np.ix_(group_rows, group_rows)]
+    tri = sub[np.triu_indices(len(group_rows), k=1)]
     if tri.size == 0:
         return {"frac_pairs_above_thresh": np.nan}
 
-    frac = float(np.mean(tri >= corr_thresh))
+    frac = float(np.mean(tri >= sim_thresh))
     return {"frac_pairs_above_thresh": frac}
 
 
 def _treatment_coherence(
     group: NeuronGroup,
+    group_rows: list,
     bl_matrix: np.ndarray,
     tx_matrix: np.ndarray,
     config: dict,
 ) -> Dict[str, Any]:
-    """Mean intra-group correlation on treatment traces alone."""
-    tx_corr = group._mean_upper_tri(tx_matrix)
+    """Mean intra-group similarity on treatment traces alone."""
+    tx_corr = _mean_upper_tri_rows(tx_matrix, group_rows)
     return {"treatment_coherence": tx_corr}
 
 
 def _baseline_spatial_dispersion(
     group: NeuronGroup,
+    group_rows: list,
     bl_matrix: np.ndarray,
     tx_matrix: np.ndarray,
     config: dict,
@@ -209,13 +237,18 @@ METRIC_REGISTRY: List[MetricFn] = [
 ]
 
 
-def _subgroup_mean_correlations(
-    subs: List[NeuronGroup], tx_matrix: np.ndarray,
+def _subgroup_mean_similarities(
+    subs: List[NeuronGroup],
+    tx_matrix: np.ndarray,
+    idx_to_row: Dict[int, int],
 ) -> tuple:
-    """Per-subgroup and size-weighted mean intra-subgroup correlation."""
+    """Per-subgroup and size-weighted mean intra-subgroup similarity."""
     if not subs:
         return [], np.nan
-    corrs = [sg.group_mean_similarity(tx_matrix) for sg in subs]
+    corrs = []
+    for sg in subs:
+        rows = [idx_to_row[n.index] for n in sg.neurons if n.index in idx_to_row]
+        corrs.append(_mean_upper_tri_rows(tx_matrix, rows))
     sizes = np.array([sg.size for sg in subs], dtype=float)
     vals = np.array(corrs)
     finite = np.isfinite(vals)
@@ -227,46 +260,64 @@ def _recluster_group(
     group: NeuronGroup,
     active_neurons: list,
     tx_matrix: np.ndarray,
+    idx_to_row: Dict[int, int],
     bl_centroid: np.ndarray,
     bl_mpd: float,
-    strategy_name: str,
-    strategy_config: dict,
+    *,
+    cluster_param: float = 0.65,
+    linkage_method: str = "average",
+    cluster_criterion: str = "distance",
+    min_group_size: int = 2,
 ) -> tuple:
-    """Re-cluster a baseline group on treatment traces and compute subgroup metrics.
+    """Re-cluster a baseline group on treatment combined matrix.
 
-    Returns ``(row_updates, subs, neuron_to_sub)`` where *row_updates* is
-    a dict of metrics to merge into the per-group row, *subs* is the list
-    of treatment subgroups, and *neuron_to_sub* maps neuron index to
-    ``(subgroup_id, subgroup_centroid)``.
+    Uses ``cluster_hierarchical`` + ``build_groups_from_labels``, matching
+    the baseline grouping workflow.
+
+    Returns ``(row_updates, subs, neuron_to_sub)``.
     """
-    active_fidxs = [n.filtered_index for n in active_neurons]
-    if len(active_fidxs) < 2:
+    active_rows = [idx_to_row[n.index] for n in active_neurons if n.index in idx_to_row]
+    if len(active_rows) < min_group_size:
         return {}, [], {}
 
-    corr_sub = tx_matrix[np.ix_(active_fidxs, active_fidxs)]
-    subs = recluster_within_group(
-        active_neurons,
-        corr_sub,
-        parent_group_id=group.group_id,
-        method=strategy_name,
-        distance_threshold=float(strategy_config.get("distance_threshold", 0.6)),
-        min_group_size=int(strategy_config.get("min_group_size", 2)),
-        corr_config=strategy_config,
+    tx_sub = tx_matrix[np.ix_(active_rows, active_rows)]
+    _Z, labels, _order, _mat_ordered, _labels_ordered = cluster_hierarchical(
+        tx_sub,
+        linkage_method=linkage_method,
+        cluster_criterion=cluster_criterion,
+        cluster_param=cluster_param,
     )
+
+    # Map local sub-matrix position → neuron
+    active_in_row = [n for n in active_neurons if n.index in idx_to_row]
+    sub_row_idxs = np.arange(len(active_in_row))
+    sub_neuron_idxs = np.array([n.index for n in active_in_row])
+    sub_dicts = build_groups_from_labels(
+        labels, sub_row_idxs, sub_neuron_idxs, min_group_size=min_group_size,
+    )
+
+    # Convert to NeuronGroups (needed for spatial metrics)
+    idx_to_neuron = {n.index: n for n in active_neurons}
+    subs: List[NeuronGroup] = []
+    for sd in sub_dicts:
+        sg_neurons = [idx_to_neuron[i] for i in sd["neuron_indices"] if i in idx_to_neuron]
+        if not sg_neurons:
+            continue
+        subs.append(NeuronGroup(
+            group_id=f"{group.group_id}_sub{sd['group_id']}",
+            neurons=sg_neurons,
+            method="combined",
+            parent_group_id=group.group_id,
+        ))
 
     updates: Dict[str, Any] = {
         "n_treatment_subgroups": len(subs),
         "treatment_subgroup_sizes": [sg.size for sg in subs],
-        "subgroup_neuron_indices": [
-            list(getattr(sg, "neuron_indices", [])) for sg in subs
-        ],
-        "subgroup_filtered_idxs": [
-            list(getattr(sg, "filtered_idxs", [])) for sg in subs
-        ],
+        "subgroup_neuron_indices": [list(sg.neuron_indices) for sg in subs],
     }
 
-    # Mean intra-subgroup correlation on treatment traces
-    corrs, mean_corr = _subgroup_mean_correlations(subs, tx_matrix)
+    # Mean intra-subgroup similarity on treatment matrix
+    corrs, mean_corr = _subgroup_mean_similarities(subs, tx_matrix, idx_to_row)
     updates["subgroup_mean_corrs"] = corrs
     updates["treatment_subgroup_mean_corr"] = mean_corr
 
@@ -308,115 +359,138 @@ def _recluster_group(
 
 
 # =====================================================================
-#  Service entry point
+#  Public entry point
 # =====================================================================
 
 
-class TreatmentComparisonService:
-    """Compute per-group treatment comparison metrics and sub-clustering.
+def run_treatment_comparison(
+    tx_traces: np.ndarray,
+    tx_spike_trains: list,
+    tx_t_stop: float,
+    neuron_indices: np.ndarray,
+    baseline_groups: list,
+    bl_matrix: np.ndarray,
+    *,
+    corr_config: Dict[str, Any] | None = None,
+    sttc_config: Dict[str, Any] | None = None,
+    cluster_config: Dict[str, Any] | None = None,
+    **kwargs,
+) -> dict:
+    """Compare baseline groups against treatment-half data.
 
-    Called by ``GroupingService`` after baseline grouping when the video
-    is concatenated.
+    Computes a treatment combined similarity matrix (corr × STTC),
+    identically to the baseline ``run_combined_grouping``, then
+    evaluates per-group metrics and optionally re-clusters.
+
+    Parameters
+    ----------
+    tx_traces : (n_active, n_timepoints) array
+        Treatment-segment traces for the same active neurons used at
+        baseline (savgol z-scored).
+    tx_spike_trains : list of array-like
+        Sorted spike-time arrays (seconds) per active neuron in the
+        treatment segment.
+    tx_t_stop : float
+        Treatment segment duration in seconds.
+    neuron_indices : array of int
+        Original neuron/ROI indices for each row (same as baseline).
+    baseline_groups : list of NeuronGroup
+        Groups found during baseline clustering.
+    bl_matrix : (n_active, n_active) array
+        Baseline combined similarity matrix.
+    corr_config, sttc_config, cluster_config : dict, optional
+        Per-component configuration overrides.
+
+    Returns
+    -------
+    dict
+        Keys: ``group_metrics``, ``treatment_matrix``, ``subgroups``,
+        ``metadata``.
     """
+    corr_config = corr_config or {}
+    sttc_config = sttc_config or {}
+    cluster_config = cluster_config or {}
 
-    def run(
-        self,
-        video: "Video",
-        baseline_result: "GroupingResult",
-        strategy_name: str,
-        strategy_config: dict,
-    ) -> TreatmentComparisonResult:
-        """Run all registered metrics and optional re-clustering.
+    # ── Treatment combined matrix (identical to baseline computation) ──
+    max_lag = int(corr_config.get("max_lag", 5))
+    dt = float(sttc_config.get("dt", 1.75))
 
-        Parameters
-        ----------
-        video : Video
-            Must have ``treatment_norm_sm_f`` populated.
-        baseline_result : GroupingResult
-            Groups and matrix from baseline-only clustering.
-        strategy_name : str
-            Name of the grouping strategy (e.g. ``"corr"``).
-        strategy_config : dict
-            Per-strategy config from the pipeline YAML.
-        """
-        # Build treatment-half correlation matrix using same neurons
-        tx_traces_full = np.asarray(video.treatment_norm_sm_f, float)
-        neuron_idxs = [n.index for n in video.neurons]
-        tx_traces = tx_traces_full[neuron_idxs, :]
+    tx_corr = max_crosscorr_similarity(tx_traces, max_lag=max_lag)
+    tx_sttc = compute_sttc_matrix(tx_spike_trains, dt, 0.0, tx_t_stop)
+    tx_matrix = compute_combined_similarities(tx_corr, tx_sttc)
 
-        tx_matrix = compute_correlation_matrix(
-            tx_traces,
-            method=str(strategy_config.get("method", "pearson")),
-            remove_global=bool(strategy_config.get("remove_global", True)),
-            use_diff=bool(strategy_config.get("use_diff", True)),
-            diff_order=int(strategy_config.get("diff_order", 1)),
-            zscore_each=bool(strategy_config.get("zscore_each", True)),
-            clip_negatives=bool(strategy_config.get("clip_negatives", True)),
+    # ── Index mapping: neuron_index → matrix row ──
+    idx_to_row = {int(idx): row for row, idx in enumerate(neuron_indices)}
+
+    cluster_param = float(cluster_config.get("cluster_param", 0.65))
+    linkage_method = str(cluster_config.get("linkage_method", "average"))
+    cluster_criterion = str(cluster_config.get("cluster_criterion", "distance"))
+    min_group_size = int(cluster_config.get("min_group_size", 2))
+
+    # ── Per-group metrics ──
+    all_group_metrics: List[Dict[str, Any]] = []
+    subgroups: Dict[str, List[NeuronGroup]] = {}
+
+    for group in baseline_groups:
+        group_rows = [idx_to_row[i] for i in group.neuron_indices if i in idx_to_row]
+
+        row: Dict[str, Any] = {
+            "group_id": group.group_id,
+            "n_neurons": group.size,
+            "neuron_indices": list(group.neuron_indices),
+        }
+
+        for metric_fn in METRIC_REGISTRY:
+            row.update(metric_fn(group, group_rows, bl_matrix, tx_matrix, cluster_config))
+
+        all_group_metrics.append(row)
+
+        # ── Re-cluster within group on treatment segment ──
+        active_neurons = [
+            n for n in group.neurons
+            if getattr(getattr(n, "roi", None), "active_segments", {}).get("treatment", True)
+        ]
+        inactive = [n for n in group.neurons if n not in active_neurons]
+        inactive_set = {n.index for n in inactive}
+
+        bl_centroids = _get_centroids(group.neurons)
+        bl_centroid = _group_centroid(bl_centroids)
+
+        row["n_treatment_active"] = len(active_neurons)
+        row["n_treatment_inactive"] = len(inactive)
+        row.update({
+            "n_treatment_subgroups": 0,
+            "treatment_subgroup_sizes": [],
+            "subgroup_neuron_indices": [],
+            "subgroup_mean_pairwise_dists": [],
+            "subgroup_dists_from_baseline_centroid": [],
+            "subgroup_dispersion_ratios": [],
+            "subgroup_mean_corrs": [],
+            "treatment_subgroup_mean_corr": np.nan,
+            "n_ungrouped": 0,
+            "ungrouped_dist_from_baseline_centroid": np.nan,
+        })
+
+        bl_mpd = row.get("baseline_mean_pairwise_dist", np.nan)
+        updates, subs, neuron_to_sub = _recluster_group(
+            group, active_neurons, tx_matrix, idx_to_row,
+            bl_centroid, bl_mpd,
+            cluster_param=cluster_param,
+            linkage_method=linkage_method,
+            cluster_criterion=cluster_criterion,
+            min_group_size=min_group_size,
+        )
+        row.update(updates)
+        if subs:
+            subgroups[group.group_id] = subs
+
+        row["neuron_spatial_detail"] = _build_neuron_detail(
+            group.neurons, bl_centroid, neuron_to_sub, inactive_set,
         )
 
-        bl_matrix = baseline_result.matrix
-
-        # --- Per-group metrics ---
-        all_group_metrics: List[Dict[str, Any]] = []
-        subgroups: Dict[str, List[NeuronGroup]] = {}
-
-        for group in baseline_result.groups:
-            row: Dict[str, Any] = {
-                "group_id": group.group_id,
-                "n_neurons": group.size,
-                "neuron_indices": list(getattr(group, "neuron_indices", [])),
-                "filtered_idxs": list(getattr(group, "filtered_idxs", [])),
-            }
-
-            for metric_fn in METRIC_REGISTRY:
-                row.update(metric_fn(group, bl_matrix, tx_matrix, strategy_config))
-
-            all_group_metrics.append(row)
-
-            # --- Re-cluster within group on treatment traces ---
-            # Only include neurons flagged as active during treatment
-            active_neurons = [
-                n for n in group.neurons
-                if getattr(getattr(n, "roi", None), "active_segments", {}).get("treatment", True)
-            ]
-            inactive = [n for n in group.neurons if n not in active_neurons]
-            inactive_set = {n.index for n in inactive}
-
-            bl_centroids = _get_centroids(group.neurons)
-            bl_centroid = _group_centroid(bl_centroids)
-
-            row["n_treatment_active"] = len(active_neurons)
-            row["n_treatment_inactive"] = len(inactive)
-            row.update({
-                "n_treatment_subgroups": 0,
-                "treatment_subgroup_sizes": [],
-                "subgroup_neuron_indices": [],
-                "subgroup_filtered_idxs": [],
-                "subgroup_mean_pairwise_dists": [],
-                "subgroup_dists_from_baseline_centroid": [],
-                "subgroup_dispersion_ratios": [],
-                "subgroup_mean_corrs": [],
-                "treatment_subgroup_mean_corr": np.nan,
-                "n_ungrouped": 0,
-                "ungrouped_dist_from_baseline_centroid": np.nan,
-            })
-
-            bl_mpd = row.get("baseline_mean_pairwise_dist", np.nan)
-            updates, subs, neuron_to_sub = _recluster_group(
-                group, active_neurons, tx_matrix, bl_centroid, bl_mpd,
-                strategy_name, strategy_config,
-            )
-            row.update(updates)
-            if subs:
-                subgroups[group.group_id] = subs
-
-            row["neuron_spatial_detail"] = _build_neuron_detail(
-                group.neurons, bl_centroid, neuron_to_sub, inactive_set,
-            )
-
-        return TreatmentComparisonResult(
-            strategy_name=strategy_name,
-            group_metrics=all_group_metrics,
-            treatment_matrix=tx_matrix,
-            subgroups=subgroups,
-        )
+    return {
+        "group_metrics": all_group_metrics,
+        "treatment_matrix": tx_matrix,
+        "subgroups": subgroups,
+        "metadata": {"tx_corr_matrix": tx_corr, "tx_sttc_matrix": tx_sttc},
+    }

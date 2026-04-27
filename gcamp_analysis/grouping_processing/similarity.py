@@ -9,6 +9,8 @@ import logging
 from typing import TYPE_CHECKING, List, Literal, Optional
 
 import numpy as np
+from numba import njit
+from numba.typed import List as NumbaList
 from scipy.signal import find_peaks
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.neuron import Neuron
@@ -91,107 +93,241 @@ def _corr_weighted_pearson(x: np.ndarray, y: np.ndarray, eps: float = 1e-12) -> 
 
 CORR_REGISTRY = {"pearson": _corr_pearson, "spearman": _corr_spearman, "weighted_pearson": _corr_weighted_pearson}
 
-# ── public functions ─────────────────────────────────────────────────
+# ---- Similarity Matrix Combination ----
 
 
-def compute_correlation_matrix(
-    traces: np.ndarray,
-    *,
-    method: CorrMethod = "pearson",
-    remove_global: bool = True,
-    use_diff: bool = True,
-    diff_order: int = 1,
-    zscore_each: bool = True,
-    clip_negatives: bool = True,
-) -> np.ndarray:
-    """Pairwise correlation similarity matrix from fluorescence traces.
+def compute_combined_similarities(*matrices: np.ndarray) -> np.ndarray:
+    """Element-wise multiply similarity matrices and symmetrise the result.
 
-    Returns (N, N) in [0, 1] (if *clip_negatives*) or [-1, 1].
+    Each matrix is clipped to [0, 1] and NaN-filled before multiplication.
+    The final product is symmetrised and has 1s on the diagonal.
     """
-    X = np.asarray(traces, float)
-    if remove_global and X.size:
-        X = X - np.nanmean(X, axis=0, keepdims=True)
-    if use_diff:
-        for _ in range(max(1, int(diff_order))):
-            X = np.diff(X, axis=1)
-    if zscore_each:
-        X = np.vstack([_zscore_row(x) for x in X])
-    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-
-    n = X.shape[0]
-    S = np.eye(n, dtype=float)
-    corr_fn = CORR_REGISTRY.get(method)
-    if corr_fn is None:
-        raise ValueError(f"Unknown correlation method {method!r}. Available: {list(CORR_REGISTRY.keys())}")
-    for i in range(n):
-        for j in range(i + 1, n):
-            c = corr_fn(X[i], X[j])
-            if clip_negatives and c < 0:
-                c = 0.0
-            S[i, j] = S[j, i] = c
-    return S
+    if not matrices:
+        raise ValueError("At least one matrix is required")
+    out = None
+    for mat in matrices:
+        m = np.nan_to_num(np.asarray(mat, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+        m = np.clip(m, 0.0, 1.0)
+        out = m if out is None else out * m
+    out = 0.5 * (out + out.T)
+    np.fill_diagonal(out, 1.0)
+    return out
 
 
-def compute_sttc_matrix(
-    neurons: List["Neuron"],
-    n_frames: int,
-    time_window: float = 0.033,
-    fs: float = 15.0,
-    max_frame: int | None = None,
+# ---- Max Cross-Correlation Similarity Matrix ----
+
+def max_crosscorr_similarity(
+    traces: np.ndarray,
+    max_lag: int = 5,
+    clip_negative: bool = True,
 ) -> np.ndarray:
-    """Spike Time Tiling Coefficient (Cutts & Eglen 2014) — fully vectorized.
+    """Similarity matrix based on maximum cross-correlation within a lag window.
 
     Parameters
     ----------
-    max_frame : int, optional
-        If provided, only spikes with ``sm_f_idx < max_frame`` are used.
-        This enables baseline-only STTC in concatenated mode.
+    traces : array-like, shape (n_traces, n_timepoints)
+        Fluorescence traces to compare.
+    max_lag : int
+        Maximum lag (in frames) to consider for cross-correlation.  The similarity
+        between two traces is the maximum Pearson correlation obtained by shifting one trace relative to the other within this lag window.
+    clip_negative : bool, default True
+        If True, negative correlations are clipped to 0 (output range [0, 1]).
+        If False, the full Pearson range is preserved (output range [-1, 1]).
 
-    Returns symmetric matrix in [-1, 1].
+    Returns
+    -------
+    sim : ndarray, shape (n_traces, n_traces)
+        Similarity matrix based on maximum cross-correlation.
     """
-    n = len(neurons)
-    if n == 0:
-        return np.array([[]])
+    traces = np.asarray(traces, dtype=float)
+    n_traces, n_timepoints = traces.shape
 
-    dt_frames = int(time_window * fs)
+    x = traces - traces.mean(axis=1, keepdims=True)
+    std = x.std(axis=1, keepdims=True)
+    valid = std.squeeze() > 0
+    x = np.divide(x, std, out=np.zeros_like(x), where=std > 0)
 
-    spike_matrix = np.zeros((n, n_frames), dtype=np.float32)
-    for i, neuron in enumerate(neurons):
-        if hasattr(neuron, "spikes") and neuron.spikes:
-            valid = [
-                s.sm_f_idx for s in neuron.spikes
-                if 0 <= s.sm_f_idx < n_frames
-                and (max_frame is None or s.sm_f_idx < max_frame)
-            ]
-            if valid:
-                spike_matrix[i, valid] = 1.0
+    # Track the signed correlation that achieves the largest absolute value
+    # across lags, so the "max" cross-correlation can be negative when
+    # ``clip_negative`` is False.
+    sim = np.zeros((n_traces, n_traces), dtype=float)
+    best_abs = np.zeros((n_traces, n_traces), dtype=float)
 
-    kernel = np.ones(2 * dt_frames + 1, dtype=np.float32)
-    tiled_matrix = np.zeros((n, n_frames), dtype=np.float32)
+    for lag in range(-max_lag, max_lag + 1):
+        if lag < 0:
+            a = x[:, -lag:]
+            b = x[:, :n_timepoints + lag]
+        elif lag > 0:
+            a = x[:, :n_timepoints - lag]
+            b = x[:, lag:]
+        else:
+            a = x
+            b = x
+
+        cc = (a @ b.T) / a.shape[1]
+        if clip_negative:
+            sim = np.maximum(sim, cc)
+        else:
+            mask = np.abs(cc) > best_abs
+            sim = np.where(mask, cc, sim)
+            best_abs = np.where(mask, np.abs(cc), best_abs)
+
+    sim = np.nan_to_num(sim, nan=0.0, posinf=0.0, neginf=0.0)
+    sim = np.clip(sim, -1, 1)
+    if clip_negative:
+        sim = np.clip(sim, 0, 1)
+    sim = 0.5 * (sim + sim.T)
+    np.fill_diagonal(sim, 1.0)
+
+    sim[~valid, :] = 0.0
+    sim[:, ~valid] = 0.0
+    np.fill_diagonal(sim, 1.0)
+
+    return sim
+
+# ---- STTC Similarity Matrix (Numba JIT) ----
+
+@njit
+def _tiled_time_fraction(times, dt, t_start, t_stop):
+    total = t_stop - t_start
+    if total <= 0 or len(times) == 0:
+        return 0.0
+
+    start = max(t_start, times[0] - dt)
+    end = min(t_stop, times[0] + dt)
+    covered = 0.0
+
+    for i in range(1, len(times)):
+        s = max(t_start, times[i] - dt)
+        e = min(t_stop, times[i] + dt)
+
+        if s <= end:
+            if e > end:
+                end = e
+        else:
+            covered += end - start
+            start = s
+            end = e
+
+    covered += end - start
+    return covered / total
+
+
+@njit
+def _proportion_near(a, b, dt):
+    if len(a) == 0 or len(b) == 0:
+        return 0.0
+
+    count = 0
+    j = 0
+    nb = len(b)
+
+    for i in range(len(a)):
+        ai = a[i]
+
+        while j < nb and b[j] < ai - dt:
+            j += 1
+
+        if j < nb and abs(b[j] - ai) <= dt:
+            count += 1
+
+    return count / len(a)
+
+
+@njit
+def _sttc_pair(a, b, dt, t_start, t_stop):
+    if len(a) == 0 or len(b) == 0:
+        return np.nan
+
+    TA = _tiled_time_fraction(a, dt, t_start, t_stop)
+    TB = _tiled_time_fraction(b, dt, t_start, t_stop)
+    PA = _proportion_near(a, b, dt)
+    PB = _proportion_near(b, a, dt)
+
+    term1_denom = 1.0 - PA * TB
+    term2_denom = 1.0 - PB * TA
+
+    term1 = 0.0 if term1_denom == 0 else (PA - TB) / term1_denom
+    term2 = 0.0 if term2_denom == 0 else (PB - TA) / term2_denom
+
+    return 0.5 * (term1 + term2)
+
+
+@njit
+def compute_sttc_matrix(trains : list[np.ndarray], dt: float, t_start: float, t_stop: float) -> np.ndarray:
+    """Compute the STTC similarity matrix for a list of spike trains from active neurons.
+
+    Parameters
+    ----------
+    trains : list of np.ndarray
+        Each element is an array of spike times for a neuron.
+    dt : float
+        Time window (in seconds) for considering spikes as coincident.
+    t_start : float
+        Start time of the recording (in seconds).
+    t_stop : float
+        End time of the recording (in seconds).
+
+    Raises
+    --------
+    _sttc_pair : (a, b, dt, t_start, t_stop) -> float
+        Compute the STTC similarity for a single pair of spike trains.
+
+    Returns
+    -------
+    np.ndarray
+        STTC similarity matrix indexed by active neurons, not all neurons nor all ROIs.
+    """
+    trains_nb = NumbaList(trains)
+    n = len(trains_nb)
+    out = np.eye(n, dtype=np.float64)
+
     for i in range(n):
-        if np.any(spike_matrix[i]):
-            tiled_matrix[i] = (np.convolve(spike_matrix[i], kernel, mode="same") > 0).astype(np.float32)
+        for j in range(i + 1, n):
+            val = _sttc_pair(trains_nb[i], trains_nb[j], dt, t_start, t_stop)
+            out[i, j] = val
+            out[j, i] = val
 
-    T = tiled_matrix.sum(axis=1) / n_frames
-    n_spikes = spike_matrix.sum(axis=1)
-    overlap = spike_matrix @ tiled_matrix.T
+    return out
 
-    with np.errstate(divide="ignore", invalid="ignore"):
-        P = np.nan_to_num(overlap / n_spikes[:, None], nan=0.0, posinf=0.0, neginf=0.0)
 
-    T_row, T_col = T[None, :], T[:, None]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        term_A = np.nan_to_num((P - T_row) / (1.0 - P * T_row), nan=0.0, posinf=1.0, neginf=-1.0)
-        term_B = np.nan_to_num((P.T - T_col) / (1.0 - P.T * T_col), nan=0.0, posinf=1.0, neginf=-1.0)
 
-    sttc = np.clip(0.5 * (term_A + term_B), -1.0, 1.0)
-    np.fill_diagonal(sttc, 1.0)
-    no_spikes = n_spikes == 0
-    sttc[no_spikes, :] = 0.0
-    sttc[:, no_spikes] = 0.0
-    np.fill_diagonal(sttc, 1.0)
-    return sttc.astype(np.float32)
+# ---- DTW Similarity Matrix (GPU-accelerated) ----
 
+def compute_dtw_matrix_from_traces(
+    traces: np.ndarray,
+    downsample_factor: int = 3,
+    use_gpu: bool = True,
+) -> np.ndarray:
+    """GPU-accelerated SoftDTW distance matrix from a trace matrix."""
+    trace_rows = np.asarray(traces, dtype=float)
+    if trace_rows.ndim != 2 or trace_rows.shape[0] == 0:
+        return np.zeros((0, 0), dtype=np.float32)
+
+    try:
+        import torch
+    except (ImportError, OSError) as e:
+        logger.warning("PyTorch not available (%s) - skipping DTW", e.__class__.__name__)
+        n_rows = int(trace_rows.shape[0])
+        return np.zeros((n_rows, n_rows), dtype=np.float32)
+
+    if use_gpu and not torch.cuda.is_available():
+        logger.warning("GPU not available - skipping DTW to avoid hangups")
+        n_rows = int(trace_rows.shape[0])
+        return np.zeros((n_rows, n_rows), dtype=np.float32)
+
+    processed = []
+    for row in trace_rows:
+        t = row[::downsample_factor] if downsample_factor > 1 else row
+        processed.append((t - np.mean(t)) / (np.std(t) + 1e-8))
+
+    device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
+    max_len = max(len(t) for t in processed)
+    padded = np.zeros((len(processed), max_len), dtype=np.float32)
+    for i, t in enumerate(processed):
+        padded[i, : len(t)] = t
+
+    return _soft_dtw_pairwise(torch.from_numpy(padded).to(device), device, gamma=1.0)
 
 def compute_dtw_matrix(
     neurons: List["Neuron"],
@@ -257,6 +393,8 @@ def _soft_dtw_pairwise(traces, device, gamma: float) -> np.ndarray:
             dist[i, j0:j1] = d
             dist[j0:j1, i] = d
     return dist
+
+# ---- Light Evoked Response Alignment ----
 
 def _enforce_single_direction(activated: np.ndarray) -> None:
     """Zero out minority-direction peaks so each neuron is purely ON or OFF.

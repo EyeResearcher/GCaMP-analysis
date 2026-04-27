@@ -16,6 +16,7 @@ class NeuronGroup:
         group_id,
         neurons: List[Neuron],
         method: str = "corr",
+        row_indices: Optional[List[int]] = None,
         **metadata,
     ) -> None:
         self.group_id = group_id
@@ -26,6 +27,9 @@ class NeuronGroup:
 
         self.neuron_indices = [n.index for n in neurons]
         self.filtered_idxs = [n.filtered_index for n in neurons]
+        # Row positions in the similarity matrix (may differ from filtered_idxs
+        # when the matrix is built from a subset, e.g. active neurons only).
+        self.row_indices = row_indices if row_indices is not None else self.filtered_idxs
 
         self.mean_spk_rate: Optional[float] = None
         self.mean_spk_stats: dict = {}
@@ -51,10 +55,11 @@ class NeuronGroup:
         """Mean of upper-triangle entries for this group's sub-matrix. NaN if < 2 members or matrix unavailable."""
         if matrix is None or not isinstance(matrix, np.ndarray) or matrix.ndim < 2:
             return float("nan")
-        if len(self.filtered_idxs) < 2:
+        idxs = self.row_indices
+        if len(idxs) < 2:
             return float("nan")
-        sub = matrix[np.ix_(self.filtered_idxs, self.filtered_idxs)]
-        tri = sub[np.triu_indices(len(self.filtered_idxs), k=1)]
+        sub = matrix[np.ix_(idxs, idxs)]
+        tri = sub[np.triu_indices(len(idxs), k=1)]
         return float(np.nanmean(tri))
 
     def group_mean_similarity(self, matrix: Optional[np.ndarray]) -> float:

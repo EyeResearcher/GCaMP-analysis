@@ -413,13 +413,20 @@ def plot_neuron_centroid_distances(
         ax.text(ax.get_xlim()[0], y_ceil, " no tx subgroup", fontsize=7,
                 va="bottom", color="grey")
 
-    ax.plot([0, max(max(bl_dists[s]) for s in bl_dists if bl_dists[s])],
-            [0, max(max(bl_dists[s]) for s in bl_dists if bl_dists[s])],
-            "k--", lw=0.6, alpha=0.4, label="identity")
+    nonempty = [bl_dists[s] for s in bl_dists if bl_dists[s]]
+    if nonempty:
+        max_bl = max(max(vs) for vs in nonempty)
+        ax.plot([0, max_bl], [0, max_bl],
+                "k--", lw=0.6, alpha=0.4, label="identity")
+    else:
+        ax.text(0.5, 0.5, "no treatment subgroups",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=10, color="grey")
 
     ax.set_xlabel("Distance from baseline centroid (px)")
     ax.set_ylabel("Distance from treatment subgroup centroid (px)")
     ax.set_title(title)
-    ax.legend(fontsize=8)
+    if nonempty:
+        ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
     return ax

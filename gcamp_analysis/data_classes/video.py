@@ -20,6 +20,26 @@ def _empty_array() -> np.ndarray:
     return np.asarray([])
 
 
+@dataclass(frozen=True)
+class ConcatSection:
+    """Normalized description of one concatenated-video section."""
+
+    index: int
+    source_file_name: str
+    section_type: str
+    section_key: str
+    start_frame: int
+    end_frame: int
+
+    @property
+    def frame_slice(self) -> slice:
+        return slice(self.start_frame, self.end_frame)
+
+    @property
+    def n_frames(self) -> int:
+        return self.end_frame - self.start_frame
+
+
 @dataclass
 class Video:
     """
@@ -37,6 +57,8 @@ class Video:
     # ---- Inputs
     path: Path
     suite2p_path: Path  # e.g. <video_dir>/suite2p/plane0
+    is_concatenated: bool = False
+    split_frame: Optional[int] = None
 
     # ---- Loaded data
     suite2p_data: dict[str, Any] = field(init=False, repr=False)
@@ -51,23 +73,32 @@ class Video:
     n_frames: int = field(init=False, default=0)
     fs: float = field(init=False, default=15.0)
 
-    # ---- Concatenated-video support
-    is_concatenated: bool = False
-    split_frame: Optional[int] = None
+    # ---- Concatenated-video metadata
+    concat_summary_path: Optional[Path] = field(init=False, default=None)
+    concat_summary_df: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
+    concat_sections: list[ConcatSection] = field(default_factory=list, repr=False)
+    sections_dict: dict[str, ConcatSection] = field(default_factory=dict, repr=False)
+    section_traces: dict[str, dict[str, np.ndarray]] = field(default_factory=dict, repr=False)
 
     # ---- Traces (populated by TraceService)
     norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    savgol_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     sm_sp: np.ndarray = field(default_factory=_empty_array, repr=False)  # optional if/when used
 
     # ---- Per-segment traces (populated by TraceService when is_concatenated)
     baseline_norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     baseline_norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     baseline_norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    baseline_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    baseline_savgol_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     treatment_norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     treatment_norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     treatment_norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    treatment_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
+    treatment_savgol_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
 
     # ---- ROI filtering outputs (populated by ROIService)
     n_good_rois: int = 0
@@ -91,53 +122,22 @@ class Video:
     def __post_init__(self) -> None:
         self.path = Path(self.path)
         self.suite2p_path = Path(self.suite2p_path)
-
         self.video_id = self.path.name
-
-        # Load suite2p once
         self.suite2p_data = load_suite2p_data(self.suite2p_path)
 
-        # Basic dimensions
         F = self.suite2p_data.get("F", None)
         if F is None:
             raise ValueError(f"Suite2p data at {self.suite2p_path} missing key 'F'.")
         self.n_rois, self.n_frames = F.shape
-
-        # Sampling rate (best-effort)
         self.fs = float(self.suite2p_data.get("fs", self.suite2p_data.get("ops", {}).get("fs", 15.0)))
 
-        # Parse experiment metadata from folder structure (best-effort)
         self._parse_metadata()
-
-    # --------- Segment properties ---------
-
-    @property
-    def baseline_slice(self) -> slice:
-        """Frame slice for the baseline (first) half."""
-        if not self.is_concatenated or self.split_frame is None:
-            return slice(0, self.n_frames)
-        return slice(0, self.split_frame)
-
-    @property
-    def treatment_slice(self) -> slice:
-        """Frame slice for the treatment (second) half."""
-        if not self.is_concatenated or self.split_frame is None:
-            return slice(0, self.n_frames)
-        return slice(self.split_frame, self.n_frames)
-
-    @property
-    def baseline_n_frames(self) -> int:
-        if not self.is_concatenated or self.split_frame is None:
-            return self.n_frames
-        return self.split_frame
-
-    @property
-    def treatment_n_frames(self) -> int:
-        if not self.is_concatenated or self.split_frame is None:
-            return self.n_frames
-        return self.n_frames - self.split_frame
+        self._initialize_concat_metadata()
 
     # --------- Small helpers (ok to keep on Video) ---------
+    def _get_spike_lists(self) -> list[np.ndarray]:
+        """Helper to get list of spike frame indices for all neurons."""
+        return [spike.sm_f_idx for neuron in self.neurons for spike in neuron.spikes]
 
     def _parse_metadata(self) -> None:
         """Parse experiment/treatment/timepoint from the folder path."""
@@ -156,6 +156,10 @@ class Video:
         """Default per-video output folder."""
         return self.path / "metrics"
 
+    def get_section(self, section_name: str) -> Optional[ConcatSection]:
+        """Return a section descriptor by normalized section key."""
+        return self.sections_dict.get(self._section_key(section_name))
+
     def clear_results(self) -> None:
         """Reset all computed fields to defaults. Useful for re-running in notebooks."""
         self.norm_f = _empty_array()
@@ -170,6 +174,7 @@ class Video:
         self.treatment_norm_f = _empty_array()
         self.treatment_norm_sm_f = _empty_array()
         self.treatment_norm_sg_f = _empty_array()
+        self.section_traces = {}
 
         self.n_good_rois = 0
         self.n_bad_rois = 0
@@ -188,6 +193,103 @@ class Video:
             f"Video(video_id={self.video_id}, n_rois={self.n_rois}, n_frames={self.n_frames}, "
             f"treatment={self.treatment}, timepoint={self.timepoint_name})"
         )
+
+    def _initialize_concat_metadata(self) -> None:
+        """Load and validate concat metadata early so downstream code can rely on it."""
+        if not self.is_concatenated:
+            return
+
+        summary_path = self._find_concat_summary_csv()
+        self.concat_summary_path = summary_path
+        self.concat_summary_df = pd.read_csv(summary_path)
+        self.concat_sections = self._parse_concat_sections(self.concat_summary_df)
+        self.sections_dict = {section.section_key: section for section in self.concat_sections}
+
+    def _find_concat_summary_csv(self) -> Path:
+        """Resolve the required concat summary CSV for this video folder."""
+        candidates = sorted(self.path.glob("*_concat_order.csv"))
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            raise FileNotFoundError(
+                f"Concatenated video '{self.path}' is missing the required '*_concat_order.csv' file."
+            )
+        raise ValueError(
+            f"Concatenated video '{self.path}' has multiple '*_concat_order.csv' files."
+        )
+
+    def _parse_concat_sections(self, df: pd.DataFrame) -> list[ConcatSection]:
+        """Validate the concat summary table and return normalized section descriptors."""
+        expected_columns = [
+            "index",
+            "source file name",
+            "section type",
+            "start frame",
+            "end frame",
+        ]
+        normalized_columns = [str(col).strip().lower() for col in df.columns.tolist()]
+        if normalized_columns[: len(expected_columns)] != expected_columns:
+            raise ValueError(
+                "Concatenation summary CSV must start with columns: "
+                f"{expected_columns}. Got {df.columns.tolist()}."
+            )
+
+        if df.empty:
+            raise ValueError("Concatenation summary CSV must contain at least one section row.")
+
+        sections: list[ConcatSection] = []
+        previous_end = 0
+        seen_keys: set[str] = set()
+        for row_number, row in enumerate(df.itertuples(index=False, name=None), start=1):
+            index_value = int(row[0])
+            source_file_name = str(row[1]).strip()
+            section_type = str(row[2]).strip()
+            start_frame = int(row[3])
+            end_frame = int(row[4])
+
+            section_key = self._section_key(section_type)
+            if section_key in seen_keys:
+                raise ValueError(f"Duplicate section key '{section_key}' in concat summary.")
+            seen_keys.add(section_key)
+
+            if start_frame < 0 or end_frame <= start_frame:
+                raise ValueError(
+                    f"Invalid frame range for concat row {row_number}: start={start_frame}, end={end_frame}."
+                )
+            if end_frame > self.n_frames:
+                raise ValueError(
+                    f"Concat row {row_number} ends at frame {end_frame}, past video length {self.n_frames}."
+                )
+            if start_frame < previous_end:
+                raise ValueError(
+                    f"Concat rows must be non-overlapping and ordered. Row {row_number} starts at {start_frame} "
+                    f"after previous end {previous_end}."
+                )
+            previous_end = end_frame
+
+            sections.append(
+                ConcatSection(
+                    index=index_value,
+                    source_file_name=source_file_name,
+                    section_type=section_type,
+                    section_key=section_key,
+                    start_frame=start_frame,
+                    end_frame=end_frame,
+                )
+            )
+
+        if not any(section.section_key == "baseline" for section in sections):
+            raise ValueError(f"Concatenated video '{self.path}' must define an explicit baseline section.")
+
+        return sections
+
+    @staticmethod
+    def _section_key(section_type: str) -> str:
+        """Normalize a section label into a stable dict key."""
+        normalized = section_type.strip().lower().replace(" ", "_").replace("-", "_")
+        if not normalized:
+            raise ValueError(f"Could not normalize section type '{section_type}'.")
+        return normalized
 
 @dataclass(frozen=True)
 class VideoStatistics:

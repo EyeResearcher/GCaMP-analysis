@@ -133,7 +133,12 @@ class ExperimentProcessor:
         """
         suite2p_plane0 = video_dir / "suite2p" / "plane0"
 
-        video = Video(path=video_dir, suite2p_path=suite2p_plane0)
+        video = Video(
+            path=video_dir,
+            suite2p_path=suite2p_plane0,
+            is_concatenated=self.runner.is_concatenated,
+            split_frame=self.runner.split_frame,
+        )
         self.runner.run(video, verbose=verbose)
 
         stats = VideoStatistics.from_video(video)

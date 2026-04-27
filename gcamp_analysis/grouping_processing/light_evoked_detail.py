@@ -19,7 +19,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from gcamp_analysis.data_classes.neuron import Neuron
     from gcamp_analysis.data_classes.neuron_group import NeuronGroup
-    from gcamp_analysis.grouping_processing.strategies import GroupingResult
+    from gcamp_analysis.grouping_processing.service import GroupingResult
 
 
 # ── Spike classification ─────────────────────────────────────────────

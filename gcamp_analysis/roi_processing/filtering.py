@@ -137,10 +137,10 @@ class ROIService:
             self._assign_roi_status(all_rois, good_roi_mask, treatment_feats, preds_bl, preds_tx)
         else:
             smoothed = video.norm_sm_f 
-            preds, _ = self._get_preds(smoothed, all_rois, roi_model, transform)
+            preds, feats = self._get_preds(smoothed, all_rois, roi_model, transform)
             good_roi_mask = np.asarray(preds, dtype=bool)
 
-            self._assign_roi_status(all_rois, good_roi_mask, None)
+            self._assign_roi_status(all_rois, good_roi_mask, feats)
 
         good_rois = [roi for roi in all_rois if roi.is_good]
         video.bad_rois = [roi for roi in all_rois if not roi.is_good]

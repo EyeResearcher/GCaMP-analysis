@@ -1,339 +1,254 @@
-"""Grouping strategies: Protocol, concrete implementations, and registry.
+"""Grouping strategies implemented as pure functions.
 
-To add a new strategy:
-  1. (Optional) Add a similarity function in ``similarity.py``
-  2. Write a class with ``name: str`` and ``compute(video, config) -> GroupingResult``
-  3. Register it in ``STRATEGY_REGISTRY`` at the bottom of this file
+The service layer is responsible for extracting state from ``Video`` and
+writing results back. Strategy functions operate on immutable inputs and
+return plain dict payloads.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Protocol
+from types import SimpleNamespace
+from typing import Any, Callable, Dict
 
 import numpy as np
-from scipy.signal import savgol_filter
 
-from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 from gcamp_analysis.grouping_processing.similarity import (
-    compute_correlation_matrix,
-    compute_dtw_matrix,
+    compute_dtw_matrix_from_traces,
+    align_light_evoked,
+    max_crosscorr_similarity,
     compute_sttc_matrix,
-    align_light_evoked
+    compute_combined_similarities,
 )
 from gcamp_analysis.grouping_processing.clustering import (
-    cluster,
-    light_evoked_cluster
+    cluster_hierarchical,
+    build_groups_from_labels,
+    light_evoked_cluster,
 )
 
-if TYPE_CHECKING:
-    from gcamp_analysis.data_classes.video import Video
+
+def run_combined_grouping(
+    traces: np.ndarray,
+    spike_trains: list,
+    t_stop: float,
+    neuron_indices: np.ndarray,
+    *,
+    corr_config: Dict[str, Any] | None = None,
+    sttc_config: Dict[str, Any] | None = None,
+    cluster_config: Dict[str, Any] | None = None,
+    **_kwargs,
+) -> dict:
+    """Compute corr + STTC matrices, combine, cluster, and return groups."""
+    corr_config = corr_config or {}
+    sttc_config = sttc_config or {}
+    cluster_config = cluster_config or {}
+
+    max_lag = int(corr_config.get("max_lag", 5))
+    dt = float(sttc_config.get("dt", 1.75))
+
+    corr_mat = max_crosscorr_similarity(traces, max_lag=max_lag)
+    sttc_mat = compute_sttc_matrix(spike_trains, dt, 0.0, t_stop)
+    combined = compute_combined_similarities(corr_mat, sttc_mat)
+
+    cluster_param = cluster_config.get("cluster_param", 0.65)
+    linkage_method = str(cluster_config.get("linkage_method", "average"))
+    cluster_criterion = str(cluster_config.get("cluster_criterion", "distance"))
+    min_group_size = int(cluster_config.get("min_group_size", 2))
+
+    _Z, labels, _order, _mat_ordered, _labels_ordered = cluster_hierarchical(
+        combined,
+        linkage_method=linkage_method,
+        cluster_criterion=cluster_criterion,
+        cluster_param=cluster_param,
+    )
+
+    row_indices = np.arange(len(neuron_indices))
+    group_dicts = build_groups_from_labels(
+        labels,
+        row_indices,
+        neuron_indices,
+        min_group_size=min_group_size,
+    )
+
+    return {
+        "groups": group_dicts,
+        "matrix": combined,
+        "config_label": f"combined_dt{dt}_cp{cluster_param}",
+        "metadata": {"corr_matrix": corr_mat, "sttc_matrix": sttc_mat},
+    }
 
 
-# ── Result container + Protocol ──────────────────────────────────────
+def run_dtw_grouping(
+    config: Dict[str, Any],
+    *,
+    dtw_traces: np.ndarray,
+    neuron_indices: np.ndarray,
+    **_kwargs,
+) -> dict:
+    """Compute a DTW matrix from pre-selected traces and cluster on it."""
+    if dtw_traces.size == 0 or len(neuron_indices) < 2:
+        return {"groups": [], "matrix": None, "config_label": "dtw_empty"}
+
+    down = int(config.get("downsample_factor", 3))
+    gpu = bool(config.get("use_gpu", True))
+    link = str(config.get("linkage_method", "average"))
+    pctl = int(config.get("distance_percentile", 30))
+    min_group = int(config.get("min_group_size", 2))
+
+    dtw = compute_dtw_matrix_from_traces(
+        dtw_traces,
+        downsample_factor=down,
+        use_gpu=gpu,
+    )
+    if dtw is None:
+        return {"groups": [], "matrix": None, "config_label": "dtw_skipped"}
+
+    dtw = np.asarray(dtw, dtype=float)
+    nonzero = dtw[dtw > 0]
+    if nonzero.size == 0:
+        return {"groups": [], "matrix": dtw, "config_label": "dtw_empty"}
+
+    thresh = float(np.percentile(nonzero, pctl))
+    groups = _build_groups_from_distance_threshold(dtw, neuron_indices, thresh, min_group)
+    return {"groups": groups, "matrix": dtw, "config_label": "dtw"}
 
 
-@dataclass(frozen=True)
-class GroupingResult:
-    """Output of a single grouping strategy."""
+def _build_groups_from_distance_threshold(
+    distance_matrix: np.ndarray,
+    neuron_indices: np.ndarray,
+    threshold: float,
+    min_group_size: int,
+) -> list[dict]:
+    """Build plain group dicts from connected components in a distance graph."""
+    n = int(distance_matrix.shape[0])
+    if n == 0:
+        return []
 
-    groups: list[NeuronGroup]
-    matrix: np.ndarray | None
-    config_label: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    adjacency = (distance_matrix <= threshold) & np.isfinite(distance_matrix)
+    np.fill_diagonal(adjacency, True)
+    visited = np.zeros(n, dtype=bool)
+    groups: list[dict] = []
+    next_id = 1
 
-
-class GroupingStrategy(Protocol):
-    """Interface every grouping strategy must satisfy."""
-
-    name: str
-
-    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult: ...
-
-
-# ── Concrete strategies ──────────────────────────────────────────────
-
-
-def _baseline_active_neurons(video: "Video") -> list:
-    """Return the subset of ``video.neurons`` whose baseline component was
-    classified as active.
-
-    In non-concatenated mode every neuron is considered active (no
-    segment classification exists), so the full list is returned.
-    """
-    if not (video.is_concatenated and video.split_frame is not None):
-        return list(video.neurons)
-    return [
-        n for n in video.neurons
-        if getattr(getattr(n, "roi", None), "active_segments", {}).get("baseline", True)
-    ]
-
-
-@dataclass
-class CorrelationStrategy:
-    """Trace-correlation grouping with threshold-graph clustering."""
-
-    name: str = "corr"
-
-    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        trace_key = str(config.get("trace", "norm_sm_f"))
-        method = str(config.get("method", "pearson"))
-        if trace_key == "F":
-            traces_full = np.asarray(video.suite2p_data["F"], float)
-        else:
-            traces_full = getattr(video, trace_key, None)
-            if traces_full is None:
-                raise ValueError(f"Trace key '{trace_key}' not found on video object.")
-
-        all_neurons = list(video.neurons)
-        active = _baseline_active_neurons(video)
-
-        if video.is_concatenated and video.split_frame is not None:
-            sf = video.split_frame
-            traces = traces_full[[n.index for n in all_neurons], :sf]
-        else:
-            traces = traces_full[[n.index for n in all_neurons], :]
-
-        C = compute_correlation_matrix(
-            traces,
-            method=method,
-            remove_global=bool(config.get("remove_global", True)),
-            use_diff=bool(config.get("use_diff", True)),
-            diff_order=int(config.get("diff_order", 1)),
-            zscore_each=bool(config.get("zscore_each", True)),
-            clip_negatives=bool(config.get("clip_negatives", True)),
+    for start in range(n):
+        if visited[start]:
+            continue
+        stack = [start]
+        members: list[int] = []
+        visited[start] = True
+        while stack:
+            current = stack.pop()
+            members.append(current)
+            for neighbor in np.where(adjacency[current])[0]:
+                if not visited[neighbor]:
+                    visited[neighbor] = True
+                    stack.append(int(neighbor))
+        members = sorted(members)
+        if len(members) < min_group_size:
+            continue
+        groups.append(
+            {
+                "group_id": next_id,
+                "row_indices": members,
+                "neuron_indices": neuron_indices[members].tolist(),
+                "n_neurons": len(members),
+            }
         )
+        next_id += 1
 
-        # Cluster only baseline-active neurons using their sub-matrix
-        active_pos = [n.filtered_index for n in active]
-        C_sub = C[np.ix_(active_pos, active_pos)]
-
-        groups = cluster(
-            active,
-            1.0 - C_sub,
-            cluster_method=str(config.get("cluster", "graph")),
-            threshold=float(config.get("distance_threshold", 0.6)),
-            linkage_method=str(config.get("linkage_method", "average")),
-            min_group_size=int(config.get("min_group_size", 2)),
-            method="corr",
-        )
-
-        label_parts = [f"corr_{trace_key}_{method}"]
-        if config.get("remove_global", True):
-            label_parts.append("rmglobal")
-        if config.get("use_diff", True):
-            label_parts.append(f"diff{config.get('diff_order', 1)}")
-        if config.get("zscore_each", True):
-            label_parts.append("z")
-
-        return GroupingResult(groups=groups, matrix=C, config_label="_".join(label_parts))
+    return groups
 
 
-@dataclass
-class STTCStrategy:
-    """STTC-based grouping with hierarchical clustering."""
-
-    name: str = "sttc"
-
-    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        tw = float(config.get("time_window", 0.033))
-        dt = float(config.get("distance_threshold", 0.3))
-        link = str(config.get("linkage_method", "average"))
-        min_group = int(config.get("min_group_size", 2))
-
-        all_neurons = list(video.neurons)
-        active = _baseline_active_neurons(video)
-
-        if video.is_concatenated and video.split_frame is not None:
-            n_frames = video.split_frame
-        else:
-            n_frames = video.n_frames
-
-        sttc = compute_sttc_matrix(
-            all_neurons, n_frames, time_window=tw, fs=float(video.fs),
-            max_frame=video.split_frame if (video.is_concatenated and video.split_frame is not None) else None,
-        )
-
-        # Cluster only baseline-active neurons using their sub-matrix
-        active_pos = [n.filtered_index for n in active]
-        sttc_sub = sttc[np.ix_(active_pos, active_pos)]
-
-        groups = cluster(
-            active, 1.0 - sttc_sub,
-            cluster_method=str(config.get("cluster", "hierarchical")),
-            threshold=dt, linkage_method=link, min_group_size=min_group,
-            method="sttc", group_id_prefix="sttc", t_win=tw, sttc_thresh=1.0 - dt,
-        )
-
-        return GroupingResult(groups=groups, matrix=sttc, config_label=f"sttc_tw{tw}_dt{dt}")
+def _make_sched(start: int, interval: int, frames: int) -> list[int]:
+    pulses = []
+    current = start
+    while current < frames:
+        pulses.append(current)
+        current += interval
+    return pulses
 
 
-@dataclass
-class DTWStrategy:
-    """GPU-accelerated SoftDTW grouping with hierarchical clustering."""
+def _resolve_light_schedule(
+    video_id: str,
+    n_frames: int,
+    config: Dict[str, Any],
+    schedule_overrides: Dict[str, list[int]],
+) -> list[int]:
+    if video_id in schedule_overrides:
+        return schedule_overrides[video_id]
+    if config.get("start") is not None and config.get("interval") is not None:
+        return _make_sched(int(config["start"]), int(config["interval"]), int(n_frames))
+    if config.get("schedule"):
+        return list(config["schedule"])
+    raise ValueError("Either 'start' and 'interval' or 'schedule' must be specified in the config.")
 
-    name: str = "dtw"
 
-    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        down = int(config.get("downsample_factor", 3))
-        gpu = bool(config.get("use_gpu", True))
-        link = str(config.get("linkage_method", "average"))
-        pctl = int(config.get("distance_percentile", 30))
-        min_group = int(config.get("min_group_size", 2))
-
-        all_neurons = list(video.neurons)
-        active = _baseline_active_neurons(video)
-
-        # In concatenated mode, only use baseline segment for DTW
-        if video.is_concatenated and video.split_frame is not None:
-            dtw = compute_dtw_matrix(
-                all_neurons, downsample_factor=down, use_gpu=gpu,
-                max_frame=video.split_frame,
-            )
-        else:
-            dtw = compute_dtw_matrix(all_neurons, downsample_factor=down, use_gpu=gpu)
-        if dtw is None:
-            return GroupingResult(groups=[], matrix=None, config_label="dtw_skipped")
-
-        dtw = np.asarray(dtw, dtype=float)
-        nonzero = dtw[dtw > 0]
-        if nonzero.size == 0:
-            return GroupingResult(groups=[], matrix=dtw, config_label="dtw_empty")
-
-        # Cluster only baseline-active neurons using their sub-matrix
-        active_pos = [n.filtered_index for n in active]
-        dtw_sub = dtw[np.ix_(active_pos, active_pos)]
-        nonzero_sub = dtw_sub[dtw_sub > 0]
-        if nonzero_sub.size == 0:
-            return GroupingResult(groups=[], matrix=dtw, config_label="dtw_empty")
-
-        thresh = float(np.percentile(nonzero_sub, pctl))
-        groups = cluster(
-            active, dtw_sub,
-            cluster_method=str(config.get("cluster", "hierarchical")),
-            threshold=thresh, linkage_method=link, min_group_size=min_group,
-            method="dtw", group_id_prefix="dtw", dtw_thresh=thresh,
-        )
-
-        return GroupingResult(groups=groups, matrix=dtw, config_label="dtw")
-
-@dataclass
-class WeightedCorrelationStrategy:
-    """Weighted trace-correlation grouping with threshold-graph clustering.
-
-    Functionally identical to ``CorrelationStrategy`` but defaults to
-    ``weighted_pearson`` so the two methods can be compared side-by-side.
-    """
-
-    name: str = "wcorr"
-
-    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        trace_key = str(config.get("trace", "norm_sm_f"))
-        method = str(config.get("method", "weighted_pearson"))
-
-        if trace_key == "F":
-            traces_full = np.asarray(video.suite2p_data["F"], float)
-        elif trace_key == "savgol_f":
-            traces_full = savgol_filter(
-                np.asarray(video.suite2p_data["F"], float),
-                window_length=config.get("window", 5),
-                polyorder=config.get("polyorder", 2),
-                axis=1,
-            )
-        else:
-            traces_full = np.asarray(getattr(video, trace_key), float)
-
-        all_neurons = list(video.neurons)
-        active = _baseline_active_neurons(video)
-        traces = traces_full[[n.index for n in all_neurons], :]
-
-        C = compute_correlation_matrix(
-            traces,
-            method=method,
-            remove_global=bool(config.get("remove_global", True)),
-            use_diff=bool(config.get("use_diff", True)),
-            diff_order=int(config.get("diff_order", 1)),
-            zscore_each=bool(config.get("zscore_each", True)),
-            clip_negatives=bool(config.get("clip_negatives", True)),
-        )
-
-        # Cluster only baseline-active neurons using their sub-matrix
-        active_pos = [n.filtered_index for n in active]
-        C_sub = C[np.ix_(active_pos, active_pos)]
-
-        groups = cluster(
-            active,
-            1.0 - C_sub,
-            cluster_method=str(config.get("cluster", "graph")),
-            threshold=float(config.get("distance_threshold", 0.6)),
-            linkage_method=str(config.get("linkage_method", "average")),
-            min_group_size=int(config.get("min_group_size", 2)),
-            method="wcorr",
-        )
-
-        label_parts = [f"wcorr_{trace_key}_{method}"]
-        if config.get("remove_global", True):
-            label_parts.append("rmglobal")
-        if config.get("use_diff", True):
-            label_parts.append(f"diff{config.get('diff_order', 1)}")
-        if config.get("zscore_each", True):
-            label_parts.append("z")
-
-        return GroupingResult(groups=groups, matrix=C, config_label="_".join(label_parts))
+def run_light_evoked_grouping(
+    config: Dict[str, Any],
+    *,
+    active_neurons: list,
+    light_evoked_traces: np.ndarray,
+    n_frames: int,
+    video_id: str,
+    schedule_overrides: Dict[str, list[int]] | None = None,
+    **_kwargs,
+) -> dict:
+    """Light-evoked response grouping strategy using service-prepared inputs."""
+    schedule_overrides = schedule_overrides or {}
+    sched = _resolve_light_schedule(video_id, n_frames, config, schedule_overrides)
+    bin_size = int(config.get("bin_size", 3))
+    prominence = config.get("prominence", None)
+    activated = align_light_evoked(
+        light_evoked_traces,
+        bin_size=bin_size,
+        schedule=sched,
+        n_frames=n_frames,
+        prominence=prominence,
+    )
+    groups = light_evoked_cluster(
+        active_neurons,
+        activated,
+        n_pulses=len(sched),
+        schedule=sched,
+        bin_size=bin_size,
+        response_window=int(config.get("response_window", 10)),
+    )
+    return {
+        "groups": groups,
+        "matrix": activated,
+        "config_label": "light_evoked",
+        "metadata": {"schedule": sched, "bin_size": bin_size, "prominence": prominence},
+    }
 
 
 @dataclass
 class LightEvokedStrategy:
-    """Light-evoked response grouping strategy."""
+    """Backward-compatible wrapper around the pure strategy function."""
+
     name: str = "light-evoked"
     SCHEDULE_OVERRIDES: dict = field(default_factory=lambda: {
-        "5732L-5": [33, 65, 93, 116, 153, 192],  # <-- replace with actual frames
+        "5732L-5": [33, 65, 93, 116, 153, 192],
     })
+
     def _make_sched(self, start, interval, frames):
-        pulses = []
-        current = start
-        while current < frames:
-            pulses.append(current)
-            current += interval
-        return pulses
+        return _make_sched(start, interval, frames)
 
-    def compute(self, video: "Video", config: Dict[str, Any]) -> GroupingResult:
-        if video.video_id in self.SCHEDULE_OVERRIDES:
-            sched = self.SCHEDULE_OVERRIDES[video.video_id]
-        elif config.get("start") is not None and config.get("interval") is not None:
-            f0, inter = config.get("start"), config.get("interval")
-            sched = self._make_sched(f0, inter, video.n_frames)
-        elif config.get("schedule"):
-            sched = config.get("schedule")
-        else:
-            raise ValueError("Either 'start' and 'interval' or 'schedule' must be specified in the config.")
-        
-        neurons = _baseline_active_neurons(video)
-        traces = video.norm_sm_f[[n.index for n in neurons], :]
-
-        bin_size = config.get("bin_size", 3)
-        prominence = config.get("prominence", None)
-        activated = align_light_evoked(traces, bin_size=bin_size,
-                                     schedule=sched, n_frames=video.n_frames,
-                                     prominence=prominence)
-
-        groups = light_evoked_cluster(neurons, activated, n_pulses=len(sched),
-                                        schedule=sched, bin_size=bin_size,
-                                        response_window=config.get("response_window", 10))
-        return GroupingResult(
-            groups=groups,
-            matrix=activated,
-            config_label="light_evoked",
-            metadata={"schedule": sched, "bin_size": bin_size,
-                      "prominence": prominence},
+    def compute(self, video, config: Dict[str, Any], **kwargs) -> dict:
+        raw = run_light_evoked_grouping(
+            config,
+            active_neurons=list(video.neurons),
+            light_evoked_traces=np.asarray(video.norm_sm_f, dtype=float),
+            n_frames=int(video.n_frames),
+            video_id=str(video.video_id),
+            schedule_overrides=self.SCHEDULE_OVERRIDES,
+            **kwargs,
         )
+        return SimpleNamespace(**raw)
 
 
-# ── Registry ─────────────────────────────────────────────────────────
+StrategyEntry = Callable[..., dict]
 
-STRATEGY_REGISTRY: Dict[str, type] = {
-    "corr": CorrelationStrategy,
-    "wcorr": WeightedCorrelationStrategy,
-    "sttc": STTCStrategy,
-    "dtw": DTWStrategy,
-    "light-evoked": LightEvokedStrategy,
+STRATEGY_REGISTRY: Dict[str, StrategyEntry] = {
+    "combined": run_combined_grouping,
+    "dtw": run_dtw_grouping,
+    "light-evoked": run_light_evoked_grouping,
 }
