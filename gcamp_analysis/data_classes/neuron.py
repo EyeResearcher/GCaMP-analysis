@@ -100,60 +100,106 @@ class Neuron:
 
         Populates ``self.summary_stats`` and returns it.
         """
-        if not self.all_spk_stats:
-            self.summary_stats = {}
-            return {}
+        return self._summarize_spikes_subset(
+            f_trace_raw=f_trace_raw,
+            spikes=self.spikes,
+            spike_stats=self.all_spk_stats,
+        )
 
-        stats_df = pd.DataFrame(self.all_spk_stats)
+    def _summarize_spikes_subset(
+        self,
+        *,
+        f_trace_raw: np.ndarray,
+        spikes: List[Spike],
+        spike_stats: List[Dict[str, Any]],
+        n_frames: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Build one summary row from an explicit spike/stat subset."""
+        if n_frames is None:
+            f_trace = getattr(self, "f_trace", None)
+            n_frames = len(f_trace) if f_trace is not None else 0
 
-        # Spike frequency (Hz)
+        stats_df = pd.DataFrame(spike_stats)
+        stats_df = stats_df.drop(columns=["_section_key", "_section_kind"], errors="ignore")
+
         f_trace = getattr(self, "f_trace", None)
-        n_frames = len(f_trace) if f_trace is not None else 0
         fs = float(self.fs)
-        spike_frequency = float(len(self.spikes) / (n_frames / fs)) if n_frames > 0 else 0.0
+        spike_frequency = float(len(spikes) / (n_frames / fs)) if n_frames > 0 else 0.0
 
         summary = OrderedDict()
         summary["neuron_idx"] = int(getattr(self, "index", -1))
         summary["filtered_index"] = int(self.filtered_index)
         summary["spike_frequency"] = spike_frequency
-        summary["number_of_spikes"] = int(len(self.spikes))
+        summary["number_of_spikes"] = int(len(spikes))
 
-        summary["spike_indices"] = list(self.peaks_filtered)
+        summary["spike_indices"] = [int(sp.sm_f_idx) for sp in spikes if sp.sm_f_idx is not None]
         summary["spike_values_normalized"] = [
-            float(sp.f_value) for sp in self.spikes if sp.f_value is not None
+            float(sp.f_value) for sp in spikes if sp.f_value is not None
         ]
 
         raw = np.asarray(f_trace_raw, dtype=float).reshape(-1)
         summary["spike_values_raw"] = [
             float(raw[sp.sm_f_idx])
-            for sp in self.spikes
+            for sp in spikes
             if sp.sm_f_idx is not None and 0 <= int(sp.sm_f_idx) < raw.size
         ]
 
         for col in stats_df.columns:
             x = pd.to_numeric(stats_df[col], errors="coerce")
-            summary[f"mean_{col}"] = float(x.mean())
-            summary[f"var_{col}"] = float(x.var())
+            if x.notna().any():
+                summary[f"mean_{col}"] = float(x.mean())
+                summary[f"var_{col}"] = float(x.var())
 
-        self.summary_stats = dict(summary)
-        return self.summary_stats
+        return dict(summary)
 
     def summarize_spikes_by_section(
         self,
         f_trace_raw: np.ndarray,
         sections: list,
     ) -> Dict[str, Any]:
-        """Aggregate per-spike stats into section-keyed summaries."""
-        whole = self.summarize_spikes(f_trace_raw)
-        if not whole:
-            return {}
+        """Aggregate per-spike stats into whole-row and section-keyed summaries."""
+        active_segs = getattr(self.roi, "active_segments", {})
+        active_section_keys = {
+            section.section_key
+            for section in sections
+            if active_segs.get(section.section_key, True)
+        }
+
+        active_spikes = [
+            sp for sp in self.spikes
+            if getattr(sp, "section_key", None) in active_section_keys
+        ]
+        active_stats = [
+            stat for stat in self.all_spk_stats
+            if stat.get("_section_key") in active_section_keys
+        ]
+        active_frames = sum(
+            section.n_frames
+            for section in sections
+            if section.section_key in active_section_keys
+        )
+
+        whole = self._summarize_spikes_subset(
+            f_trace_raw=f_trace_raw,
+            spikes=active_spikes,
+            spike_stats=active_stats,
+            n_frames=active_frames,
+        )
 
         fs = float(self.fs)
-        active_segs = getattr(self.roi, "active_segments", {})
+        stat_columns = sorted(
+            {
+                key
+                for stat in self.all_spk_stats
+                for key in stat.keys()
+                if key not in {"_section_key", "_section_kind"}
+            }
+        )
 
         for section in sections:
             section_key = section.section_key
-            whole[f"{section_key}_active"] = active_segs.get(section_key, True)
+            is_active = bool(active_segs.get(section_key, True))
+            whole[f"{section_key}_active"] = is_active
 
             section_stats = [
                 stat for stat in self.all_spk_stats
@@ -163,6 +209,9 @@ class Neuron:
                 sp for sp in self.spikes
                 if section.start_frame <= sp.sm_f_idx < section.end_frame
             ]
+            if not is_active:
+                section_stats = []
+                section_spikes = []
             n_section_frames = section.n_frames
             section_freq = (
                 float(len(section_spikes) / (n_section_frames / fs))
@@ -180,6 +229,10 @@ class Neuron:
                     x = pd.to_numeric(section_df[col], errors="coerce")
                     whole[f"{section_key}_mean_{col}"] = float(x.mean())
                     whole[f"{section_key}_var_{col}"] = float(x.var())
+            else:
+                for col in stat_columns:
+                    whole[f"{section_key}_mean_{col}"] = np.nan
+                    whole[f"{section_key}_var_{col}"] = np.nan
 
         self.summary_stats = whole
         return self.summary_stats

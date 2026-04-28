@@ -244,9 +244,11 @@ def test_spike_service_shifts_peaks_and_summarizes_by_section(fake_video_dir: Pa
     class FakeKinetics:
         def __init__(self, fs):
             self.fs = fs
+            self.calls = 0
 
         def compute(self, window):
-            return {"width": 1.0}
+            self.calls += 1
+            return {"width": float(self.calls)}
 
     monkeypatch.setattr("gcamp_analysis.spike_processing.filtering.SpikeKinetics", FakeKinetics)
 
@@ -261,6 +263,17 @@ def test_spike_service_shifts_peaks_and_summarizes_by_section(fake_video_dir: Pa
         "recovery_1",
     ]
 
+    video.neurons[0].roi.active_segments = {
+        "baseline": True,
+        "treatment_1": False,
+        "recovery_1": True,
+    }
+    video.neurons[1].roi.active_segments = {
+        "baseline": True,
+        "treatment_1": True,
+        "recovery_1": True,
+    }
+
     for neuron in video.neurons:
         neuron.peaks_filtered = neuron.peaks.tolist()
 
@@ -272,8 +285,19 @@ def test_spike_service_shifts_peaks_and_summarizes_by_section(fake_video_dir: Pa
     assert "baseline_active" in summary_df.columns
     assert "treatment_1_active" in summary_df.columns
     assert summary_df.loc[0, "baseline_number_of_spikes"] == 1
-    assert summary_df.loc[0, "treatment_1_number_of_spikes"] == 1
+    assert summary_df.loc[0, "treatment_1_number_of_spikes"] == 0
     assert summary_df.loc[0, "recovery_1_number_of_spikes"] == 1
+    assert summary_df.loc[0, "number_of_spikes"] == 2
+    assert summary_df.loc[0, "spike_indices"] == [1, 9]
+    assert summary_df.loc[0, "spike_values_raw"] == [2.0, 4.0]
+    assert summary_df.loc[0, "spike_frequency"] == pytest.approx(3.75)
+    assert summary_df.loc[0, "mean_width"] == pytest.approx(2.0)
+    assert summary_df.loc[0, "treatment_1_active"] == False
+    assert summary_df.loc[0, "treatment_1_spike_frequency"] == 0.0
+    assert pd.isna(summary_df.loc[0, "treatment_1_mean_width"])
+    assert pd.isna(summary_df.loc[0, "treatment_1_var_width"])
+    assert summary_df.loc[0, "baseline_mean_width"] == pytest.approx(1.0)
+    assert summary_df.loc[0, "recovery_1_mean_width"] == pytest.approx(3.0)
 
 
 def test_grouping_service_creates_section_comparisons_per_nonbaseline_section(

@@ -222,6 +222,8 @@ class SpikeService:
                 if is_concat:
                     for section in video.concat_sections:
                         if section.start_frame <= sp.sm_f_idx < section.end_frame:
+                            sp.section_key = section.section_key
+                            sp.section_kind = section.section_kind
                             sp.stats["_section_key"] = section.section_key
                             sp.stats["_section_kind"] = section.section_kind
                             break

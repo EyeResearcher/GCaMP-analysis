@@ -17,12 +17,7 @@ TMP_DIR = Path(r"C:\Users\mzinn1\Desktop\s2p_temp")
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 ROOTS = [
-r"G:\Calcium Imaging\GCaMP6s_EX328",
-r"G:\Calcium Imaging\GCaMP6s_EX330",
-r"G:\Calcium Imaging\GCaMP6s_EX329",
-r"E:\EX345",
-r"E:\EX344",
-r"E:\GCaMP6s_EX357"
+r"G:\Calcium Imaging\GCaMP8s_EX369\NBDL-MQNMFA Combo"
 ]
 
 SKIP_IF_PROCESSED = False

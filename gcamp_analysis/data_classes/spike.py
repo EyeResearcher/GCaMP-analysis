@@ -24,6 +24,8 @@ class Spike:
     # Scalar features
     prominence: float = 0.0
     f_value: Optional[float] = None
+    section_key: Optional[str] = None
+    section_kind: Optional[str] = None
 
     # Windows used for kinetics/stats
     f_small_window_sg: Optional[np.ndarray] = None
