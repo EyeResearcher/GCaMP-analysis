@@ -39,17 +39,6 @@ class ConcatSection:
     def n_frames(self) -> int:
         return self.end_frame - self.start_frame
 
-    @property
-    def section_type(self) -> str:
-        """Backward-compatible alias for the normalized section kind."""
-        return self.section_kind
-
-    @property
-    def attribute_name(self) -> str:
-        """Backward-compatible alias for callers that used attribute-style names."""
-        return self.section_key
-
-
 @dataclass
 class Video:
     """
@@ -68,7 +57,6 @@ class Video:
     path: Path
     suite2p_path: Path  # e.g. <video_dir>/suite2p/plane0
     is_concatenated: bool = False
-    split_frame: Optional[int] = None
 
     # ---- Loaded data
     suite2p_data: dict[str, Any] = field(init=False, repr=False)
@@ -97,18 +85,6 @@ class Video:
     z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     savgol_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
     sm_sp: np.ndarray = field(default_factory=_empty_array, repr=False)  # optional if/when used
-
-    # ---- Per-segment traces (populated by TraceService when is_concatenated)
-    baseline_norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    baseline_norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    baseline_norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    baseline_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    baseline_savgol_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    treatment_norm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    treatment_norm_sm_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    treatment_norm_sg_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    treatment_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
-    treatment_savgol_z_f: np.ndarray = field(default_factory=_empty_array, repr=False)
 
     # ---- ROI filtering outputs (populated by ROIService)
     n_good_rois: int = 0
@@ -144,11 +120,6 @@ class Video:
         self._parse_metadata()
         self._initialize_concat_metadata()
 
-    # --------- Small helpers (ok to keep on Video) ---------
-    def _get_spike_lists(self) -> list[np.ndarray]:
-        """Helper to get list of spike frame indices for all neurons."""
-        return [spike.sm_f_idx for neuron in self.neurons for spike in neuron.spikes]
-
     def _parse_metadata(self) -> None:
         """Parse experiment/treatment/timepoint from the folder path."""
         parts = list(self.path.parts)
@@ -160,11 +131,6 @@ class Video:
             self.timepoint_name = "unknown"
             self.treatment = "unknown"
             self.experiment_name = "unknown"
-
-    @property
-    def metrics_dir(self) -> Path:
-        """Default per-video output folder."""
-        return self.path / "metrics"
 
     def get_section(self, section_name: str) -> Optional[ConcatSection]:
         """Return a section descriptor by normalized section key."""
@@ -191,13 +157,6 @@ class Video:
         self.norm_sg_f = _empty_array()
         self.sm_sp = _empty_array()
 
-        # Per-segment traces
-        self.baseline_norm_f = _empty_array()
-        self.baseline_norm_sm_f = _empty_array()
-        self.baseline_norm_sg_f = _empty_array()
-        self.treatment_norm_f = _empty_array()
-        self.treatment_norm_sm_f = _empty_array()
-        self.treatment_norm_sg_f = _empty_array()
         self.section_traces = {}
 
         self.n_good_rois = 0

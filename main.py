@@ -11,7 +11,7 @@ from gcamp_analysis.video_runner import VideoPipelineRunner
 from utils.io_utils import load_config, load_model
 
 # ---- Experiment tree + batch
-from gcamp_analysis.experiments.io import save_comparisons, save_treatment_comparisons
+from gcamp_analysis.experiments.io import save_comparisons, save_section_comparisons
 from gcamp_analysis.experiments.tree import ExperimentTreeBuilder, is_video_dir
 from gcamp_analysis.experiments.processor import ExperimentProcessor
 
@@ -68,7 +68,7 @@ def main(
         filename="sibling_comparisons.xlsx",
     )
 
-    save_treatment_comparisons(tree)
+    save_section_comparisons(tree)
     # 6) Print a few summary tables (optional)
     if verbose:
         print("\n=== Sibling comparisons (by node) ===")

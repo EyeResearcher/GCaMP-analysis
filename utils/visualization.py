@@ -141,9 +141,6 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
         # Get neuron indices from group
         neuron_indices = group.neuron_indices if hasattr(group, 'neuron_indices') else []
         
-        # Get average correlation from pre-computed stats
-        avg_corr = group.mean_spk_stats.get('mean_corr', None) if hasattr(group, 'mean_spk_stats') else None
-        
         for neuron_idx in neuron_indices:
             # Get stat dict for this neuron
             if neuron_idx >= len(stat):
@@ -180,7 +177,6 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
             'color': color,
             'n_neurons': len(neuron_indices),
             'n_drawn': n_neurons_drawn,
-            'avg_corr': avg_corr
         })
     
     # Display image
@@ -200,11 +196,7 @@ def visualize_neuron_groups(neuron_groups: List[NeuronGroup],
     if group_info:
         legend_elements = []
         for info in group_info:
-            # Build label with optional avg correlation
-            if info['avg_corr'] is not None and not np.isnan(info['avg_corr']):
-                label = f"{info['group_id']} (n={info['n_neurons']}, corr={info['avg_corr']:.2f})"
-            else:
-                label = f"{info['group_id']} (n={info['n_neurons']})"
+            label = f"{info['group_id']} (n={info['n_neurons']})"
             
             legend_elements.append(
                 Patch(
@@ -301,7 +293,7 @@ _STATUS_COLORS = {
 }
 
 
-def plot_delta_corr_vs_dispersion(
+def _legacy_plot_delta_corr_vs_dispersion(
     group_metrics: List[dict],
     *,
     ax: Optional[plt.Axes] = None,
@@ -353,7 +345,7 @@ def plot_delta_corr_vs_dispersion(
     return ax
 
 
-def plot_neuron_centroid_distances(
+def _legacy_plot_neuron_centroid_distances(
     group_metrics: List[dict],
     *,
     ax: Optional[plt.Axes] = None,

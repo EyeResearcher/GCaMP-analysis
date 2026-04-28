@@ -27,7 +27,6 @@ class VideoPipelineRunner:
     grouping_cfg: dict = field(default_factory=dict)
 
     is_concatenated: bool = False
-    split_frame: Optional[int] = None
 
     @classmethod
     def build(

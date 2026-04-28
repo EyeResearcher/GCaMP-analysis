@@ -2,7 +2,6 @@
 from __future__ import annotations
 from typing import List, Optional, TYPE_CHECKING
 import numpy as np
-import pandas as pd
 
 if TYPE_CHECKING:
     from .neuron import Neuron
@@ -30,9 +29,6 @@ class NeuronGroup:
         # Row positions in the similarity matrix (may differ from filtered_idxs
         # when the matrix is built from a subset, e.g. active neurons only).
         self.row_indices = row_indices if row_indices is not None else self.filtered_idxs
-
-        self.mean_spk_rate: Optional[float] = None
-        self.mean_spk_stats: dict = {}
 
     # Convenience accessors for common metadata
     @property
@@ -65,34 +61,6 @@ class NeuronGroup:
     def group_mean_similarity(self, matrix: Optional[np.ndarray]) -> float:
         """Mean pairwise similarity/distance for this group given any matrix."""
         return self._mean_upper_tri(matrix)
-
-    # ------------------------------------------------------------------
-    # Aggregate spike statistics
-    # ------------------------------------------------------------------
-
-    def get_mean_spike_stats(self, matrices: dict[str, Optional[np.ndarray]] | None = None) -> dict:
-        """Compute and store mean spike statistics across group members.
-
-        Parameters
-        ----------
-        matrices : {strategy_name: matrix}, optional
-            Similarity/distance matrices to compute per-group connectivity.
-        """
-        rates = [n.summary_stats["spike_frequency"] for n in self.neurons]
-        self.mean_spk_rate = float(np.mean(rates)) if rates else 0.0
-        mean_num_spikes = float(np.mean([len(n.spikes) for n in self.neurons])) if rates else 0.0
-
-        mean_of_means = pd.DataFrame(
-            [n.summary_stats for n in self.neurons]
-        ).filter(like="mean_").mean()
-
-        self.mean_spk_stats = mean_of_means.to_dict()
-        self.mean_spk_stats["spike_rate"] = self.mean_spk_rate
-        self.mean_spk_stats["number_of_spikes"] = mean_num_spikes
-
-        for name, mat in (matrices or {}).items():
-            self.mean_spk_stats[f"mean_{name}"] = self.group_mean_similarity(mat)
-        return self.mean_spk_stats
 
     def __repr__(self) -> str:
         return f"NeuronGroup(id={self.group_id}, size={self.size}, method={self.method})"
