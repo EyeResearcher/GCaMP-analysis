@@ -104,6 +104,6 @@ grouping:
     schedule : 
 
 concatenated:
-  enabled: True          # set true for concatenated baseline+treatment videos
-  split_frame: 901       # frame index where baseline ends and treatment begins
+  enabled: False          # set true for concatenated baseline+treatment videos
+  split_frame: 3651       # frame index where baseline ends and treatment begins
   

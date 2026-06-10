@@ -1,11 +1,42 @@
-"""Process an experiment tree: run the per-video pipeline, aggregate
-summary statistics bottom-up, and compare sibling nodes.
+"""Orchestrate per-video processing and hierarchical experiment summaries.
+
+This module connects the video-analysis pipeline to the experiment-tree
+summary model. Its responsibilities are deliberately limited to:
+
+1. Run the pipeline for each video leaf.
+2. Extract per-video values into a :class:`VideoRunRecord`.
+3. Traverse the tree in post-order and assign summaries produced by the
+   pure functions in ``summary_utils``.
+4. Flatten child summaries into sibling-comparison tables.
+
+Aggregation rules do not belong in ``ExperimentProcessor``. Leaf conversion
+is handled by ``summary_from_video_record`` and parent aggregation is handled
+by ``aggregate_node_summaries``. Keeping those computations pure makes them
+testable without constructing a pipeline runner or filesystem tree.
+
+Adding an aggregated statistic
+------------------------------
+For a value first calculated from a ``Video``:
+
+1. Calculate or extract it in ``_process_one_video`` (or a focused helper).
+2. Add the leaf-level field to ``VideoRunRecord`` in ``models.py``.
+3. Add the tree-level field to ``NodeSummary`` in ``summary_utils.py``.
+4. Map the record field in ``summary_from_video_record``.
+5. Define its weighting/merge rule in ``aggregate_node_summaries``.
+6. Add a ``TreeNode`` compatibility property only if existing callers need
+   direct ``node.<field>`` access.
+7. Add structural fields to ``comparison_utils.summary_to_comparison_row`` or
+   an output writer only when they should appear in exported results. New keys
+   inside existing ``StatSummary`` fields are flattened automatically.
+
+Statistics already represented inside ``StatSummary`` usually require no new
+dataclass field. Add the statistic to the per-neuron input columns consumed by
+``summarize_video`` and it will propagate by key through ``aggregate_children``.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -14,8 +45,11 @@ from gcamp_analysis.experiments.tree import TreeNode, is_video_dir
 from gcamp_analysis.experiments.summary_utils import (
     StatSummary,
     summarize_video,
-    aggregate_children,
+    aggregate_node_summaries,
+    summary_from_video_record,
 )
+from gcamp_analysis.experiments.models import VideoRunRecord
+from gcamp_analysis.experiments.comparison_utils import build_sibling_comparison
 from gcamp_analysis.data_classes.video import Video, VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
 from gcamp_analysis.video_runner import VideoPipelineRunner
 
@@ -28,62 +62,6 @@ class _GroupedPartition(NamedTuple):
     kin_ungrouped: StatSummary
     freq_grouped: StatSummary
     freq_ungrouped: StatSummary
-
-
-@dataclass(frozen=True)
-class VideoRunRecord:
-    """Immutable summary produced after a single video is processed.
-
-    Attributes
-    ----------
-    video_dir : Path
-        Root directory of the video.
-    metrics_dir : Path
-        Directory where per-video metrics are saved.
-    n_rois_total : int
-        Total ROIs detected by Suite2p.
-    n_rois_good : int
-        ROIs that passed the classifier.
-    n_neurons : int
-        Neurons retained after spike detection.
-    n_spikes_kept : int
-        Total spikes across all neurons after filtering.
-    n_groups_per_strategy : dict[str, int]
-        Number of neuron groups per grouping strategy.
-    kin_unweighted : StatSummary
-        Kinetics averaged equally across neurons.
-    kin_weighted_spikes : StatSummary
-        Kinetics weighted by per-neuron spike count.
-    freq_unweighted : StatSummary
-        Spike frequency averaged equally across neurons.
-    """
-
-    video_dir: Path
-    metrics_dir: Path
-
-    n_rois_total: int
-    n_rois_good: int
-    n_neurons: int
-    n_spikes_kept: int
-    n_neurons_grouped: int = 0
-    n_neurons_ungrouped: int = 0
-    n_groups_per_strategy: dict[str, int] = field(default_factory=dict)
-
-    group_stats: dict[str, dict[str, float]] = field(default_factory=dict)
-
-    kin_unweighted: StatSummary = field(default_factory=StatSummary)
-    kin_weighted_spikes: StatSummary = field(default_factory=StatSummary)
-    freq_unweighted: StatSummary = field(default_factory=StatSummary)
-
-    
-    kin_grouped: StatSummary = field(default_factory=StatSummary)
-    kin_ungrouped: StatSummary = field(default_factory=StatSummary)
-    freq_grouped: StatSummary = field(default_factory=StatSummary)
-    freq_ungrouped: StatSummary = field(default_factory=StatSummary)
-
-    light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
-    section_comparison_dfs: dict[str, dict[str, pd.DataFrame]] = field(default_factory=dict)
-    section_comparison_metrics: dict[str, dict[str, list[dict]]] = field(default_factory=dict)
 
 
 class ExperimentProcessor:
@@ -344,145 +322,17 @@ class ExperimentProcessor:
 
             if node.is_leaf():
                 if isinstance(node.payload, VideoRunRecord):
-                    node.n_videos = 1
-                    node.n_neurons = node.payload.n_neurons
-                    node.n_neurons_grouped = node.payload.n_neurons_grouped
-                    node.n_neurons_ungrouped = node.payload.n_neurons_ungrouped
-                    node.n_groups = node.payload.n_groups_per_strategy
-                    node.group_stats = node.payload.group_stats
-                    node.kin_unweighted = node.payload.kin_unweighted
-                    node.kin_weighted = node.payload.kin_weighted_spikes
-                    node.freq_unweighted = node.payload.freq_unweighted
-                    node.freq_weighted = node.payload.freq_unweighted  
-                    node.kin_grouped = node.payload.kin_grouped
-                    node.kin_ungrouped = node.payload.kin_ungrouped
-                    node.freq_grouped = node.payload.freq_grouped
-                    node.freq_ungrouped = node.payload.freq_ungrouped
-                    node.light_evoked_details = {
-                        k: df.assign(source=str(node.path.name))
-                        for k, df in node.payload.light_evoked_details.items()
-                    }
-                    node.section_comparison_df = {
-                        strategy_name: {
-                            section_key: df.assign(source=str(node.path.name))
-                            for section_key, df in strategy_dfs.items()
-                        }
-                        for strategy_name, strategy_dfs in node.payload.section_comparison_dfs.items()
-                    }
-                    node.section_comparison_metrics = {
-                        strategy_name: {
-                            section_key: metrics
-                            for section_key, metrics in strategy_metrics.items()
-                        }
-                        for strategy_name, strategy_metrics in node.payload.section_comparison_metrics.items()
-                    }
+                    node.summary = summary_from_video_record(
+                        node.payload,
+                        source=node.name,
+                    )
                 return
 
-            # internal node: counts
-            node.n_videos = sum(ch.n_videos for ch in node.children.values())
-            node.n_neurons = sum(ch.n_neurons for ch in node.children.values())
-            node.n_neurons_grouped = sum(ch.n_neurons_grouped for ch in node.children.values())
-            node.n_neurons_ungrouped = sum(ch.n_neurons_ungrouped for ch in node.children.values())
-
-            # merge per-strategy group counts
-            merged_groups: dict[str, int] = {}
-            for ch in node.children.values():
-                for method, count in ch.n_groups.items():
-                    merged_groups[method] = merged_groups.get(method, 0) + count
-            node.n_groups = merged_groups
-
-            # aggregate per-strategy group stats (weighted average by n_groups)
             kids = list(node.children.values())
-            all_methods = {m for ch in kids for m in ch.group_stats}
-            merged_gstats: dict[str, dict[str, float]] = {}
-            for method in all_methods:
-                accum: dict[str, list[tuple[float, float]]] = {}  # stat -> [(value, weight)]
-                for ch in kids:
-                    gs = ch.group_stats.get(method)
-                    w = float(ch.n_groups.get(method, 0))
-                    if gs is None or w == 0:
-                        continue
-                    for stat_name, stat_val in gs.items():
-                        accum.setdefault(stat_name, []).append((stat_val, w))
-                merged_gstats[method] = {}
-                for stat_name, pairs in accum.items():
-                    total_w = sum(w for _, w in pairs)
-                    if total_w > 0:
-                        merged_gstats[method][stat_name] = sum(v * w for v, w in pairs) / total_w
-                    else:
-                        merged_gstats[method][stat_name] = 0.0
-            node.group_stats = merged_gstats
-
-            # Unweighted: each immediate child counts equally
-
-            # Unweighted: each immediate child counts equally
-            node.kin_unweighted = aggregate_children([(ch.kin_weighted, 1.0) for ch in kids])
-            node.freq_unweighted = aggregate_children([(ch.freq_weighted, 1.0) for ch in kids])
-
-            # Weighted: choose weight basis by level
-            children_are_videos = all(ch.is_leaf() for ch in kids)
-            if children_are_videos:
-                # e.g., Week1 comparing videos => weight by neurons per video
-                w = [(ch.kin_weighted, float(ch.n_neurons)) for ch in kids]
-                wf = [(ch.freq_weighted, float(ch.n_neurons)) for ch in kids]
-            else:
-                # e.g., GABA comparing timepoints => weight by number of videos per timepoint
-                w = [(ch.kin_weighted, float(ch.n_videos)) for ch in kids]
-                wf = [(ch.freq_weighted, float(ch.n_videos)) for ch in kids]
-
-            node.kin_weighted = aggregate_children(w)
-            node.freq_weighted = aggregate_children(wf)
-
-            # Grouped vs ungrouped: same weighting logic
-            if children_are_videos:
-                wg = [(ch.kin_grouped, float(ch.n_neurons)) for ch in kids]
-                wug = [(ch.kin_ungrouped, float(ch.n_neurons)) for ch in kids]
-                wfg = [(ch.freq_grouped, float(ch.n_neurons)) for ch in kids]
-                wfug = [(ch.freq_ungrouped, float(ch.n_neurons)) for ch in kids]
-            else:
-                wg = [(ch.kin_grouped, float(ch.n_videos)) for ch in kids]
-                wug = [(ch.kin_ungrouped, float(ch.n_videos)) for ch in kids]
-                wfg = [(ch.freq_grouped, float(ch.n_videos)) for ch in kids]
-                wfug = [(ch.freq_ungrouped, float(ch.n_videos)) for ch in kids]
-
-            node.kin_grouped = aggregate_children(wg)
-            node.kin_ungrouped = aggregate_children(wug)
-            node.freq_grouped = aggregate_children(wfg)
-            node.freq_ungrouped = aggregate_children(wfug)
-
-            # Concatenate light-evoked detail DataFrames from children
-            merged_le: dict[str, list[pd.DataFrame]] = {}
-            for ch in kids:
-                for key, df in getattr(ch, "light_evoked_details", {}).items():
-                    if df is not None and not df.empty:
-                        merged_le.setdefault(key, []).append(df)
-            node.light_evoked_details = {
-                key: pd.concat(dfs, ignore_index=True)
-                for key, dfs in merged_le.items()
-            }
-
-            # Concatenate section comparison DataFrames from children
-            merged_section_dfs: dict[str, dict[str, list[pd.DataFrame]]] = {}
-            for ch in kids:
-                for strategy_name, strategy_dfs in getattr(ch, "section_comparison_df", {}).items():
-                    for section_key, section_df in strategy_dfs.items():
-                        if section_df is not None and not section_df.empty:
-                            merged_section_dfs.setdefault(strategy_name, {}).setdefault(section_key, []).append(section_df)
-            node.section_comparison_df = {
-                strategy_name: {
-                    section_key: pd.concat(section_dfs, ignore_index=True)
-                    for section_key, section_dfs in strategy_dfs.items()
-                }
-                for strategy_name, strategy_dfs in merged_section_dfs.items()
-            }
-
-            # Concatenate raw section comparison metrics from children
-            merged_section_metrics: dict[str, dict[str, list[dict]]] = {}
-            for ch in kids:
-                for strategy_name, strategy_metrics in getattr(ch, "section_comparison_metrics", {}).items():
-                    for section_key, metrics in strategy_metrics.items():
-                        merged_section_metrics.setdefault(strategy_name, {}).setdefault(section_key, []).extend(metrics)
-            node.section_comparison_metrics = merged_section_metrics
+            node.summary = aggregate_node_summaries(
+                (child.summary for child in kids),
+                children_are_videos=all(child.is_leaf() for child in kids),
+            )
 
         post(root)
 
@@ -515,99 +365,9 @@ class ExperimentProcessor:
         return results
 
     @staticmethod
-    def _compare_one(parent: TreeNode) -> Optional[pd.DataFrame]:
-        """Build a comparison DataFrame for children of *parent*."""
-        rows = []
-        for child in parent.children.values():
-            if child.n_videos <= 0:
-                continue
-
-            row: dict = {
-                "child": child.name,
-                "n_videos": child.n_videos,
-                "n_neurons": child.n_neurons,
-            }
-            # One column per grouping strategy
-            for method in sorted(child.n_groups):
-                row[f"n_groups_{method}"] = child.n_groups[method]
-
-            # Per-strategy group size and correlation stats
-            for method in sorted(child.group_stats):
-                gs = child.group_stats[method]
-                row[f"mean_group_size_{method}"] = gs.get("mean_group_size", 0.0)
-                row[f"median_group_size_{method}"] = gs.get("median_group_size", 0.0)
-                row[f"mean_group_corr_{method}"] = gs.get("mean_group_corr", 0.0)
-                row[f"mean_spikes_per_group_{method}"] = gs.get("mean_spikes_per_group", 0.0)
-
-                if method == "light-evoked":
-                    row["total_ON_cells"] = gs.get("total_ON_cells", 0)
-                    row["total_OFF_cells"] = gs.get("total_OFF_cells", 0)
-                    for key, val in gs.items():
-                        if key.startswith("n_cells_"):
-                            row[key] = val
-
-            # Fraction of neurons grouped vs ungrouped
-            total = child.n_neurons_grouped + child.n_neurons_ungrouped
-            row["frac_grouped"] = child.n_neurons_grouped / total if total > 0 else 0.0
-            row["frac_ungrouped"] = child.n_neurons_ungrouped / total if total > 0 else 0.0
-
-            # Flatten kinetics (unweighted + weighted + grouped + ungrouped)
-            for summary, scheme in [
-                (child.kin_unweighted, "unweighted"),
-                (child.kin_weighted, "weighted"),
-                (child.kin_grouped, "grouped"),
-                (child.kin_ungrouped, "ungrouped"),
-            ]:
-                for stat in sorted(summary.means):
-                    row[f"{stat}_mean_{scheme}"] = summary.means[stat]
-                    row[f"{stat}_var_{scheme}"] = summary.vars_total.get(stat, 0.0)
-                    row[f"{stat}_within_{scheme}"] = summary.vars_within.get(stat, 0.0)
-                    row[f"{stat}_between_{scheme}"] = summary.vars_between.get(stat, 0.0)
-
-            # Flatten frequency (unweighted + weighted + grouped + ungrouped)
-            for summary, scheme in [
-                (child.freq_unweighted, "unweighted"),
-                (child.freq_weighted, "weighted"),
-                (child.freq_grouped, "grouped"),
-                (child.freq_ungrouped, "ungrouped"),
-            ]:
-                for stat in sorted(summary.means):
-                    key = f"{stat}_{{}}_{scheme}"
-                    row[key.format("mean")] = summary.means[stat]
-                    row[key.format("var")] = summary.vars_total.get(stat, 0.0)
-                    row[key.format("within")] = summary.vars_within.get(stat, 0.0)
-                    row[key.format("between")] = summary.vars_between.get(stat, 0.0)
-
-            rows.append(row)
-
-        if len(rows) < 2:
-            return None
-
-        df = pd.DataFrame(rows).sort_values("child")
-
-        # Collect light-evoked detail DataFrames across children
-        le_dfs: dict[str, list[pd.DataFrame]] = {}
-        for child in parent.children.values():
-            for key, detail_df in getattr(child, "light_evoked_details", {}).items():
-                if detail_df is not None and not detail_df.empty:
-                    tagged = detail_df.copy()
-                    if "source" not in tagged.columns:
-                        tagged["source"] = child.name
-                    le_dfs.setdefault(key, []).append(tagged)
-        parent.light_evoked_details = {
-            key: pd.concat(dfs, ignore_index=True) for key, dfs in le_dfs.items()
-        }
-
-        # Reorder columns: core identifiers first, then all means, then
-        # variance columns (var/within/between) — so the most-compared
-        # values are immediately visible.
-        core = [c for c in df.columns if c in ("child", "n_videos", "n_neurons")
-                or c.startswith("n_groups_") or c.startswith("frac_")
-                or c.startswith("mean_group_size_") or c.startswith("median_group_size_")
-                or c.startswith("mean_group_corr_") or c.startswith("mean_spikes_per_group_")]
-        rest = [c for c in df.columns if c not in core]
-        mean_cols = [c for c in rest if "_mean_" in c]
-        var_cols = [c for c in rest if c not in mean_cols]
-        df = df[core + mean_cols + var_cols]
-
-        return df
+    def _compare_one(parent: TreeNode) -> pd.DataFrame | None:
+        """Compatibility wrapper around the pure comparison formatter."""
+        return build_sibling_comparison(
+            (child.name, child.summary)
+            for child in parent.children.values()
+        )

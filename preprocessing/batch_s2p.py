@@ -4,6 +4,8 @@ from pathlib import Path
 import argparse
 import numpy as np
 import subprocess
+import sys
+import tifffile
 # EXAMPLE USAGE: python preprocessing/batch_s2p.py --fs 15 --pretrained_model invitro_rgcs_max
 # ---------------------------------------------------------------------
 # WHERE YOUR REAL GUI OPS LIVE (we'll read from here only)
@@ -17,10 +19,10 @@ TMP_DIR = Path(r"C:\Users\mzinn1\Desktop\s2p_temp")
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 ROOTS = [
-r"G:\Calcium Imaging\GCaMP8s_EX369\NBDL-MQNMFA Combo"
+r"C:\Users\mzinn1\Desktop\GCaMP6S_EX370\Week 3"
 ]
 
-SKIP_IF_PROCESSED = False
+SKIP_IF_PROCESSED = True
 FORCE_GPU = True
 
 # ----- defaults (same as before) -----
@@ -93,14 +95,69 @@ GUI_DEFAULT_OPS = {
     "neucoeff": 0.7,
 }
 
-def folder_has_tifs(folder: Path) -> bool:
-    for ext in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
-        if any(folder.glob(ext)):
-            return True
-    return False
+def find_tiffs(folder: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in folder.iterdir()
+        if path.is_file() and path.suffix.lower() in {".tif", ".tiff"}
+    )
 
 def is_already_processed(folder: Path) -> bool:
-    return (folder / "suite2p").exists()
+    plane0 = folder / "suite2p" / "plane0"
+    required_outputs = ("F.npy", "iscell.npy", "ops.npy")
+    return all((plane0 / filename).is_file() for filename in required_outputs)
+
+def remove_incomplete_cache(folder: Path) -> list[Path]:
+    if is_already_processed(folder):
+        return []
+
+    plane0 = folder / "suite2p" / "plane0"
+    removed = []
+    for filename in ("data.bin", "data_raw.bin", "ops.npy"):
+        path = plane0 / filename
+        if path.is_file():
+            path.unlink()
+            removed.append(path)
+    return removed
+
+def validate_tiff(path: Path) -> None:
+    file_size = path.stat().st_size
+    if file_size <= 16:
+        raise ValueError(f"file is only {file_size} bytes")
+
+    try:
+        with tifffile.TiffFile(path) as tif:
+            if len(tif.pages) == 0:
+                raise ValueError("contains no TIFF pages")
+
+            for page_number, page in enumerate(tif.pages):
+                if not page.shape or any(size <= 0 for size in page.shape):
+                    raise ValueError(f"page {page_number} has no image shape")
+
+                if not page.dataoffsets or not page.databytecounts:
+                    raise ValueError(f"page {page_number} has no pixel data")
+
+                if len(page.dataoffsets) != len(page.databytecounts):
+                    raise ValueError(
+                        f"page {page_number} has inconsistent pixel data offsets"
+                    )
+
+                for offset, byte_count in zip(page.dataoffsets, page.databytecounts):
+                    if byte_count <= 0 or offset + byte_count > file_size:
+                        raise ValueError(
+                            f"page {page_number} pixel data extends past end of file"
+                        )
+    except (tifffile.TiffFileError, OSError) as exc:
+        raise ValueError(f"cannot read TIFF structure: {exc}") from exc
+
+def validate_tiffs(paths: list[Path]) -> list[str]:
+    errors = []
+    for path in paths:
+        try:
+            validate_tiff(path)
+        except ValueError as exc:
+            errors.append(f"{path.name}: {exc}")
+    return errors
 
 def is_experiment_leaf(folder: Path) -> bool:
     return len(folder.parts) <= 6
@@ -142,6 +199,12 @@ def load_base_ops(cli_overrides: dict | None = None) -> dict:
 def run_suite2p_on_folder(folder: Path, cli_overrides: dict | None = None):
     print(f"\n=== Running Suite2p on: {folder} ===")
 
+    removed_cache = remove_incomplete_cache(folder)
+    if removed_cache:
+        print("  Removed incomplete Suite2p cache:")
+        for path in removed_cache:
+            print(f"   - {path.name}")
+
     ops = load_base_ops(cli_overrides)
     ops["reg_tif"] = 0
     ops["delete_bin"] = 1
@@ -175,7 +238,7 @@ def run_suite2p_on_folder(folder: Path, cli_overrides: dict | None = None):
     #    #print(f"   {k}: {v}")
 
     cmd = [
-        "python", "-m", "suite2p",
+        sys.executable, str(Path(__file__).with_name("suite2p_compat.py")),
         "--ops", str(ops_temp),
         "--db",  str(db_temp),
     ]
@@ -191,10 +254,17 @@ def batch_s2p(roots, cli_overrides: dict | None = None, skip_if_processed: bool 
         for folder in root.rglob("*"):
             if not folder.is_dir():
                 continue
-            if not folder_has_tifs(folder):
+            tiffs = find_tiffs(folder)
+            if not tiffs:
                 continue
             if skip_if_processed and is_already_processed(folder):
-                print(f"↳ Skipping (already processed): {folder}")
+                print(f"-> Skipping (already processed): {folder}")
+                continue
+            tiff_errors = validate_tiffs(tiffs)
+            if tiff_errors:
+                print(f"!! Skipping invalid TIFF folder: {folder}")
+                for error in tiff_errors:
+                    print(f"   - {error}")
                 continue
             try:
                 run_suite2p_on_folder(folder, cli_overrides)
@@ -211,7 +281,7 @@ def main():
 
     batch_s2p(ROOTS, cli_overrides=cli_overrides, skip_if_processed=SKIP_IF_PROCESSED)
 
-    print("\n✅ done.")
+    print("\nDone.")
 
 if __name__ == "__main__":
     main()

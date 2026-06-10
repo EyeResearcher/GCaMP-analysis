@@ -1,15 +1,53 @@
-"""Variance-decomposition summaries for hierarchical experiment trees.
+"""Summary data structures and pure hierarchical aggregation functions.
 
-Every statistic is tracked with a mean and a within/between variance
-decomposition via the law of total variance, enabling multi-level
-comparisons (neuron → video → timepoint → treatment).
+This module owns the statistical semantics of experiment-tree aggregation.
+It has no dependency on ``TreeNode`` or ``ExperimentProcessor`` and should
+remain usable with plain dataclass instances in unit tests.
+
+Data flows through three levels:
+
+``per-neuron DataFrame -> VideoRunRecord -> NodeSummary -> parent NodeSummary``
+
+``StatSummary`` stores keyed means and a within/between variance decomposition.
+``NodeSummary`` stores all values attached to one processed tree node.
+``summary_from_video_record`` converts a video leaf into that common form.
+``aggregate_node_summaries`` combines child summaries into a parent.
+``comparison_utils.py`` separately owns flattening completed summaries into
+export tables; output formatting should not be added to this module.
+
+Adding an aggregated statistic
+------------------------------
+There are two common cases:
+
+* A new kinetics-like scalar with per-neuron ``mean_<name>`` and optionally
+  ``var_<name>`` columns usually needs no structural change. ``summarize_video``
+  discovers the name, and ``aggregate_children`` propagates it through each
+  ``StatSummary`` dictionary.
+* A new count, table, category, or independently weighted summary must be added
+  to ``NodeSummary``. It must then be initialized in
+  ``summary_from_video_record`` and explicitly combined in
+  ``aggregate_node_summaries``. Add a small private helper when the merge rule
+  is more complex than a sum or a call to ``aggregate_children``.
+
+Choose weights intentionally. Current video-child rules use total neuron count
+for ordinary weighted summaries, grouped neuron count for grouped summaries,
+and ungrouped neuron count for ungrouped summaries. Higher-level children use
+video count. Changing these rules changes the meaning of exported statistics
+and requires focused tests.
+
+Every ``StatSummary`` statistic tracks its mean and total variance, with total
+variance decomposed using the law of total variance into within-child and
+between-child components.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from gcamp_analysis.experiments.models import VideoRunRecord
 
 
 @dataclass
@@ -38,6 +76,231 @@ class StatSummary:
         """Alias for ``vars_total``."""
         return self.vars_total
 
+
+@dataclass
+class NodeSummary:
+    """All counts, statistics, and detail tables summarized by a tree node."""
+
+    n_videos: int = 0
+    n_neurons: int = 0
+    n_neurons_grouped: int = 0
+    n_neurons_ungrouped: int = 0
+
+    n_groups: dict[str, int] = field(default_factory=dict)
+    group_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    kin_unweighted: StatSummary = field(default_factory=StatSummary)
+    kin_weighted: StatSummary = field(default_factory=StatSummary)
+    freq_unweighted: StatSummary = field(default_factory=StatSummary)
+    freq_weighted: StatSummary = field(default_factory=StatSummary)
+
+    kin_grouped: StatSummary = field(default_factory=StatSummary)
+    kin_ungrouped: StatSummary = field(default_factory=StatSummary)
+    freq_grouped: StatSummary = field(default_factory=StatSummary)
+    freq_ungrouped: StatSummary = field(default_factory=StatSummary)
+
+    light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
+    section_comparison_dfs: dict[
+        str, dict[str, pd.DataFrame]
+    ] = field(default_factory=dict)
+    section_comparison_metrics: dict[
+        str, dict[str, list[dict]]
+    ] = field(default_factory=dict)
+
+
+def summary_from_video_record(
+    record: VideoRunRecord,
+    *,
+    source: str,
+) -> NodeSummary:
+    """Convert one processed video record into a leaf-node summary."""
+    return NodeSummary(
+        n_videos=1,
+        n_neurons=record.n_neurons,
+        n_neurons_grouped=record.n_neurons_grouped,
+        n_neurons_ungrouped=record.n_neurons_ungrouped,
+        n_groups=dict(record.n_groups_per_strategy),
+        group_stats=record.group_stats,
+        kin_unweighted=record.kin_unweighted,
+        kin_weighted=record.kin_weighted_spikes,
+        freq_unweighted=record.freq_unweighted,
+        # Frequency currently has only one per-video summary.
+        freq_weighted=record.freq_unweighted,
+        kin_grouped=record.kin_grouped,
+        kin_ungrouped=record.kin_ungrouped,
+        freq_grouped=record.freq_grouped,
+        freq_ungrouped=record.freq_ungrouped,
+        light_evoked_details={
+            key: df.assign(source=source)
+            for key, df in record.light_evoked_details.items()
+        },
+        section_comparison_dfs={
+            strategy: {
+                section: df.assign(source=source)
+                for section, df in sections.items()
+            }
+            for strategy, sections in record.section_comparison_dfs.items()
+        },
+        section_comparison_metrics={
+            strategy: {
+                section: list(metrics)
+                for section, metrics in sections.items()
+            }
+            for strategy, sections
+            in record.section_comparison_metrics.items()
+        },
+    )
+
+
+def aggregate_node_summaries(
+    children: Iterable[NodeSummary],
+    *,
+    children_are_videos: bool,
+) -> NodeSummary:
+    """Return a parent summary computed solely from child summaries."""
+    children = list(children)
+    if not children:
+        return NodeSummary()
+
+    standard_weights = [
+        float(child.n_neurons if children_are_videos else child.n_videos)
+        for child in children
+    ]
+    grouped_weights = [
+        float(child.n_neurons_grouped if children_are_videos else child.n_videos)
+        for child in children
+    ]
+    ungrouped_weights = [
+        float(child.n_neurons_ungrouped if children_are_videos else child.n_videos)
+        for child in children
+    ]
+
+    return NodeSummary(
+        n_videos=sum(child.n_videos for child in children),
+        n_neurons=sum(child.n_neurons for child in children),
+        n_neurons_grouped=sum(child.n_neurons_grouped for child in children),
+        n_neurons_ungrouped=sum(child.n_neurons_ungrouped for child in children),
+        n_groups=_sum_group_counts(children),
+        group_stats=_aggregate_group_stats(children),
+        kin_unweighted=aggregate_children(
+            (child.kin_weighted, 1.0) for child in children
+        ),
+        kin_weighted=aggregate_children(
+            zip((child.kin_weighted for child in children), standard_weights)
+        ),
+        freq_unweighted=aggregate_children(
+            (child.freq_weighted, 1.0) for child in children
+        ),
+        freq_weighted=aggregate_children(
+            zip((child.freq_weighted for child in children), standard_weights)
+        ),
+        kin_grouped=aggregate_children(
+            zip((child.kin_grouped for child in children), grouped_weights)
+        ),
+        kin_ungrouped=aggregate_children(
+            zip((child.kin_ungrouped for child in children), ungrouped_weights)
+        ),
+        freq_grouped=aggregate_children(
+            zip((child.freq_grouped for child in children), grouped_weights)
+        ),
+        freq_ungrouped=aggregate_children(
+            zip((child.freq_ungrouped for child in children), ungrouped_weights)
+        ),
+        light_evoked_details=_concat_dataframes(
+            child.light_evoked_details for child in children
+        ),
+        section_comparison_dfs=_concat_nested_dataframes(
+            child.section_comparison_dfs for child in children
+        ),
+        section_comparison_metrics=_merge_nested_metrics(
+            child.section_comparison_metrics for child in children
+        ),
+    )
+
+
+def _sum_group_counts(children: Iterable[NodeSummary]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for child in children:
+        for strategy, count in child.n_groups.items():
+            totals[strategy] = totals.get(strategy, 0) + count
+    return totals
+
+
+def _aggregate_group_stats(
+    children: Iterable[NodeSummary],
+) -> dict[str, dict[str, float]]:
+    children = list(children)
+    strategies = {
+        strategy
+        for child in children
+        for strategy in child.group_stats
+    }
+    aggregated: dict[str, dict[str, float]] = {}
+
+    for strategy in strategies:
+        weighted_values: dict[str, list[tuple[float, float]]] = {}
+        for child in children:
+            stats = child.group_stats.get(strategy)
+            weight = float(child.n_groups.get(strategy, 0))
+            if stats is None or weight <= 0:
+                continue
+            for name, value in stats.items():
+                weighted_values.setdefault(name, []).append((value, weight))
+
+        aggregated[strategy] = {
+            name: sum(value * weight for value, weight in values)
+            / sum(weight for _, weight in values)
+            for name, values in weighted_values.items()
+        }
+
+    return aggregated
+
+
+def _concat_dataframes(
+    mappings: Iterable[dict[str, pd.DataFrame]],
+) -> dict[str, pd.DataFrame]:
+    grouped: dict[str, list[pd.DataFrame]] = {}
+    for mapping in mappings:
+        for key, df in mapping.items():
+            if df is not None and not df.empty:
+                grouped.setdefault(key, []).append(df)
+    return {
+        key: pd.concat(dataframes, ignore_index=True)
+        for key, dataframes in grouped.items()
+    }
+
+
+def _concat_nested_dataframes(
+    mappings: Iterable[dict[str, dict[str, pd.DataFrame]]],
+) -> dict[str, dict[str, pd.DataFrame]]:
+    grouped: dict[str, dict[str, list[pd.DataFrame]]] = {}
+    for mapping in mappings:
+        for strategy, sections in mapping.items():
+            for section, df in sections.items():
+                if df is not None and not df.empty:
+                    grouped.setdefault(strategy, {}).setdefault(
+                        section, []
+                    ).append(df)
+    return {
+        strategy: {
+            section: pd.concat(dataframes, ignore_index=True)
+            for section, dataframes in sections.items()
+        }
+        for strategy, sections in grouped.items()
+    }
+
+
+def _merge_nested_metrics(
+    mappings: Iterable[dict[str, dict[str, list[dict]]]],
+) -> dict[str, dict[str, list[dict]]]:
+    merged: dict[str, dict[str, list[dict]]] = {}
+    for mapping in mappings:
+        for strategy, sections in mapping.items():
+            for section, metrics in sections.items():
+                merged.setdefault(strategy, {}).setdefault(section, []).extend(
+                    metrics
+                )
+    return merged
 
 def extract_stat_bases(summary_df: pd.DataFrame) -> list[str]:
     """Return sorted unique stat names found in *summary_df*.
