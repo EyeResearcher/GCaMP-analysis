@@ -50,7 +50,12 @@ from gcamp_analysis.experiments.summary_utils import (
 )
 from gcamp_analysis.experiments.models import VideoRunRecord
 from gcamp_analysis.experiments.comparison_utils import build_sibling_comparison
-from gcamp_analysis.data_classes.video import Video, VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
+from gcamp_analysis.data_classes.video import Video
+from gcamp_analysis.reporting import (
+    VideoFiguresWriter,
+    VideoStatistics,
+    VideoStatisticsWriter,
+)
 from gcamp_analysis.video_runner import VideoPipelineRunner
 
 
@@ -111,70 +116,79 @@ class ExperimentProcessor:
         """
         suite2p_plane0 = video_dir / "suite2p" / "plane0"
 
-        video = Video(
+        video = Video.from_suite2p(
             path=video_dir,
             suite2p_path=suite2p_plane0,
             is_concatenated=self.runner.is_concatenated,
         )
-        self.runner.run(video, verbose=verbose)
+        stats = None
+        try:
+            self.runner.run(video, verbose=verbose)
 
-        stats = VideoStatistics.from_video(video)
-        stat_writer = VideoStatisticsWriter()
-        stat_writer.write(stats, output_root=video_dir)
-        figure_writer = VideoFiguresWriter()
-        figure_writer.write(video)
+            stats = VideoStatistics.from_video(video)
+            stat_writer = VideoStatisticsWriter()
+            stat_writer.write(stats, output_root=video_dir)
+            figure_writer = VideoFiguresWriter()
+            figure_writer.write(video)
 
-        n_rois_total = int(video.n_rois)
-        n_rois_good = int(video.n_good_rois)
-        n_neurons = int(len(video.neurons))
-        n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))
-        n_groups_per_strategy = {
-            name: len(result.groups)
-            for name, result in video.grouping_results.items()
-        }
+            n_rois_total = int(video.n_rois)
+            n_rois_good = int(video.n_good_rois)
+            n_neurons = int(len(video.neurons))
+            n_spikes_kept = int(sum(len(getattr(n, "peaks_filtered", [])) for n in video.neurons))
+            n_groups_per_strategy = {
+                name: len(result.groups)
+                for name, result in video.grouping_results.items()
+            }
 
-        group_stats = self._compute_group_stats(video)
+            group_stats = self._compute_group_stats(video)
 
+            kin_unw, kin_wspk, freq_unw = summarize_video(
+                video.summary_df,
+                spike_count_col="number_of_spikes",
+                spike_freq_col="spike_frequency",
+            )
 
-        kin_unw, kin_wspk, freq_unw = summarize_video(
-            video.summary_df,
-            spike_count_col="number_of_spikes",
-            spike_freq_col="spike_frequency",
-        )
+            part = self._partition_grouped_ungrouped(video.summary_df, video.grouping_results)
 
-        part = self._partition_grouped_ungrouped(video.summary_df, video.grouping_results)
-
-        metrics_dir = video_dir / "metrics"
-        return VideoRunRecord(
-            video_dir=video_dir,
-            metrics_dir=metrics_dir,
-            n_rois_total=n_rois_total,
-            n_rois_good=n_rois_good,
-            n_neurons=n_neurons,
-            n_spikes_kept=n_spikes_kept,
-            n_neurons_grouped=part.n_grouped,
-            n_neurons_ungrouped=part.n_ungrouped,
-            n_groups_per_strategy=n_groups_per_strategy,
-            group_stats=group_stats,
-            kin_unweighted=kin_unw,
-            kin_weighted_spikes=kin_wspk,
-            freq_unweighted=freq_unw,
-            kin_grouped=part.kin_grouped,
-            kin_ungrouped=part.kin_ungrouped,
-            freq_grouped=part.freq_grouped,
-            freq_ungrouped=part.freq_ungrouped,
-            light_evoked_details=stats.light_evoked_details,
-            section_comparison_dfs=self._build_section_comparison_dfs(video),
-            section_comparison_metrics={
-                strategy_name: {
-                    section_key: list(comparison.group_metrics)
-                    for section_key, comparison in section_results.items()
-                    if comparison.group_metrics
-                }
-                for strategy_name, section_results in getattr(video, "section_comparison_results", {}).items()
-                if section_results
-            },
-        )
+            metrics_dir = video_dir / "metrics"
+            return VideoRunRecord(
+                video_dir=video_dir,
+                metrics_dir=metrics_dir,
+                n_rois_total=n_rois_total,
+                n_rois_good=n_rois_good,
+                n_neurons=n_neurons,
+                n_spikes_kept=n_spikes_kept,
+                n_neurons_grouped=part.n_grouped,
+                n_neurons_ungrouped=part.n_ungrouped,
+                n_groups_per_strategy=n_groups_per_strategy,
+                group_stats=group_stats,
+                kin_unweighted=kin_unw,
+                kin_weighted_spikes=kin_wspk,
+                freq_unweighted=freq_unw,
+                kin_grouped=part.kin_grouped,
+                kin_ungrouped=part.kin_ungrouped,
+                freq_grouped=part.freq_grouped,
+                freq_ungrouped=part.freq_ungrouped,
+                light_evoked_details=stats.light_evoked_details,
+                section_comparison_dfs=self._build_section_comparison_dfs(video),
+                section_comparison_metrics={
+                    strategy_name: {
+                        section_key: list(comparison.group_metrics)
+                        for section_key, comparison in section_results.items()
+                        if comparison.group_metrics
+                    }
+                    for strategy_name, section_results in getattr(video, "section_comparison_results", {}).items()
+                    if section_results
+                },
+            )
+        finally:
+            # Release array views held by ROIs/neurons before dropping the
+            # memory-mapped Suite2p inputs. This also runs when a notebook
+            # cell fails, preventing IPython's retained traceback from
+            # keeping a complete video resident.
+            stats = None
+            video.clear_results()
+            video.suite2p_data.clear()
 
     @staticmethod
     def _compute_group_stats(video: Video) -> dict[str, dict[str, float]]:

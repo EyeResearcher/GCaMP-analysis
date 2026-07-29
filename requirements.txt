@@ -6,6 +6,7 @@ matplotlib>=3.8
 joblib>=1.3
 PyYAML>=6.0
 openpyxl>=3.1
+tifffile>=2024.2
 
 # Optional: GPU-accelerated DTW similarity
 # torch>=2.2

@@ -62,7 +62,7 @@ def fake_video_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _make_concat_video(fake_video_dir: Path, rows: list[tuple]) -> Video:
     _write_concat_csv(fake_video_dir, rows)
-    return Video(
+    return Video.from_suite2p(
         path=fake_video_dir,
         suite2p_path=fake_video_dir / "suite2p" / "plane0",
         is_concatenated=True,
@@ -78,6 +78,28 @@ def _seed_neurons(video: Video) -> None:
         roi.is_good = True
         roi.active_segments = {section.section_key: True for section in video.concat_sections}
     video.neurons = [Neuron(roi=roi, filtered_index=i, fs=float(video.fs)) for i, roi in enumerate(rois)]
+
+
+def test_video_constructor_uses_injected_data_without_io(
+    fake_video_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def fail_if_loaded(_path: Path) -> dict:
+        raise AssertionError("Video constructor must not load Suite2p data")
+
+    monkeypatch.setattr(
+        "gcamp_analysis.data_classes.video.load_suite2p_data",
+        fail_if_loaded,
+    )
+
+    video = Video(
+        path=fake_video_dir,
+        suite2p_path=fake_video_dir / "suite2p" / "plane0",
+        suite2p_data=_fake_suite2p(),
+    )
+
+    assert video.n_rois == 2
+    assert video.n_frames == 12
 
 
 def test_video_loads_and_parses_concat_sections(fake_video_dir: Path):
@@ -143,7 +165,7 @@ def test_concat_csv_validation_rejects_missing_columns(fake_video_dir: Path):
     bad.to_csv(fake_video_dir / "videoA_concat_order.csv", index=False)
 
     with pytest.raises(ValueError):
-        Video(
+        Video.from_suite2p(
             path=fake_video_dir,
             suite2p_path=fake_video_dir / "suite2p" / "plane0",
             is_concatenated=True,
@@ -153,7 +175,7 @@ def test_concat_csv_validation_rejects_missing_columns(fake_video_dir: Path):
 def test_concat_csv_validation_rejects_invalid_type_and_missing_baseline(fake_video_dir: Path):
     _write_concat_csv(fake_video_dir, [(0, "src_a", "drug", 0, 4)])
     with pytest.raises(ValueError):
-        Video(
+        Video.from_suite2p(
             path=fake_video_dir,
             suite2p_path=fake_video_dir / "suite2p" / "plane0",
             is_concatenated=True,
@@ -161,7 +183,7 @@ def test_concat_csv_validation_rejects_invalid_type_and_missing_baseline(fake_vi
 
     _write_concat_csv(fake_video_dir, [(0, "src_a", "treatment", 0, 4)])
     with pytest.raises(ValueError):
-        Video(
+        Video.from_suite2p(
             path=fake_video_dir,
             suite2p_path=fake_video_dir / "suite2p" / "plane0",
             is_concatenated=True,

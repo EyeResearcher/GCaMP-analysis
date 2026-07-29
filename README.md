@@ -325,3 +325,23 @@ Additionally, `F_minmax.npy` (min-max normalized traces) is saved into each vide
 
 **Experiment-Level Outputs** (saved in `<experiment_root>/metrics/`):
 - `sibling_comparisons.xlsx`: Multi-sheet Excel file with statistical comparisons at each hierarchy level
+
+---
+
+### Optional Longitudinal Group Tracking
+
+After the per-video pipeline has created each recording's Suite2p masks and
+metrics workbook, repeated recordings of one region can be registered and
+tracked across days:
+
+```bash
+python -m gcamp_analysis.longitudinal /path/to/experiment_root --region 1-1
+```
+
+The base recording name is treated as the region identity: `1-1`,
+`1-1_Day2`, and `1-1_Day10` are matched to one another, while `1-2` is kept
+separate. Treatments are also processed separately. The command selects the
+largest 10% of groups on the latest day by default, then writes cell-match
+quality tables, group-membership histories, and a registered multi-page TIFF
+overlay. See [`gcamp_analysis/longitudinal/README.md`](gcamp_analysis/longitudinal/README.md)
+for options, output definitions, and quality-control requirements.

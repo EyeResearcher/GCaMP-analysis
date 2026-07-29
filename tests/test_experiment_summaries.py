@@ -14,6 +14,11 @@ from gcamp_analysis.experiments.summary_utils import (
     aggregate_node_summaries,
     summary_from_video_record,
 )
+from gcamp_analysis.experiments.tree import TreeNode
+from gcamp_analysis.reporting import (
+    build_comparison_legend,
+    save_comparisons,
+)
 
 
 def _stat(mean: float) -> StatSummary:
@@ -170,3 +175,48 @@ def test_build_sibling_comparison_sorts_children_and_flattens_stats() -> None:
     assert result is not None
     assert result["child"].tolist() == ["a", "b"]
     assert result["value_mean_weighted"].tolist() == [1.0, 3.0]
+
+
+def test_build_comparison_legend_describes_stat_columns() -> None:
+    comparison = pd.DataFrame(
+        columns=[
+            "child",
+            "n_groups_corr",
+            "amplitude_mean_weighted",
+            "amplitude_between_weighted",
+        ]
+    )
+
+    legend = build_comparison_legend(comparison).set_index("column")
+
+    assert "one row per sibling" in legend.loc["child", "description"]
+    assert "corr" in legend.loc["n_groups_corr", "description"]
+    assert "Mean value" in legend.loc[
+        "amplitude_mean_weighted",
+        "description",
+    ]
+    assert "Between-child" in legend.loc[
+        "amplitude_between_weighted",
+        "description",
+    ]
+
+
+def test_save_comparisons_writes_summary_and_legend(tmp_path: Path) -> None:
+    root = TreeNode(name="root", path=tmp_path)
+    comparison = pd.DataFrame(
+        {
+            "child": ["a", "b"],
+            "n_videos": [1, 1],
+            "n_neurons": [2, 3],
+        }
+    )
+
+    save_comparisons(
+        root=root,
+        sibling_tables={tmp_path: comparison},
+    )
+
+    output = tmp_path / "metrics" / "sibling_comparisons.xlsx"
+    assert output.exists()
+    workbook = pd.ExcelFile(output)
+    assert workbook.sheet_names == ["summary", "legend"]

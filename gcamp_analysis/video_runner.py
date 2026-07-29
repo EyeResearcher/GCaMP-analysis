@@ -83,7 +83,13 @@ class VideoPipelineRunner:
         if verbose:
             print(f"\n Processing: {video.video_id}")
 
-        video.is_concatenated = self.is_concatenated
+        if video.is_concatenated != self.is_concatenated:
+            raise ValueError(
+                "Video concatenation mode does not match the runner. "
+                "Construct filesystem-backed videos with "
+                "Video.from_suite2p(..., "
+                f"is_concatenated={self.is_concatenated})."
+            )
 
         if video.is_concatenated and verbose and getattr(video, "concat_sections", None):
             section_summary = ", ".join(section.section_key for section in video.concat_sections)
@@ -120,6 +126,17 @@ class VideoPipelineRunner:
             for name, count in grouping_report.n_groups.items():
                 parts.append(f"{name}={count}")
             print("  " + " | ".join(parts))
+
+            for strategy_name, result in video.grouping_results.items():
+                if not isinstance(getattr(result, "metadata", None), dict):
+                    continue
+                if result.metadata.get("skipped") and result.metadata.get("reason") == "active_neuron_cap":
+                    print(
+                        "  "
+                        f"Grouping ({strategy_name}) skipped: "
+                        f"active_neurons={result.metadata.get('active_neurons')} > "
+                        f"cap={result.metadata.get('max_neurons_for_grouping')}"
+                    )
 
             if video.is_concatenated and video.section_comparison_results:
                 for strat_name, section_results in video.section_comparison_results.items():

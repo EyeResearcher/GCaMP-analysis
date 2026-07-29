@@ -12,6 +12,7 @@ dependencies:
   - joblib>=1.3
   - pyyaml>=6.0
   - openpyxl>=3.1
+  - tifffile>=2024.2
   - pip
   - pip:
     # GPU-accelerated DTW (optional — CPU fallback works without it)

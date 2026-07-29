@@ -16,7 +16,13 @@ if TYPE_CHECKING:
 
 def load_suite2p_data(suite2p_path: Path) -> dict:
     """
-    Load all Suite2p output files from a plane0 directory.
+    Load the Suite2p inputs required by the analysis pipeline.
+
+    Large numeric arrays are opened read-only with NumPy memory mapping so
+    processing a video does not eagerly copy every Suite2p input into RAM.
+    Suite2p ``ops.npy`` files may contain very large registration payloads
+    (notably ``regPC``); the analysis pipeline only consumes ``fs``, ``Ly``,
+    and ``Lx``, so only those fields are retained.
 
     Parameters
     ----------
@@ -37,24 +43,34 @@ def load_suite2p_data(suite2p_path: Path) -> dict:
         if not (suite2p_path / file).exists():
             raise FileNotFoundError(f"Required file {file} not found in {suite2p_path}")
 
-    data['F'] = np.load(suite2p_path / 'F.npy')
-    data['iscell'] = np.load(suite2p_path / 'iscell.npy')
+    data['F'] = np.load(suite2p_path / 'F.npy', mmap_mode='r')
+    data['iscell'] = np.load(suite2p_path / 'iscell.npy', mmap_mode='r')
 
     if (suite2p_path / 'Fneu.npy').exists():
-        data['Fneu'] = np.load(suite2p_path / 'Fneu.npy')
+        data['Fneu'] = np.load(suite2p_path / 'Fneu.npy', mmap_mode='r')
     else:
         data['Fneu'] = np.zeros_like(data['F'])
 
     if (suite2p_path / 'spks.npy').exists():
-        data['spks'] = np.load(suite2p_path / 'spks.npy')
+        data['spks'] = np.load(suite2p_path / 'spks.npy', mmap_mode='r')
 
     if (suite2p_path / 'stat.npy').exists():
         data['stat'] = np.load(suite2p_path / 'stat.npy', allow_pickle=True)
 
     if (suite2p_path / 'ops.npy').exists():
-        data['ops'] = np.load(suite2p_path / 'ops.npy', allow_pickle=True).item()
+        full_ops = np.load(
+            suite2p_path / 'ops.npy',
+            allow_pickle=True,
+        ).item()
+        data['ops'] = {
+            key: full_ops[key]
+            for key in ('fs', 'Ly', 'Lx')
+            if key in full_ops
+        }
+        del full_ops
         data['fs'] = data['ops'].get('fs', 15.0)
     else:
+        data['ops'] = {}
         data['fs'] = 15.0
 
     return data

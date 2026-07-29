@@ -11,7 +11,7 @@ from gcamp_analysis.video_runner import VideoPipelineRunner
 from utils.io_utils import load_config, load_model
 
 # ---- Experiment tree + batch
-from gcamp_analysis.experiments.io import save_comparisons, save_section_comparisons
+from gcamp_analysis.reporting import save_comparisons, save_section_comparisons
 from gcamp_analysis.experiments.tree import ExperimentTreeBuilder, is_video_dir
 from gcamp_analysis.experiments.processor import ExperimentProcessor
 

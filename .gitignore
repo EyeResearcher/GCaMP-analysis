@@ -27,3 +27,11 @@ config/
 ToDo_Contexts/
 
 configs/
+
+.codex*/
+
+wave_analysis_results/
+wave_analysis_probe_derivative/
+wave_analysis_probe/
+output/
+_diagnostic_run/

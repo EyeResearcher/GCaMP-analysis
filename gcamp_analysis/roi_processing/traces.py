@@ -72,7 +72,6 @@ class TraceService:
         video.norm_sg_f = savgol
         video.z_f = zscore
         video.savgol_z_f = savgol_z
-        np.save(video.suite2p_path / "F_minmax.npy", video.norm_f)
 
         if video.is_concatenated:
             self._assign_section_traces(

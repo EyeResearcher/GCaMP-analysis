@@ -9,6 +9,12 @@ models:
 traces: 
   smooth_sigma: 4
   sensor_type: "gcamp6s"   # gcamp8s, gcamp6f, or generic
+
+# Keep notebook execution memory-stable. The pipeline otherwise defaults to
+# n_jobs=-1, which starts one Joblib worker per logical CPU in two stages.
+parallel:
+  n_jobs: 1
+
 hp_tuning: 
   model_searches:
     RF:
