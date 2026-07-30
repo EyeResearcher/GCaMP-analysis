@@ -52,16 +52,6 @@ class TraceService:
 
         return norm, smoothed, savgol, zscore, savgol_z
 
-    def _assign_section_traces(self, video: "Video", trace_map: dict[str, np.ndarray]) -> None:
-        """Slice processed traces into the section-keyed trace mapping on ``Video``."""
-        video.section_traces = {}
-        for section in getattr(video, "concat_sections", []):
-            per_section: dict[str, np.ndarray] = {}
-            for trace_name, trace_values in trace_map.items():
-                sliced = np.asarray(trace_values[:, section.start_frame:section.end_frame])
-                per_section[trace_name] = sliced
-            video.section_traces[section.section_key] = per_section
-
     def run(self, video: "Video") -> TraceReport:
         fs = float(video.fs)
         F = video.suite2p_data["F"]
@@ -72,17 +62,5 @@ class TraceService:
         video.norm_sg_f = savgol
         video.z_f = zscore
         video.savgol_z_f = savgol_z
-
-        if video.is_concatenated:
-            self._assign_section_traces(
-                video,
-                {
-                    "norm_f": video.norm_f,
-                    "norm_sm_f": video.norm_sm_f,
-                    "norm_sg_f": video.norm_sg_f,
-                    "z_f": video.z_f,
-                    "savgol_z_f": video.savgol_z_f,
-                },
-            )
 
         return TraceReport(n_rois=int(video.n_rois), n_frames=int(video.n_frames), fs=fs)

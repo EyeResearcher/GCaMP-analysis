@@ -149,19 +149,6 @@ class TreeNode:
     def light_evoked_details(self) -> dict:
         return self.summary.light_evoked_details
 
-    @property
-    def section_comparison_df(self) -> dict:
-        """Compatibility alias for the plural summary field."""
-        return self.summary.section_comparison_dfs
-
-    @property
-    def section_comparison_dfs(self) -> dict:
-        return self.summary.section_comparison_dfs
-
-    @property
-    def section_comparison_metrics(self) -> dict:
-        return self.summary.section_comparison_metrics
-
     def is_leaf(self) -> bool:
         """Return ``True`` if the node has no children."""
         return len(self.children) == 0

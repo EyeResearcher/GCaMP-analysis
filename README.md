@@ -268,9 +268,18 @@ python main.py /path/to/experiment_root
 # Optionally specify the sensor type 
 python main.py /path/to/experiment_root --sensor <your_sensor>
 
+# Validate the full analysis without writing output files
+python main.py /path/to/experiment_root --dry-run
+
 # Display program purpose and argument definitions
 python main.py --help
 ```
+
+`--dry-run` loads the configured models and Suite2p data and performs trace
+processing, ROI and spike classification, grouping, experiment aggregation,
+and sibling comparisons. It prints the normal progress and summary output but
+does not create or modify metrics workbooks, NumPy matrices, figures, or output
+directories.
 #### Directory Structure & Sibling Comparisons
 
 The pipeline automatically compares sibling directories at each level of your experiment hierarchy. **Parallel directory structures are required** for meaningful comparisons.

@@ -100,22 +100,6 @@ class VideoStatisticsWriter:
                     )
                     sheets_written = True
 
-            for section_results in stats.section_comparison.values():
-                for section_key, comparison_result in section_results.items():
-                    if not getattr(comparison_result, "group_metrics", None):
-                        continue
-                    section_df = pd.DataFrame(comparison_result.group_metrics)
-                    if section_df.empty:
-                        continue
-                    section_df.to_excel(
-                        writer,
-                        sheet_name=_unique_sheet_name(
-                            f"baseline-{section_key}"
-                        ),
-                        index=False,
-                    )
-                    sheets_written = True
-
             if not sheets_written:
                 pd.DataFrame().to_excel(
                     writer,
@@ -129,34 +113,6 @@ class VideoStatisticsWriter:
             matrix_path = out_dir / f"{base}_{matrix_name}_matrix.npy"
             np.save(matrix_path, matrix)
             manifest[f"{matrix_name}_matrix_npy"] = str(matrix_path)
-
-        for strategy_name, section_results in stats.section_comparison.items():
-            for section_key, comparison_result in section_results.items():
-                if getattr(comparison_result, "group_metrics", None):
-                    section_df = pd.DataFrame(comparison_result.group_metrics)
-                    section_path = (
-                        out_dir
-                        / f"{base}_{strategy_name}_{section_key}_section_comparison.csv"
-                    )
-                    section_df.to_csv(section_path, index=False)
-                    manifest[
-                        f"{strategy_name}_{section_key}_section_comparison"
-                    ] = str(section_path)
-
-                section_matrix = getattr(
-                    comparison_result,
-                    "section_matrix",
-                    None,
-                )
-                if section_matrix is not None:
-                    matrix_path = (
-                        out_dir
-                        / f"{base}_{strategy_name}_{section_key}_section_matrix.npy"
-                    )
-                    np.save(matrix_path, section_matrix)
-                    manifest[
-                        f"{strategy_name}_{section_key}_section_matrix_npy"
-                    ] = str(matrix_path)
 
         return manifest
 
@@ -208,48 +164,6 @@ class VideoFiguresWriter:
             heatmap_path if heatmap_fig else None,
         )
 
-    def write_section_figures(
-        self,
-        video: Video,
-        *,
-        out_dir: Path,
-    ) -> dict:
-        """Generate and save section-comparison dispersion figures."""
-        from gcamp_analysis.grouping_processing.service import (
-            visualize_section_comparison,
-        )
-
-        manifest: dict = {}
-        base = video.path.name
-        for strategy_name, section_results in (
-            video.section_comparison_results.items()
-        ):
-            for section_key in section_results:
-                delta_fig, centroid_fig = visualize_section_comparison(
-                    video,
-                    strategy_name=strategy_name,
-                    section_key=section_key,
-                )
-                if delta_fig is not None:
-                    path = (
-                        out_dir
-                        / f"{base}_{strategy_name}_{section_key}_delta_corr_vs_dispersion.png"
-                    )
-                    self.save_fig(delta_fig, path)
-                    manifest[
-                        f"{strategy_name}_{section_key}_delta_corr_png"
-                    ] = str(path)
-                if centroid_fig is not None:
-                    path = (
-                        out_dir
-                        / f"{base}_{strategy_name}_{section_key}_centroid_distances.png"
-                    )
-                    self.save_fig(centroid_fig, path)
-                    manifest[
-                        f"{strategy_name}_{section_key}_centroid_dist_png"
-                    ] = str(path)
-        return manifest
-
     def write(self, video: Video) -> dict:
         """Write all available grouping and section figures."""
         out_dir = video.path / "metrics"
@@ -267,5 +181,4 @@ class VideoFiguresWriter:
             if heatmap:
                 manifest[f"{strategy_name}_heatmap_png"] = str(heatmap)
 
-        manifest.update(self.write_section_figures(video, out_dir=out_dir))
         return manifest

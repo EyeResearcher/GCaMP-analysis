@@ -26,8 +26,6 @@ class VideoPipelineRunner:
     spike_model_config: Optional[dict] = None
     grouping_cfg: dict = field(default_factory=dict)
 
-    is_concatenated: bool = False
-
     @classmethod
     def build(
         cls,
@@ -63,9 +61,6 @@ class VideoPipelineRunner:
         ]
         grp = GroupingService(strategies=strategies)
 
-        concat_cfg = config.get("concatenated", {})
-        is_concat = bool(concat_cfg.get("enabled", False))
-
         return cls(
             trace=trace,
             roi=roi,
@@ -76,24 +71,11 @@ class VideoPipelineRunner:
             spike_model=models["spike"],
             spike_model_config=models.get("spike_config"),
             grouping_cfg=grouping_cfg,
-            is_concatenated=is_concat,
         )
 
     def run(self, video: Video, verbose: bool = True) -> None:
         if verbose:
             print(f"\n Processing: {video.video_id}")
-
-        if video.is_concatenated != self.is_concatenated:
-            raise ValueError(
-                "Video concatenation mode does not match the runner. "
-                "Construct filesystem-backed videos with "
-                "Video.from_suite2p(..., "
-                f"is_concatenated={self.is_concatenated})."
-            )
-
-        if video.is_concatenated and verbose and getattr(video, "concat_sections", None):
-            section_summary = ", ".join(section.section_key for section in video.concat_sections)
-            print(f"  Concatenated mode: {len(video.concat_sections)} section(s) ({section_summary})")
 
         trace_report = self.trace.run(video)
         if verbose:
@@ -138,24 +120,3 @@ class VideoPipelineRunner:
                         f"cap={result.metadata.get('max_neurons_for_grouping')}"
                     )
 
-            if video.is_concatenated and video.section_comparison_results:
-                for strat_name, section_results in video.section_comparison_results.items():
-                    for section_key, comparison in section_results.items():
-                        n_groups_section = len(comparison.group_metrics)
-                        mean_delta = (
-                            np.nanmean([
-                                group_metric.get("delta_mean_corr", float("nan"))
-                                for group_metric in comparison.group_metrics
-                            ])
-                            if comparison.group_metrics else float("nan")
-                        )
-                        n_subgroups = sum(
-                            group_metric.get("n_section_subgroups", 0)
-                            for group_metric in comparison.group_metrics
-                        )
-                        print(
-                            f"  Section comparison ({strat_name}, {section_key}): "
-                            f"{n_groups_section} groups | "
-                            f"mean delta corr={mean_delta:+.3f} | "
-                            f"{n_subgroups} surviving sub-groups"
-                        )

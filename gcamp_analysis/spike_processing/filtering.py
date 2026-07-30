@@ -77,67 +77,26 @@ class SpikeService:
           - n_peaks_raw (int)
         Returns flattened feature dataframe for inference.
 
-        In concatenated mode, spike detection is run separately on each
-        parsed section so that section boundaries cannot produce
-        artefacts. Section-local peak indices are shifted back into the
-        full-trace coordinate system.
+        Spike detection runs over the full trace for each neuron.
         """
         fs = float(video.fs)
+        f = video.norm_sm_f
+        all_n = video.neurons
+        results = Parallel(
+                    n_jobs=self.n_jobs)(delayed(
+                    describe_spikes)(f[n.index, :],
+                                             int(n.index),
+                                            fs=fs)
+                                                      for n in all_n)
 
-        if video.is_concatenated and video.concat_sections:
-            spike_features_flat: list[dict] = []
-            section_results: dict[str, list[tuple]] = {}
-            for section in video.concat_sections:
-                smoothed = video.section_traces[section.section_key]["norm_sm_f"]
-                section_results[section.section_key] = Parallel(n_jobs=self.n_jobs)(
-                    delayed(describe_spikes)(smoothed[n.index, :], int(n.index), fs=fs)
-                    for n in video.neurons
-                )
+        spike_features_flat: list[dict] = []
+        for neuron, (feats_list, _keys, peaks) in zip(video.neurons, results):
+            neuron.spk_features = list(feats_list or [])
+            neuron.peaks = np.asarray(peaks, dtype=int)
+            neuron.n_peaks_raw = int(len(neuron.peaks))
+            spike_features_flat.extend(neuron.spk_features)
 
-            for neuron_idx, neuron in enumerate(video.neurons):
-                merged_feats: list[dict] = []
-                merged_peaks: list[np.ndarray] = []
-
-                for section in video.concat_sections:
-                    feats_list, _keys, peaks = section_results[section.section_key][neuron_idx]
-                    feats = [dict(feature_dict) for feature_dict in (feats_list or [])]
-                    shifted_peaks = np.asarray(peaks, dtype=int) + section.start_frame
-
-                    for feature_dict in feats:
-                        feature_dict["_section_key"] = section.section_key
-                        feature_dict["_section_kind"] = section.section_kind
-
-                    merged_feats.extend(feats)
-                    if shifted_peaks.size:
-                        merged_peaks.append(shifted_peaks)
-
-                neuron.spk_features = merged_feats
-                neuron.peaks = (
-                    np.concatenate(merged_peaks) if merged_peaks else np.asarray([], dtype=int)
-                )
-                neuron.n_peaks_raw = int(len(neuron.peaks))
-                spike_features_flat.extend(merged_feats)
-
-            return pd.DataFrame(spike_features_flat)
-        else:
-            # --- Original single-video path ---
-            f = video.norm_sm_f
-            all_n = video.neurons
-            results = Parallel(
-                        n_jobs=self.n_jobs)(delayed(
-                        describe_spikes)(f[n.index, :],
-                                                 int(n.index),
-                                                fs=fs)
-                                                          for n in all_n)
-
-            spike_features_flat: list[dict] = []
-            for neuron, (feats_list, _keys, peaks) in zip(video.neurons, results):
-                neuron.spk_features = list(feats_list or [])
-                neuron.peaks = np.asarray(peaks, dtype=int)
-                neuron.n_peaks_raw = int(len(neuron.peaks))
-                spike_features_flat.extend(neuron.spk_features)
-
-            return pd.DataFrame(spike_features_flat)
+        return pd.DataFrame(spike_features_flat)
 
     def filter_spikes(
         self,
@@ -201,12 +160,9 @@ class SpikeService:
         Populates on video:
           - summary_df (pd.DataFrame)
 
-        In concatenated mode, spike statistics are summarized per
-        parsed section key alongside the whole-trace aggregates.
+        Spike statistics are summarized over each full neuron trace.
         """
         kinetics = SpikeKinetics(fs=float(video.fs))
-
-        is_concat = video.is_concatenated and bool(video.concat_sections)
 
         for neuron in video.neurons:
             neuron.instantiate_spikes(
@@ -219,31 +175,14 @@ class SpikeService:
                 if sp.f_small_window_sg is None:
                     continue
                 sp.stats = kinetics.compute(sp.f_small_window_sg)
-                if is_concat:
-                    for section in video.concat_sections:
-                        if section.start_frame <= sp.sm_f_idx < section.end_frame:
-                            sp.section_key = section.section_key
-                            sp.section_kind = section.section_kind
-                            sp.stats["_section_key"] = section.section_key
-                            sp.stats["_section_kind"] = section.section_kind
-                            break
                 neuron.all_spk_stats.append(sp.stats)
 
-        if is_concat:
-            per_neuron = {
-                n.index: n.summarize_spikes_by_section(
-                    f_trace_raw=video.suite2p_data["F"][n.index],
-                    sections=video.concat_sections,
-                )
-                for n in video.neurons
-            }
-        else:
-            per_neuron = {
-                n.index: n.summarize_spikes(
-                    f_trace_raw=video.suite2p_data["F"][n.index],
-                )
-                for n in video.neurons
-            }
+        per_neuron = {
+            n.index: n.summarize_spikes(
+                f_trace_raw=video.suite2p_data["F"][n.index],
+            )
+            for n in video.neurons
+        }
         video.summary_df = pd.DataFrame.from_dict(per_neuron, orient="index")
         return video.summary_df
 

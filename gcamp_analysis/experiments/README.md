@@ -20,7 +20,7 @@ Each processed video contributes:
 - unweighted and spike-count-weighted kinetic summaries;
 - unweighted spike-frequency summaries;
 - separate summaries for neurons that belong to any enabled group and neurons that belong to none;
-- optional light-evoked and concatenated-section detail tables.
+- optional light-evoked detail tables.
 
 ## Aggregation rules
 

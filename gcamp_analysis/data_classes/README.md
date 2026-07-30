@@ -6,7 +6,7 @@ This subpackage defines the mutable in-memory objects passed between processing 
 
 | Object | Main input | Main populated outputs |
 |---|---|---|
-| `Video` | Video path, `suite2p/plane0` path, loaded Suite2p arrays, optional concat metadata | Processed trace arrays, ROIs, neurons, per-neuron summaries, grouping results, and section comparisons |
+| `Video` | Video path, `suite2p/plane0` path, loaded Suite2p arrays | Processed trace arrays, ROIs, neurons, per-neuron summaries, and grouping results |
 | `ROI` | Original Suite2p row index, raw `F` trace, optional `stat` and `Fneu` | ROI features, candidate peaks, `is_good`, and per-section activity flags |
 | `Neuron` | An ROI accepted by the ROI classifier | Accepted spikes, per-spike statistics, and a per-neuron summary row |
 | `Spike` | Peak frame and position among a neuron's candidates | Prominence, local window, classifier validity, section label, and kinetic statistics |
@@ -28,8 +28,6 @@ After spike processing, each summary row contains:
 - `mean_<kinetic>` and `var_<kinetic>` for each numeric per-spike metric.
 
 Current kinetic bases are `rise_slope_hz`, `decay_tau_seconds`, and `half_max_width_seconds`. Pandas variance uses its sample-variance default (`ddof=1`), so a neuron with only one valid value generally has `NaN` variance.
-
-Concatenated mode adds `<section_key>_active`, `<section_key>_spike_frequency`, `<section_key>_number_of_spikes`, and section-specific mean/variance columns. Whole-trace summaries include only sections in which the ROI classifier marked the neuron active.
 
 ## Group meaning
 

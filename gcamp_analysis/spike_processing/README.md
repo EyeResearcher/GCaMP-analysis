@@ -47,8 +47,6 @@ If the required samples or crossings are unavailable, the metric is `NaN`, not z
 - lists of accepted frame indices and peak values;
 - the mean and sample variance of each kinetic metric across that neuron's events.
 
-In concatenated mode, these counts and summaries are also calculated per section. An inactive section contributes zero accepted events to its section count and `NaN` kinetic summaries. The whole-video duration includes only sections where that ROI was classified active.
-
 ## What this module does not calculate
 
 - no leave-one-event-out or leave-one-spike-out sensitivity curve;

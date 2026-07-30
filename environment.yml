@@ -13,6 +13,7 @@ dependencies:
   - pyyaml>=6.0
   - openpyxl>=3.1
   - tifffile>=2024.2
+  - numba>=0.59
   - pip
   - pip:
     # GPU-accelerated DTW (optional — CPU fallback works without it)

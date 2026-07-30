@@ -11,7 +11,7 @@ from gcamp_analysis.video_runner import VideoPipelineRunner
 from utils.io_utils import load_config, load_model
 
 # ---- Experiment tree + batch
-from gcamp_analysis.reporting import save_comparisons, save_section_comparisons
+from gcamp_analysis.reporting import save_comparisons
 from gcamp_analysis.experiments.tree import ExperimentTreeBuilder, is_video_dir
 from gcamp_analysis.experiments.processor import ExperimentProcessor
 
@@ -24,9 +24,13 @@ def main(
     sensor_type: str | None = None,
     output_root: Path | None = None,
     verbose: bool = True,
+    dry_run: bool = False,
 ) -> None:
     """
     Run the pipeline across an entire experiment directory tree, then compare siblings.
+
+    When ``dry_run`` is true, all analysis and in-memory summaries are
+    computed, but report files and directories are not created.
     """
 
     experiment_root = Path(experiment_root)
@@ -55,20 +59,23 @@ def main(
     processor = ExperimentProcessor(
         runner=runner,
         output_root=output_root,
+        dry_run=dry_run,
     )
     processor.process_tree(tree, verbose=verbose)
 
     # 5) Compare siblings at every internal node (treatment vs treatment, week vs week, etc.)
     sibling_tables = processor.compare_siblings(tree)
 
-    save_comparisons(
-        root=tree,
-        sibling_tables=sibling_tables,
-        output_subdir="metrics",
-        filename="sibling_comparisons.xlsx",
-    )
+    if not dry_run:
+        save_comparisons(
+            root=tree,
+            sibling_tables=sibling_tables,
+            output_subdir="metrics",
+            filename="sibling_comparisons.xlsx",
+        )
+    elif verbose:
+        print("\nDry run complete: analysis succeeded; no output files were written.")
 
-    save_section_comparisons(tree)
     # 6) Print a few summary tables (optional)
     if verbose:
         print("\n=== Sibling comparisons (by node) ===")
@@ -104,6 +111,11 @@ if __name__ == "__main__":
                         help="Sensor type, e.g. gcamp6f, gcamp8s (overrides config; default: gcamp8s)")
     parser.add_argument("--output", type=Path, default=None, help="Output root (defaults to experiment_root)")
     parser.add_argument("--quiet", action="store_true", help="Suppress verbose output")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run all analysis without creating or modifying output files",
+    )
     args = parser.parse_args()
 
     main(
@@ -112,4 +124,5 @@ if __name__ == "__main__":
         sensor_type=args.sensor,
         output_root=args.output,
         verbose=not args.quiet,
+        dry_run=args.dry_run,
     )

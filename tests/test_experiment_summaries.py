@@ -39,9 +39,6 @@ def test_summary_from_video_record_tags_detail_tables() -> None:
         n_neurons=2,
         n_spikes_kept=5,
         light_evoked_details={"responses": pd.DataFrame({"value": [1]})},
-        section_comparison_dfs={
-            "corr": {"first_second": pd.DataFrame({"delta": [0.2]})}
-        },
     )
 
     summary = summary_from_video_record(record, source="video")
@@ -51,9 +48,6 @@ def test_summary_from_video_record_tags_detail_tables() -> None:
     assert summary.light_evoked_details["responses"]["source"].tolist() == [
         "video"
     ]
-    assert summary.section_comparison_dfs["corr"]["first_second"][
-        "source"
-    ].tolist() == ["video"]
 
 
 def test_aggregate_node_summaries_uses_partition_counts_for_video_weights() -> None:
@@ -90,22 +84,10 @@ def test_aggregate_node_summaries_merges_nested_outputs() -> None:
     first = NodeSummary(
         n_videos=1,
         light_evoked_details={"responses": pd.DataFrame({"value": [1]})},
-        section_comparison_dfs={
-            "corr": {"first_second": pd.DataFrame({"delta": [0.1]})}
-        },
-        section_comparison_metrics={
-            "corr": {"first_second": [{"group": "a"}]}
-        },
     )
     second = NodeSummary(
         n_videos=1,
         light_evoked_details={"responses": pd.DataFrame({"value": [2]})},
-        section_comparison_dfs={
-            "corr": {"first_second": pd.DataFrame({"delta": [0.2]})}
-        },
-        section_comparison_metrics={
-            "corr": {"first_second": [{"group": "b"}]}
-        },
     )
 
     summary = aggregate_node_summaries(
@@ -114,13 +96,6 @@ def test_aggregate_node_summaries_merges_nested_outputs() -> None:
     )
 
     assert summary.light_evoked_details["responses"]["value"].tolist() == [1, 2]
-    assert summary.section_comparison_dfs["corr"]["first_second"][
-        "delta"
-    ].tolist() == [0.1, 0.2]
-    assert summary.section_comparison_metrics["corr"]["first_second"] == [
-        {"group": "a"},
-        {"group": "b"},
-    ]
 
 
 def test_flatten_stat_summary_exports_all_variance_components() -> None:

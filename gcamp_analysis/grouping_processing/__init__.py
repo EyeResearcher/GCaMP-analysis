@@ -17,12 +17,6 @@ from .service import (
     compute_group_summary_rows,
     make_matrix_heatmap,
     visualize_grouping,
-    visualize_section_comparison,
-)
-from .treatment_comparison import (
-    run_section_comparison,
-    SectionComparisonResult,
-    METRIC_REGISTRY as TREATMENT_METRIC_REGISTRY,
 )
 
 __all__ = [
@@ -40,8 +34,4 @@ __all__ = [
     "compute_group_summary_rows",
     "make_matrix_heatmap",
     "visualize_grouping",
-    "visualize_section_comparison",
-    "run_section_comparison",
-    "SectionComparisonResult",
-    "TREATMENT_METRIC_REGISTRY",
 ]

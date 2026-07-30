@@ -79,11 +79,19 @@ class ExperimentProcessor:
         Pre-configured pipeline runner (holds models and config).
     output_root : Path
         Top-level experiment directory used for output paths.
+    dry_run : bool, optional
+        Compute all analysis results without invoking filesystem writers.
     """
 
-    def __init__(self, runner: VideoPipelineRunner, output_root: Path):
+    def __init__(
+        self,
+        runner: VideoPipelineRunner,
+        output_root: Path,
+        dry_run: bool = False,
+    ):
         self.runner = runner
         self.output_root = Path(output_root)
+        self.dry_run = dry_run
 
     def process_tree(self, root: TreeNode, verbose: bool = True) -> None:
         """Run the full pipeline on every video leaf, then aggregate.
@@ -119,17 +127,17 @@ class ExperimentProcessor:
         video = Video.from_suite2p(
             path=video_dir,
             suite2p_path=suite2p_plane0,
-            is_concatenated=self.runner.is_concatenated,
         )
         stats = None
         try:
             self.runner.run(video, verbose=verbose)
 
             stats = VideoStatistics.from_video(video)
-            stat_writer = VideoStatisticsWriter()
-            stat_writer.write(stats, output_root=video_dir)
-            figure_writer = VideoFiguresWriter()
-            figure_writer.write(video)
+            if not self.dry_run:
+                stat_writer = VideoStatisticsWriter()
+                stat_writer.write(stats, output_root=video_dir)
+                figure_writer = VideoFiguresWriter()
+                figure_writer.write(video)
 
             n_rois_total = int(video.n_rois)
             n_rois_good = int(video.n_good_rois)
@@ -170,16 +178,6 @@ class ExperimentProcessor:
                 freq_grouped=part.freq_grouped,
                 freq_ungrouped=part.freq_ungrouped,
                 light_evoked_details=stats.light_evoked_details,
-                section_comparison_dfs=self._build_section_comparison_dfs(video),
-                section_comparison_metrics={
-                    strategy_name: {
-                        section_key: list(comparison.group_metrics)
-                        for section_key, comparison in section_results.items()
-                        if comparison.group_metrics
-                    }
-                    for strategy_name, section_results in getattr(video, "section_comparison_results", {}).items()
-                    if section_results
-                },
             )
         finally:
             # Release array views held by ROIs/neurons before dropping the
@@ -277,27 +275,6 @@ class ExperimentProcessor:
             freq_grouped=freq_grp,
             freq_ungrouped=freq_ungrp,
         )
-
-    @staticmethod
-    def _build_section_comparison_dfs(video: Video) -> dict[str, dict[str, pd.DataFrame]]:
-        """Convert per-strategy section comparison results into flat DataFrames.
-
-        Drops nested / list columns that don't tabulate well.
-        """
-        comparison_results = getattr(video, "section_comparison_results", {})
-        if not comparison_results:
-            return {}
-
-        dfs: dict[str, dict[str, pd.DataFrame]] = {}
-        for strategy_name, section_results in comparison_results.items():
-            strategy_dfs: dict[str, pd.DataFrame] = {}
-            for section_key, comparison_result in section_results.items():
-                if not comparison_result.group_metrics:
-                    continue
-                strategy_dfs[section_key] = pd.DataFrame(comparison_result.group_metrics)
-            if strategy_dfs:
-                dfs[strategy_name] = strategy_dfs
-        return dfs
 
     @staticmethod
     def _add_light_evoked_cell_counts(

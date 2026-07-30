@@ -34,7 +34,7 @@ class ROI:
         # Classification result
         self.is_good = None
 
-        # Per-segment classification (concatenated mode only)
+            # Optional per-segment classification state for advanced workflows.
         # {"baseline": True/False, "treatment": True/False}
         self.active_segments: dict[str, bool] = {}
         

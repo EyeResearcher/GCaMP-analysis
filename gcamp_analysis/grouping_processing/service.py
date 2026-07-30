@@ -11,15 +11,9 @@ from matplotlib.figure import Figure
 
 from gcamp_analysis.data_classes.neuron_group import NeuronGroup
 from gcamp_analysis.grouping_processing.strategies import STRATEGY_REGISTRY
-from gcamp_analysis.grouping_processing.treatment_comparison import (
-    SectionComparisonResult,
-    run_section_comparison,
-)
 from gcamp_analysis.reports import GroupingReport
 from utils.visualization import (
-    plot_delta_corr_vs_dispersion,
     plot_matrix_heatmap,
-    plot_neuron_centroid_distances,
     visualize_neuron_groups,
 )
 
@@ -184,32 +178,6 @@ def visualize_grouping(
     return overlay_fig, heatmap_fig
 
 
-def visualize_section_comparison(
-    video: "Video",
-    *,
-    strategy_name: str,
-    section_key: str,
-) -> Tuple[Optional[Figure], Optional[Figure]]:
-    strategy_results = getattr(video, "section_comparison_results", {}).get(strategy_name, {})
-    comparison_result = strategy_results.get(section_key)
-    if comparison_result is None or not getattr(comparison_result, "group_metrics", None):
-        return None, None
-
-    group_metrics = comparison_result.group_metrics
-    label = getattr(video, "path", None)
-    name = label.name if label else "video"
-    title = f"{name} - {strategy_name} - {section_key}"
-
-    fig1, ax1 = plt.subplots(figsize=(7, 5))
-    plot_delta_corr_vs_dispersion(group_metrics, ax=ax1, title=title)
-    fig1.tight_layout()
-
-    fig2, ax2 = plt.subplots(figsize=(7, 6))
-    plot_neuron_centroid_distances(group_metrics, ax=ax2, title=title)
-    fig2.tight_layout()
-    return fig1, fig2
-
-
 @dataclass
 class GroupingService:
     """Run one or more grouping strategies and compare them."""
@@ -218,51 +186,24 @@ class GroupingService:
 
     def _get_grouping_kwargs(self, video: "Video") -> dict[str, Any]:
         all_neurons = list(getattr(video, "neurons", []))
-        is_concat = bool(getattr(video, "is_concatenated", False))
-        baseline_section = video.baseline_section if is_concat else None
-        baseline_key = baseline_section.section_key if baseline_section is not None else "baseline"
         n_frames = getattr(video, "n_frames", None)
         fs = float(getattr(video, "fs", 15.0))
 
-        active_neurons = [
-            neuron
-            for neuron in all_neurons
-            if getattr(getattr(neuron, "roi", None), "active_segments", {}).get(baseline_key, True)
-        ]
+        active_neurons = list(all_neurons)
 
-        baseline_source = (
-            video.section_traces.get(baseline_key, {})
-            if is_concat and baseline_section is not None
-            else {}
-        )
-        baseline_savgol = baseline_source.get("savgol_z_f", video.savgol_z_f)
-        baseline_norm_sm = baseline_source.get("norm_sm_f", video.norm_sm_f)
-        if baseline_savgol is None or np.asarray(baseline_savgol).size == 0:
-            baseline_savgol = video.savgol_z_f
-        if baseline_norm_sm is None or np.asarray(baseline_norm_sm).size == 0:
-            baseline_norm_sm = video.norm_sm_f
-
-        dtw_source = (
-            video.suite2p_data["F"][:, baseline_section.frame_slice]
-            if baseline_section is not None
-            else video.suite2p_data["F"]
-        )
-        traces = np.asarray(baseline_savgol[[neuron.index for neuron in active_neurons]], dtype=float)
+        traces = np.asarray(video.savgol_z_f[[neuron.index for neuron in active_neurons]], dtype=float)
         light_evoked_traces = np.asarray(
-            baseline_norm_sm[[neuron.index for neuron in active_neurons]],
+            video.norm_sm_f[[neuron.index for neuron in active_neurons]],
             dtype=float,
         )
-        dtw_traces = np.asarray(dtw_source[[neuron.index for neuron in active_neurons]], dtype=float)
-
-        baseline_start = baseline_section.start_frame if baseline_section is not None else 0
-        baseline_frames = baseline_section.n_frames if baseline_section is not None else n_frames
+        dtw_traces = np.asarray(video.suite2p_data["F"][[neuron.index for neuron in active_neurons]], dtype=float)
 
         spike_trains = []
         for neuron in active_neurons:
             times = sorted(
-                (spike.sm_f_idx - baseline_start) / fs
+                spike.sm_f_idx / fs
                 for spike in neuron.spikes
-                if baseline_start <= spike.sm_f_idx < baseline_start + baseline_frames
+                if 0 <= spike.sm_f_idx < n_frames
             )
             spike_trains.append(np.asarray(times, dtype=np.float64))
 
@@ -273,43 +214,13 @@ class GroupingService:
             "dtw_traces": dtw_traces,
             "light_evoked_traces": light_evoked_traces,
             "spike_trains": spike_trains,
-            "t_stop": baseline_frames / fs,
+            "t_stop": n_frames / fs,
             "neuron_indices": np.array([neuron.index for neuron in active_neurons]),
-            "is_concatenated": is_concat,
             "n_frames": n_frames,
             "fs": fs,
             "video_id": str(getattr(video, "video_id", "")),
             "schedule_overrides": {"5732L-5": [33, 65, 93, 116, 153, 192]},
-            "section_inputs": {},
         }
-
-        if is_concat:
-            for section in video.iter_nonbaseline_sections():
-                section_source = video.section_traces.get(section.section_key, {})
-                section_savgol = section_source.get("savgol_z_f")
-                if section_savgol is None or np.asarray(section_savgol).size == 0:
-                    continue
-
-                section_traces = np.asarray(
-                    section_savgol[[neuron.index for neuron in active_neurons]],
-                    dtype=float,
-                )
-                section_spike_trains = []
-                for neuron in active_neurons:
-                    times = sorted(
-                        (spike.sm_f_idx - section.start_frame) / fs
-                        for spike in neuron.spikes
-                        if section.start_frame <= spike.sm_f_idx < section.end_frame
-                    )
-                    section_spike_trains.append(np.asarray(times, dtype=np.float64))
-
-                result["section_inputs"][section.section_key] = {
-                    "section_key": section.section_key,
-                    "section_kind": section.section_kind,
-                    "section_traces": section_traces,
-                    "section_spike_trains": section_spike_trains,
-                    "section_t_stop": section.n_frames / fs,
-                }
 
         return result
 
@@ -317,7 +228,6 @@ class GroupingService:
         if len(video.neurons) < 2:
             video.grouping_results = {}
             video.grouping_stats = pd.DataFrame()
-            video.section_comparison_results = {}
             return None
 
         grouping_cfg = grouping_cfg.copy()
@@ -355,43 +265,6 @@ class GroupingService:
 
         video.grouping_results = results
         names_run = [name for name in self.strategies if name in results]
-
-        comparison_results: dict[str, dict[str, SectionComparisonResult]] = {}
-        section_inputs = strat_args["section_inputs"]
-        if video.is_concatenated and section_inputs:
-            for name in names_run:
-                if name != "combined":
-                    continue
-                result = results[name]
-                if not result.groups or result.matrix is None:
-                    continue
-                cfg = grouping_cfg.get(name, {}) or {}
-                strategy_results: dict[str, SectionComparisonResult] = {}
-                for section_key, section_input in section_inputs.items():
-                    comparison_raw = run_section_comparison(
-                        section_input["section_traces"],
-                        section_input["section_spike_trains"],
-                        section_input["section_t_stop"],
-                        strat_args["neuron_indices"],
-                        result.groups,
-                        result.matrix,
-                        section_key=section_input["section_key"],
-                        section_kind=section_input["section_kind"],
-                        corr_config=cfg.get("corr", {}) or {},
-                        sttc_config=cfg.get("sttc", {}) or {},
-                        cluster_config=cfg.get("cluster", {}) or {},
-                    )
-                    strategy_results[section_key] = SectionComparisonResult(
-                        strategy_name=name,
-                        section_key=section_input["section_key"],
-                        section_kind=section_input["section_kind"],
-                        group_metrics=comparison_raw["group_metrics"],
-                        section_matrix=comparison_raw["section_matrix"],
-                        subgroups=comparison_raw.get("subgroups", {}),
-                    )
-                if strategy_results:
-                    comparison_results[name] = strategy_results
-        video.section_comparison_results = comparison_results
 
         combined = build_combined_summary(results)
         video.grouping_stats = pd.DataFrame(combined) if combined else pd.DataFrame()

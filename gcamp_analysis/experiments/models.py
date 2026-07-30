@@ -83,5 +83,3 @@ class VideoRunRecord:
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
     light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
-    section_comparison_dfs: dict[str, dict[str, pd.DataFrame]] = field(default_factory=dict)
-    section_comparison_metrics: dict[str, dict[str, list[dict]]] = field(default_factory=dict)

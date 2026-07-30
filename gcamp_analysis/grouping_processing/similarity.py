@@ -343,7 +343,7 @@ def compute_dtw_matrix(
     ----------
     max_frame : int, optional
         If provided, only trace samples up to this frame index are used
-        (baseline-only in concatenated mode).
+        (restricted to the selected analysis window when configured).
     """
     try:
         import torch

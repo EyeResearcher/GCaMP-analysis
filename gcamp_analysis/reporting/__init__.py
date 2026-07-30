@@ -14,8 +14,6 @@ from gcamp_analysis.reporting.video_writers import (
 from gcamp_analysis.reporting.experiment_writers import (
     build_comparison_legend,
     save_comparisons,
-    save_section_comparisons,
-    save_treatment_comparisons,
 )
 
 __all__ = [
@@ -24,6 +22,4 @@ __all__ = [
     "VideoFiguresWriter",
     "build_comparison_legend",
     "save_comparisons",
-    "save_section_comparisons",
-    "save_treatment_comparisons",
 ]

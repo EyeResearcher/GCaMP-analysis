@@ -1,6 +1,6 @@
 # Functional grouping
 
-This subpackage builds pairwise matrices, clusters analysis neurons, summarizes groups, and—when concatenated mode is enabled—asks how baseline groups change in later sections.
+This subpackage builds pairwise matrices, clusters analysis neurons, and summarizes groups.
 
 ## Operational definition of a group
 
@@ -8,7 +8,7 @@ A neuron group is a cluster of at least `min_group_size` final analysis neurons 
 
 For the main `combined` strategy:
 
-1. Use neurons active in the baseline section (or all final neurons for a non-concatenated video).
+1. Use all final analysis neurons.
 2. Compute maximum lagged Pearson trace correlation within `±max_lag` frames; negative results are clipped to zero.
 3. Compute the spike-time tiling coefficient (STTC) using accepted event trains and the configured `dt` window.
 4. Clip both matrices to `[0, 1]` and multiply them element by element. A pair scores highly only when both trace and event-timing similarity are high.
@@ -43,20 +43,6 @@ Only strategies registered in `STRATEGY_REGISTRY` can be run by `GroupingService
 
 Experiment aggregation separately computes mean/median group size, mean within-group strategy-matrix value, and mean **total** accepted spikes per group. The exported `mean_group_corr_<strategy>` name is historical: for a distance strategy such as DTW it is a within-group matrix value, not a Pearson correlation.
 
-## Baseline-to-section comparison
-
-For each non-baseline concatenated section, the service recomputes the combined matrix for the same baseline neuron index set and reports one row per baseline group. Important fields include:
-
-- baseline and section mean within-group similarity and `delta_mean_corr = section - baseline`;
-- fraction of member pairs above the configured threshold;
-- baseline centroid and mean pairwise spatial distance in pixels;
-- section-active and section-inactive member counts;
-- re-clustered section subgroups, their sizes and mean similarities;
-- subgroup spatial dispersion relative to baseline;
-- per-neuron distance/status details.
-
-This tracks what happens to a baseline-defined group **within one concatenated recording**. It does not match a group on day 4 to a group on day 5 in separate recordings.
-
 ## Light-evoked detail
 
 For each pulse, the closest accepted event from each neuron inside the response window is labeled `light-evoked`; unmatched events are `spontaneous`. Detail sheets include amplitude, kinetics, and latency. If a neuron has at least two evoked events, a separate stereotypy sheet reports mean, sample standard deviation, and coefficient of variation for amplitude and kinetics.
@@ -65,7 +51,4 @@ For each pulse, the closest accepted event from each neuron inside the response 
 
 - Group overlays are maps of categorical membership; no test is run.
 - Heatmaps display the strategy matrix; no test is run.
-- Delta-correlation/dispersion plots show one point per baseline group and descriptive change scores; no regression or p-value is calculated.
-- Centroid-distance plots show per-neuron descriptive distances; no paired test is calculated.
-
 Top-group cross-day TIFF tracking is implemented separately in `gcamp_analysis.longitudinal`, because it requires registration and persistent cell identities beyond a single video. Leave-one-spike-out analysis is not currently implemented.

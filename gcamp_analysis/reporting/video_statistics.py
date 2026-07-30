@@ -35,9 +35,6 @@ class VideoStatistics:
     # Per-group light-evoked detail DataFrames keyed by group_id
     light_evoked_details: dict = field(default_factory=dict)
 
-    # Baseline-vs-section comparison results (concatenated mode only)
-    section_comparison: dict = field(default_factory=dict)
-
     @classmethod
     def from_video(cls, video: Video) -> VideoStatistics:
         """Create a reporting snapshot from a fully processed video."""
@@ -66,5 +63,4 @@ class VideoStatistics:
             bad_rois_features=video.bad_rois_features,
             matrices=matrices,
             light_evoked_details=light_evoked_details,
-            section_comparison=video.section_comparison_results,
         )

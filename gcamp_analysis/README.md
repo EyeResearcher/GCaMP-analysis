@@ -16,11 +16,10 @@ Suite2p arrays + trained ROI model + trained spike model + pipeline config
 
 The subpackage READMEs describe each boundary in detail:
 
-- [`concatenation/README.md`](concatenation/README.md): metadata for videos made from baseline, treatment, and recovery sections.
 - [`data_classes/README.md`](data_classes/README.md): the in-memory `Video`, `ROI`, `Neuron`, `Spike`, and `NeuronGroup` objects.
 - [`roi_processing/README.md`](roi_processing/README.md): trace transformations and ROI classification.
 - [`spike_processing/README.md`](spike_processing/README.md): event detection, filtering, and kinetic measurements.
-- [`grouping_processing/README.md`](grouping_processing/README.md): the definition of a group, similarity matrices, clustering, and section comparisons.
+- [`grouping_processing/README.md`](grouping_processing/README.md): the definition of a group, similarity matrices, and clustering.
 - [`experiments/README.md`](experiments/README.md): aggregation across videos and directory levels.
 - [`reporting/README.md`](reporting/README.md): every saved workbook, array, CSV, and figure.
 - [`longitudinal/README.md`](longitudinal/README.md): registration of same-region masks and largest-group membership tracking across days.
@@ -32,7 +31,7 @@ The two top-level orchestration modules have narrow interfaces: `video_runner.py
 | Term | Definition in this pipeline |
 |---|---|
 | Detected ROI | One row of Suite2p `F.npy`; it has not necessarily passed either classifier. |
-| Active/good ROI | An ROI accepted by the trained ROI classifier (or by supplied manual labels). In concatenated mode it is retained if at least one section passes. |
+| Active/good ROI | An ROI accepted by the trained ROI classifier (or by supplied manual labels). |
 | Analysis neuron | A good ROI that also has at least one candidate event accepted by the spike classifier. ROIs with no accepted events are removed before grouping and final spike summaries. |
 | Spike/event | A local maximum of the smoothed, min-max-normalized trace that the spike classifier accepts. It is a detected calcium-fluorescence event, not a claim of an electrophysiologically resolved action potential. |
 | Spike frequency | Accepted event count divided by analyzed duration in seconds, reported in events/s (numerically Hz). |
@@ -48,7 +47,6 @@ The two top-level orchestration modules have narrow interfaces: `video_runner.py
 
 - **Visual maps of groupings:** `<video>_<strategy>_groups.png` overlays the retained groups on Suite2p ROI locations.
 - **Group size and activity:** the `grouping_stats` workbook sheet contains `number_neurons`, the mean member `spike_rate`, and mean member `number_of_spikes`. The hierarchy-level comparison workbook also contains group counts and mean/median group size.
-- **Baseline versus later sections:** concatenated mode compares baseline groups with each treatment/recovery section and reports similarity change, active/inactive membership, re-clustered subgroups, and spatial dispersion.
 - **Individual points behind comparisons:** per-neuron rows are in `spike_summary`; per-group rows are in `grouping_stats` and section-comparison CSVs. Experiment summary sheets are aggregated rows, so these detail files should be retained when plotting individual observations.
 - **Day alignment:** the analysis does not infer days from a plot position. Experiment comparisons use immediate directory children and their folder names. Parallel, consistently named directory levels are therefore required; day labels should be treated as categorical labels unless downstream plotting explicitly parses and sorts them.
 
@@ -68,10 +66,7 @@ The standard per-video pipeline still treats days independently. The optional `g
 |---|---|---|---|
 | `*_groups.png` | One colored spatial shape per retained neuron group | Cluster membership and Suite2p ROI pixels/centroids | None |
 | `*_heatmap.png` | One cell per neuron pair | Strategy matrix (combined functional similarity, DTW distance, or light-response matrix) | None |
-| `*_delta_corr_vs_dispersion.png` | One point per baseline group | x = baseline mean pairwise centroid distance; y = section mean combined similarity minus baseline mean combined similarity; marker area = group size | None |
-| `*_centroid_distances.png` | One point per active neuron from a baseline group that forms a section subgroup | Distance from baseline-group centroid versus distance from section-subgroup centroid | None |
-
-The reporting layer currently uses blue, black, and gray for the section-comparison scatter plots. Group overlays use categorical colors so simultaneous groups remain distinguishable; matrix heatmaps use a continuous colormap.
+The reporting layer uses categorical colors for group overlays so simultaneous groups remain distinguishable; matrix heatmaps use a continuous colormap.
 
 ## Units and missing values
 

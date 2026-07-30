@@ -22,7 +22,7 @@ This subpackage converts raw fluorescence into standardized trace representation
 | `z_f` | Per-ROI z-score of raw fluorescence. |
 | `savgol_z_f` | Savitzky-Golay-smoothed z-score; used by combined functional grouping. |
 
-It also saves `suite2p/plane0/F_minmax.npy`, which is `norm_f` and has the same shape as `F.npy`. In concatenated mode the arrays are additionally sliced into `Video.section_traces` without changing their ROI order.
+These arrays are kept in memory on `Video` and preserve the original ROI/frame indexing of `F.npy`.
 
 ## ROI classifier features
 
@@ -35,11 +35,7 @@ Each ROI becomes one feature row containing derivative skew/asymmetry, peak-prom
 - `Video.bad_rois_features`: feature rows for rejected ROIs, written to `bad_rois_features` in the video workbook.
 - `ROIReport`: total, good, and bad counts plus `good / total` pass rate.
 
-In concatenated mode, every section is classified separately. `ROI.active_segments[section_key]` records each decision, and union logic retains an ROI if **any** section passes. Therefore:
-
-- “active in a section” means that section passed the ROI classifier;
-- “good ROI for the concatenated video” means at least one section passed;
-- a good ROI can still be absent from final neuron outputs if the spike classifier accepts no event for it.
+A good ROI can still be absent from final neuron outputs if the spike classifier accepts no event for it.
 
 The classifier output is model-dependent and should not be described as a universal biological threshold.
 

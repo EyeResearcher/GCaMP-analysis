@@ -50,34 +50,10 @@ class ROIService:
         rois: List[ROI],
         good_roi_mask: np.ndarray,
         feats: Optional[list],
-        section_predictions: Optional[dict[str, np.ndarray]] = None,
-        section_features: Optional[dict[str, list]] = None,
     ) -> None:
-        baseline_features = None
-        if section_features:
-            baseline_features = section_features.get("baseline")
-
         for i, roi in enumerate(rois):
             if feats:
                 roi.features = feats[i]
-            elif section_predictions is not None:
-                roi.active_segments = {
-                    section_key: bool(preds[i])
-                    for section_key, preds in section_predictions.items()
-                }
-
-                chosen_features = None
-                if baseline_features is not None and roi.active_segments.get("baseline", False):
-                    chosen_features = baseline_features[i]
-                else:
-                    for section in section_features or {}:
-                        if roi.active_segments.get(section, False):
-                            chosen_features = section_features[section][i]
-                            break
-                if chosen_features is None and baseline_features is not None:
-                    chosen_features = baseline_features[i]
-                if chosen_features is not None:
-                    roi.features = chosen_features
             if roi.is_good is False:
                 good_roi_mask[i] = False
                 roi.is_good = False
@@ -113,13 +89,7 @@ class ROIService:
         roi_model: RandomForestClassifier | LogisticRegression,
         model_config: Optional[dict] = None,
     ) -> tuple[List[ROI], np.ndarray]:
-        """
-        Filter ROIs using the trained classifier.
-        
-        In concatenated mode, features are extracted separately for each
-        parsed concat section and the classifier is run on each section.
-        An ROI is kept if *any* section passes (union logic). Per-section
-        pass/fail is recorded in ``roi.active_segments``.
+        """Filter ROIs using the trained classifier.
 
         Parameters
         ----------
@@ -142,37 +112,11 @@ class ROIService:
 
         transform = model_config.get("transform") if model_config else None
 
-        if video.is_concatenated and video.concat_sections:
-            section_predictions: dict[str, np.ndarray] = {}
-            section_features: dict[str, list] = {}
+        smoothed = video.norm_sm_f
+        preds, feats = self._get_preds(smoothed, all_rois, roi_model, transform)
+        good_roi_mask = np.asarray(preds, dtype=bool)
 
-            for section in video.concat_sections:
-                smoothed = video.section_traces[section.section_key]["norm_sm_f"]
-                if section.section_key == "baseline" and smoothed.shape[1] > 2:
-                    section_input = smoothed[:, :-2]
-                else:
-                    section_input = smoothed
-                preds, feats = self._get_preds(section_input, all_rois, roi_model, transform)
-                section_predictions[section.section_key] = np.asarray(preds, dtype=bool)
-                section_features[section.section_key] = feats
-
-            good_roi_mask = np.zeros(len(all_rois), dtype=bool)
-            for preds in section_predictions.values():
-                good_roi_mask |= preds
-
-            self._assign_roi_status(
-                all_rois,
-                good_roi_mask,
-                None,
-                section_predictions=section_predictions,
-                section_features=section_features,
-            )
-        else:
-            smoothed = video.norm_sm_f 
-            preds, feats = self._get_preds(smoothed, all_rois, roi_model, transform)
-            good_roi_mask = np.asarray(preds, dtype=bool)
-
-            self._assign_roi_status(all_rois, good_roi_mask, feats)
+        self._assign_roi_status(all_rois, good_roi_mask, feats)
 
         good_rois = [roi for roi in all_rois if roi.is_good]
         video.bad_rois = [roi for roi in all_rois if not roi.is_good]

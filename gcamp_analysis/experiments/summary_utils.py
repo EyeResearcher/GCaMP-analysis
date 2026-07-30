@@ -100,12 +100,6 @@ class NodeSummary:
     freq_ungrouped: StatSummary = field(default_factory=StatSummary)
 
     light_evoked_details: dict[str, pd.DataFrame] = field(default_factory=dict)
-    section_comparison_dfs: dict[
-        str, dict[str, pd.DataFrame]
-    ] = field(default_factory=dict)
-    section_comparison_metrics: dict[
-        str, dict[str, list[dict]]
-    ] = field(default_factory=dict)
 
 
 def summary_from_video_record(
@@ -133,21 +127,6 @@ def summary_from_video_record(
         light_evoked_details={
             key: df.assign(source=source)
             for key, df in record.light_evoked_details.items()
-        },
-        section_comparison_dfs={
-            strategy: {
-                section: df.assign(source=source)
-                for section, df in sections.items()
-            }
-            for strategy, sections in record.section_comparison_dfs.items()
-        },
-        section_comparison_metrics={
-            strategy: {
-                section: list(metrics)
-                for section, metrics in sections.items()
-            }
-            for strategy, sections
-            in record.section_comparison_metrics.items()
         },
     )
 
@@ -206,14 +185,8 @@ def aggregate_node_summaries(
         freq_ungrouped=aggregate_children(
             zip((child.freq_ungrouped for child in children), ungrouped_weights)
         ),
-        light_evoked_details=_concat_dataframes(
+        light_evoked_details=_merge_dataframes(
             child.light_evoked_details for child in children
-        ),
-        section_comparison_dfs=_concat_nested_dataframes(
-            child.section_comparison_dfs for child in children
-        ),
-        section_comparison_metrics=_merge_nested_metrics(
-            child.section_comparison_metrics for child in children
         ),
     )
 
@@ -256,7 +229,7 @@ def _aggregate_group_stats(
     return aggregated
 
 
-def _concat_dataframes(
+def _merge_dataframes(
     mappings: Iterable[dict[str, pd.DataFrame]],
 ) -> dict[str, pd.DataFrame]:
     grouped: dict[str, list[pd.DataFrame]] = {}
@@ -269,38 +242,6 @@ def _concat_dataframes(
         for key, dataframes in grouped.items()
     }
 
-
-def _concat_nested_dataframes(
-    mappings: Iterable[dict[str, dict[str, pd.DataFrame]]],
-) -> dict[str, dict[str, pd.DataFrame]]:
-    grouped: dict[str, dict[str, list[pd.DataFrame]]] = {}
-    for mapping in mappings:
-        for strategy, sections in mapping.items():
-            for section, df in sections.items():
-                if df is not None and not df.empty:
-                    grouped.setdefault(strategy, {}).setdefault(
-                        section, []
-                    ).append(df)
-    return {
-        strategy: {
-            section: pd.concat(dataframes, ignore_index=True)
-            for section, dataframes in sections.items()
-        }
-        for strategy, sections in grouped.items()
-    }
-
-
-def _merge_nested_metrics(
-    mappings: Iterable[dict[str, dict[str, list[dict]]]],
-) -> dict[str, dict[str, list[dict]]]:
-    merged: dict[str, dict[str, list[dict]]] = {}
-    for mapping in mappings:
-        for strategy, sections in mapping.items():
-            for section, metrics in sections.items():
-                merged.setdefault(strategy, {}).setdefault(section, []).extend(
-                    metrics
-                )
-    return merged
 
 def extract_stat_bases(summary_df: pd.DataFrame) -> list[str]:
     """Return sorted unique stat names found in *summary_df*.
