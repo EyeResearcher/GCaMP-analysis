@@ -59,6 +59,8 @@ def _create_small_window(
 
 @dataclass(frozen=True)
 class TransientNormalization:
+    """Baseline-to-peak normalization of one transient window."""
+
     baseline: float
     peak_value: float
     amplitude: float

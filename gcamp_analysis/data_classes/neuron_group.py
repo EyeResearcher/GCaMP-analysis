@@ -33,14 +33,17 @@ class NeuronGroup:
     # Convenience accessors for common metadata
     @property
     def t_win(self) -> Optional[float]:
+        """Correlation lag window stored in metadata, if any."""
         return self.metadata.get("t_win")
 
     @property
     def corr_thresh(self) -> Optional[float]:
+        """Correlation threshold stored in metadata, if any."""
         return self.metadata.get("corr_thresh")
 
     @property
     def sttc_thresh(self) -> Optional[float]:
+        """STTC threshold stored in metadata, if any."""
         return self.metadata.get("sttc_thresh")
 
     # ------------------------------------------------------------------

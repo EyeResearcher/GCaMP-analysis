@@ -1,3 +1,10 @@
+"""Shape and activity features used by the ROI classifier.
+
+Each function takes a single-ROI trace and returns a scalar feature (often
+with a validity flag). Features describe derivative shape, prominence
+statistics, variance structure, autocorrelation decay, SNR, and peak density
+rather than the final reported spike kinetics.
+"""
 import numpy as np
 from scipy.signal import find_peaks, peak_prominences
 from scipy.stats import skew

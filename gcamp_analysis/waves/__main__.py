@@ -8,6 +8,7 @@ from .analysis import WaveAnalysisConfig, analyze_dataset
 
 
 def main() -> None:
+    """Parse CLI arguments and run wave analysis over the selected days."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset_root", type=Path)
     parser.add_argument("--output-dir", type=Path, default=Path("wave_analysis_results"))

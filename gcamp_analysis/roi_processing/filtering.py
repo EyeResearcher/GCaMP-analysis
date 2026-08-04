@@ -1,3 +1,9 @@
+"""ROI classification and neuron creation.
+
+``ROIService`` builds :class:`ROI` objects from Suite2p arrays, extracts shape
+features, applies the trained ROI classifier (or supplied manual labels), and
+promotes accepted ROIs into :class:`Neuron` objects for the spike stage.
+"""
 from dataclasses import dataclass
 from typing import List, Optional, Any
 

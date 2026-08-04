@@ -329,11 +329,27 @@ This structure enables comparisons:
 - `<video>_corr_heatmap.png`: Correlation matrix heatmap
 - `<video>_dtw_groups.png`: Spatial overlay of DTW-based neuron groups (if enabled)
 - `<video>_dtw_heatmap.png`: DTW distance heatmap (if enabled)
+- `<video>_analysis_summary.json`: Versioned, comparison-ready summary used
+  without rerunning video analysis
 
 Additionally, `F_minmax.npy` (min-max normalized traces) is saved into each video's `suite2p/plane0/` directory.
 
 **Experiment-Level Outputs** (saved in `<experiment_root>/metrics/`):
 - `sibling_comparisons.xlsx`: Multi-sheet Excel file with statistical comparisons at each hierarchy level
+
+For notebooks, per-video computation and comparison are separate stages:
+
+1. `notebooks/pipeline.ipynb` analyzes every discovered video independently.
+2. `notebooks/comparative_analysis.ipynb` validates and loads the persisted
+   summaries, then runs longitudinal, treatment, or generic hierarchy
+   comparisons.
+
+Longitudinal comparison with `align=False` uses whole-video descriptive
+statistics across days and makes no cell-identity claim. Setting `align=True`
+adds image registration, ROI matching, and cell/group tracking. Treatment
+comparisons require an experiment-appropriate replicate unit such as well,
+region, or animal. Explicit metadata tables are supported alongside the
+existing folder-name inference.
 
 ---
 

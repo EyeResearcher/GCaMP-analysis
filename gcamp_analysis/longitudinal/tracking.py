@@ -327,6 +327,38 @@ class LongitudinalTracker:
         return recordings, skipped
 
     @staticmethod
+    def _select_supplied_recordings(
+        supplied: Iterable[RecordingRef],
+    ) -> tuple[list[RecordingRef], list[dict]]:
+        """Validate an explicit longitudinal group supplied by comparison code."""
+        recordings: list[RecordingRef] = []
+        skipped: list[dict] = []
+        for recording in sorted(supplied, key=lambda item: item.day):
+            try:
+                _find_snap(recording)
+            except FileNotFoundError as exc:
+                skipped.append(
+                    {
+                        "treatment": recording.treatment,
+                        "region": recording.region,
+                        "day": recording.day,
+                        "recording": recording.recording_name,
+                        "reason": str(exc),
+                    }
+                )
+            else:
+                recordings.append(recording)
+        if len(recordings) < 2:
+            raise ValueError(
+                "Need at least two recordings with snap TIFFs in an aligned "
+                f"longitudinal group; found {len(recordings)}."
+            )
+        days = [recording.day for recording in recordings]
+        if len(days) != len(set(days)):
+            raise ValueError("An aligned longitudinal group contains duplicate days.")
+        return recordings, skipped
+
+    @staticmethod
     def _resolve_anchor(
         recordings: list[RecordingRef], anchor_day: int | None
     ) -> tuple[RecordingRef, int]:
@@ -534,9 +566,18 @@ class LongitudinalTracker:
         anchor_day: int | None = None,
         top_fraction: float = 0.10,
         top_n: int | None = None,
+        recordings: Iterable[RecordingRef] | None = None,
     ) -> dict[str, Path]:
-        """Run one treatment/region track and return the output manifest."""
-        recordings, skipped_recordings = self._select_recordings(treatment, region)
+        """Run one track and return its output manifest.
+
+        ``recordings`` permits comparison workflows to supply an explicit
+        group whose members share a folder, while the original
+        treatment/region discovery remains the default.
+        """
+        if recordings is None:
+            recordings, skipped_recordings = self._select_recordings(treatment, region)
+        else:
+            recordings, skipped_recordings = self._select_supplied_recordings(recordings)
         anchor, chosen_anchor_day = self._resolve_anchor(recordings, anchor_day)
         anchor_image, anchor_stat = _load_suite2p(anchor)
         image_shape = tuple(int(value) for value in anchor_image.shape)

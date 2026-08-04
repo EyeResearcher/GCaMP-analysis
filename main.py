@@ -60,6 +60,11 @@ def main(
         runner=runner,
         output_root=output_root,
         dry_run=dry_run,
+        analysis_metadata={
+            "config": config,
+            "sensor_type": sensor_type
+            or config.get("traces", {}).get("sensor_type"),
+        },
     )
     processor.process_tree(tree, verbose=verbose)
 

@@ -1,3 +1,10 @@
+"""Per-video pipeline orchestration.
+
+``VideoPipelineRunner`` wires the trace, ROI, spike, and grouping services
+together and runs them in order for a single ``Video``. It holds the trained
+models and configuration once so the same runner can be reused across every
+video in an experiment. It adds no scientific computation of its own.
+"""
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -74,6 +81,12 @@ class VideoPipelineRunner:
         )
 
     def run(self, video: Video, verbose: bool = True) -> None:
+        """Run traces -> ROIs -> spikes -> grouping on *video* in place.
+
+        Populates the video's processing state and prints per-stage progress
+        when *verbose*. Stages short-circuit when too few ROIs or neurons
+        survive, leaving downstream results empty.
+        """
         if verbose:
             print(f"\n Processing: {video.video_id}")
 

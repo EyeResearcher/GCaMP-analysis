@@ -37,6 +37,11 @@ def neuron_groups_from_dicts(
     *,
     method: str = "combined",
 ) -> List[NeuronGroup]:
+    """Build :class:`NeuronGroup` objects from strategy group dictionaries.
+
+    Neuron indices absent from *neurons* are skipped, and empty groups are
+    dropped.
+    """
     idx_to_neuron = {neuron.index: neuron for neuron in neurons}
     groups: List[NeuronGroup] = []
     for group_dict in group_dicts:
@@ -64,6 +69,7 @@ def compute_group_summary_rows(
     method: str,
     matrices: Dict[str, Optional[np.ndarray]],
 ) -> List[Dict[str, Any]]:
+    """Return one summary row per group with size, activity, and matrix means."""
     rows: List[Dict[str, Any]] = []
     for group in groups:
         summary_stats = [getattr(neuron, "summary_stats", {}) for neuron in group.neurons]
@@ -100,6 +106,7 @@ def compute_group_summary_rows(
 
 
 def build_combined_summary(results: Dict[str, GroupingResult]) -> List[dict]:
+    """Flatten every strategy's groups into one list of summary rows."""
     matrices = {name: result.matrix for name, result in results.items()}
     all_rows: list[dict] = []
     for name, result in results.items():
@@ -110,6 +117,7 @@ def build_combined_summary(results: Dict[str, GroupingResult]) -> List[dict]:
 
 
 def _infer_img_size(video: "Video", default=(1024, 1024)) -> tuple[int, int]:
+    """Return the ``(Ly, Lx)`` image size from Suite2p ops, or *default*."""
     ops = getattr(video, "suite2p_data", {}).get("ops", {}) if getattr(video, "suite2p_data", None) else {}
     ly = int(ops.get("Ly", default[0]))
     lx = int(ops.get("Lx", default[1]))
@@ -125,6 +133,7 @@ def make_matrix_heatmap(
     vmax: Optional[float] = None,
     figsize=(6, 5),
 ) -> Optional[Figure]:
+    """Render a square matrix as a heatmap figure, or ``None`` if empty."""
     if matrix is None:
         return None
     matrix = np.asarray(matrix)
@@ -146,6 +155,11 @@ def visualize_grouping(
     heatmap_vmin: Optional[float] = None,
     heatmap_vmax: Optional[float] = None,
 ) -> Tuple[Optional[Figure], Optional[Figure]]:
+    """Return (spatial group overlay, matrix heatmap) figures for a strategy.
+
+    Either element is ``None`` when the strategy produced no result, no
+    groups, or no matrix.
+    """
     result = video.grouping_results.get(strategy_name)
     if result is None:
         return None, None
@@ -225,6 +239,12 @@ class GroupingService:
         return result
 
     def run(self, video: "Video", grouping_cfg: dict) -> Optional[GroupingReport]:
+        """Run every configured strategy on *video* and store results in place.
+
+        Returns ``None`` when fewer than two neurons are available; otherwise
+        populates ``video.grouping_results`` / ``grouping_stats`` and returns a
+        :class:`GroupingReport`.
+        """
         if len(video.neurons) < 2:
             video.grouping_results = {}
             video.grouping_stats = pd.DataFrame()

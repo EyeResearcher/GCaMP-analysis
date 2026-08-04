@@ -1,3 +1,4 @@
+"""Functional grouping: similarity matrices, clustering, and group summaries."""
 from .strategies import (
     run_combined_grouping,
     run_dtw_grouping,

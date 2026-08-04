@@ -8,6 +8,7 @@ from .tracking import LongitudinalTracker, discover_recordings
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the longitudinal-tracking CLI."""
     parser = argparse.ArgumentParser(
         description=(
             "Register same-region Suite2p masks across days and track the "
@@ -33,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Parse CLI arguments and run longitudinal tracking per treatment/region."""
     args = build_parser().parse_args()
     output_dir = args.output_dir or args.experiment_root / "metrics" / "longitudinal"
     tracker = LongitudinalTracker(

@@ -49,6 +49,7 @@ from gcamp_analysis.experiments.summary_utils import (
     summary_from_video_record,
 )
 from gcamp_analysis.experiments.models import VideoRunRecord
+from gcamp_analysis.experiments.artifacts import write_video_summary
 from gcamp_analysis.experiments.comparison_utils import build_sibling_comparison
 from gcamp_analysis.data_classes.video import Video
 from gcamp_analysis.reporting import (
@@ -88,10 +89,12 @@ class ExperimentProcessor:
         runner: VideoPipelineRunner,
         output_root: Path,
         dry_run: bool = False,
+        analysis_metadata: dict | None = None,
     ):
         self.runner = runner
         self.output_root = Path(output_root)
         self.dry_run = dry_run
+        self.analysis_metadata = dict(analysis_metadata or {})
 
     def process_tree(self, root: TreeNode, verbose: bool = True) -> None:
         """Run the full pipeline on every video leaf, then aggregate.
@@ -103,10 +106,22 @@ class ExperimentProcessor:
         verbose : bool, optional
             If ``True``, print per-video progress (default ``True``).
         """
-        for node in root.iter_nodes():
-            if is_video_dir(node.path):
-                node.payload = self._process_one_video(node.path, verbose=verbose)
+        self.process_videos(root, verbose=verbose)
         self._compute_bottom_up_summaries(root)
+
+    def process_videos(self, root: TreeNode, verbose: bool = True) -> None:
+        """Analyze video leaves without aggregating or comparing folders.
+
+        This is the computation-only entry point used by ``pipeline.ipynb``.
+        Existing callers of :meth:`process_tree` retain the original combined
+        processing-and-aggregation behavior.
+        """
+        for node in root.iter_nodes():
+            if not is_video_dir(node.path):
+                continue
+            record = self._process_one_video(node.path, verbose=verbose)
+            node.payload = record
+            node.summary = summary_from_video_record(record, source=node.name)
 
     def _process_one_video(self, video_dir: Path, verbose: bool) -> VideoRunRecord:
         """Run the pipeline on a single video and return a record.
@@ -159,7 +174,7 @@ class ExperimentProcessor:
             part = self._partition_grouped_ungrouped(video.summary_df, video.grouping_results)
 
             metrics_dir = video_dir / "metrics"
-            return VideoRunRecord(
+            record = VideoRunRecord(
                 video_dir=video_dir,
                 metrics_dir=metrics_dir,
                 n_rois_total=n_rois_total,
@@ -179,6 +194,12 @@ class ExperimentProcessor:
                 freq_ungrouped=part.freq_ungrouped,
                 light_evoked_details=stats.light_evoked_details,
             )
+            if not self.dry_run:
+                write_video_summary(
+                    record,
+                    analysis_metadata=self.analysis_metadata,
+                )
+            return record
         finally:
             # Release array views held by ROIs/neurons before dropping the
             # memory-mapped Suite2p inputs. This also runs when a notebook

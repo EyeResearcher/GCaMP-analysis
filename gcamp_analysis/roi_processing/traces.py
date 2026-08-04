@@ -1,3 +1,10 @@
+"""Trace preprocessing for one video.
+
+``TraceService`` converts raw Suite2p fluorescence into the normalized,
+smoothed, and z-scored representations consumed by ROI classification, spike
+detection, and functional grouping. All outputs preserve the original ROI and
+frame ordering of ``F.npy``.
+"""
 from typing import TYPE_CHECKING
 
 from gcamp_analysis.reports import TraceReport  # shared report dataclasses stay in pipeline/

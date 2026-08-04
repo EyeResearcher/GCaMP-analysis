@@ -2,6 +2,32 @@
 
 This subpackage runs the video pipeline over an experiment directory tree, summarizes each video, combines child summaries into parent summaries, and builds one comparison row per immediate child directory.
 
+## Two-stage notebook workflow
+
+`notebooks/pipeline.ipynb` calls `ExperimentProcessor.process_videos` and stops
+after independent video analysis. In addition to the existing workbook and
+figures, each completed video receives
+`metrics/<video>_analysis_summary.json`. This versioned artifact is the stable
+handoff to `notebooks/comparative_analysis.ipynb`; comparison never loads the
+classifiers or silently reruns a video.
+
+The comparison notebook supports:
+
+- longitudinal whole-video descriptive statistics, with optional spatial
+  registration and ROI/group tracking when `align=True`;
+- treatment comparisons using an explicitly selected independent replicate
+  such as well, region, or animal;
+- optional longitudinal-within-treatment summaries and alignment;
+- the original generic immediate-sibling comparisons at every filesystem
+  hierarchy level.
+
+Folder names such as `1-1_Day10` can provide region/day metadata. A CSV,
+Excel, Parquet, or in-memory table with `video_path` plus any of `group`,
+`treatment`, `subject`, `region`, `well`, and `day` can override inference.
+Before comparison, validation reports missing or stale outputs, duplicate
+assignments/timepoints, absent alignment inputs, missing replicate metadata,
+and incompatible configuration fingerprints.
+
 ## Inputs
 
 - An experiment root containing video directories with `suite2p/plane0/F.npy`.

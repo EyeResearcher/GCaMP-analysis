@@ -99,8 +99,15 @@ def test_main_dry_run_skips_experiment_comparison_writer(
             return fake_tree
 
     class FakeProcessor:
-        def __init__(self, runner, output_root: Path, dry_run: bool) -> None:
+        def __init__(
+            self,
+            runner,
+            output_root: Path,
+            dry_run: bool,
+            analysis_metadata: dict | None = None,
+        ) -> None:
             captured["dry_run"] = dry_run
+            captured["has_analysis_metadata"] = analysis_metadata is not None
 
         def process_tree(self, tree: object, verbose: bool) -> None:
             captured["processed"] = True
@@ -139,6 +146,7 @@ def test_main_dry_run_skips_experiment_comparison_writer(
 
     assert captured == {
         "dry_run": True,
+        "has_analysis_metadata": True,
         "processed": True,
         "compared": True,
     }
