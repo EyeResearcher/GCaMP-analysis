@@ -19,11 +19,13 @@ the applicability of the selected classifiers to the new data.
 - Hugging Face model-bundle loading is implemented and validates a pinned
   revision, manifest, checksums, feature order, transforms, and scikit-learn
   version before inference.
-- A production GCaMP ROI/spike bundle has **not yet been published on Hugging
-  Face**, and this checkout does not contain a portable
-  `config/pipeline_config.yaml`. Consequently, a clean checkout is not yet a
-  one-command production run: supply local trained models and a config, or
-  publish and configure the intended Hub bundle first.
+- The ROI and spike classifier artifacts are published in the public
+  [`mmzinn12/gcamp-analysis-models`](https://huggingface.co/mmzinn12/gcamp-analysis-models)
+  repository. It contains matched 15 Hz in-vitro and 3 Hz in-vivo model pairs.
+  The repository does not yet contain the root `manifest.json` required by this
+  application's automatic Hub loader, and this checkout does not contain a
+  portable `config/pipeline_config.yaml`. Until those integration pieces are
+  added, download a matched pair and use explicit local paths.
 - `gcamp_analysis.waves` is an **incomplete, experimental research module**.
   Its algorithms and focused synthetic/unit tests are present, but it is not
   integrated into the main pipeline and is not yet validated for a final
@@ -307,24 +309,39 @@ Face repository containing the compatible ROI/spike pair. All Hugging Face
 references in this README refer only to these scikit-learn analysis
 classifiers.
 
-The expected Hugging Face layout is:
+The public model repository is
+[`mmzinn12/gcamp-analysis-models`](https://huggingface.co/mmzinn12/gcamp-analysis-models).
+Its current model inventory is:
+
+| Model pair | ROI artifacts | Spike artifacts | Intended acquisition context |
+| --- | --- | --- | --- |
+| `15hz_invitro_base` | `roi/15hz_invitro_base/roi_classifier.joblib` and `roi_classifier_results.json` | `spike/15hz_invitro_base/spike_classifier.joblib` and `spike_classifier_results.json` | 15 Hz in-vitro recordings |
+| `3hz_invivo_base` | `roi/3hz_invivo_base/invivo_roi_classifier.joblib` and `invivo_roi_classifier_results.json` | `spike/3hz_invivo_base/invivo_spike_classifier.joblib` and `invivo_spike_classifier_results.json` | 3 Hz in-vivo recordings |
+
+Select the ROI and spike models from the same row. Each results JSON is a
+required inference sidecar, not an optional training report. Model choice must
+match the acquisition context and should be checked on representative labeled
+data before batch analysis.
+
+For automatic loading, the repository must also contain a root manifest that
+selects one matched pair. The complete expected layout is:
 
 ```text
 manifest.json
 roi/
-├── iteration-001/
-│   ├── model.joblib
-│   └── results.json
-└── iteration-002/
-    ├── model.joblib
-    └── results.json
+├── 15hz_invitro_base/
+│   ├── roi_classifier.joblib
+│   └── roi_classifier_results.json
+└── 3hz_invivo_base/
+    ├── invivo_roi_classifier.joblib
+    └── invivo_roi_classifier_results.json
 spike/
-├── iteration-001/
-│   ├── model.joblib
-│   └── results.json
-└── iteration-002/
-    ├── model.joblib
-    └── results.json
+├── 15hz_invitro_base/
+│   ├── spike_classifier.joblib
+│   └── spike_classifier_results.json
+└── 3hz_invivo_base/
+    ├── invivo_spike_classifier.joblib
+    └── invivo_spike_classifier_results.json
 ```
 
 Iteration folder names are arbitrary stable identifiers. The root
@@ -339,15 +356,18 @@ Point the pipeline at a pinned release tag or full commit (never the mutable
 ```yaml
 models:
   source: huggingface
-  repo_id: <namespace>/<released-gcamp-model-repository>
+  repo_id: mmzinn12/gcamp-analysis-models
   revision: <release-tag-or-full-commit>
 ```
 
-Do not copy the placeholder values above into a production config. As of the
-status date, no corresponding production bundle has been published. Once a
-release exists, the application will download its allow-listed
-files once through `huggingface_hub`, validate them, and reuse the standard
-local cache. No Hugging Face CLI is required for a public bundle.
+The repository currently has no release tags. Its verified head on the status
+date is commit `c566b58e7dd1f63934f65566ac525cf12db914f5`, but that revision does
+not yet contain `manifest.json` and therefore cannot be loaded automatically by
+the current application. After a manifest and release tag are published, pin
+that immutable tag or its full commit hash rather than `main`. The application
+will then download the allow-listed files once through `huggingface_hub`,
+validate them, and reuse the standard local cache. No Hugging Face CLI is
+required for normal use of this public repository.
 
 For local or air-gapped use, configure all four paths explicitly:
 
