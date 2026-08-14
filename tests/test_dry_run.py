@@ -119,8 +119,11 @@ def test_main_dry_run_skips_experiment_comparison_writer(
     monkeypatch.setattr(main_module, "load_config", lambda path: {"models": {}})
     monkeypatch.setattr(
         main_module,
-        "load_model",
-        lambda config, which: (object(), {}),
+        "load_model_bundle",
+        lambda config: {
+            "roi": (object(), {}),
+            "spike": (object(), {}),
+        },
     )
     monkeypatch.setattr(
         main_module.VideoPipelineRunner,

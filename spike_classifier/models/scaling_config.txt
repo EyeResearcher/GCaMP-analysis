@@ -1,9 +1,0 @@
-dist_aai_sum: raw
-dist_aai_trapz: raw
-dist_skew: raw
-distance: raw
-iso_aai_sum: raw
-iso_aai_trapz: raw
-iso_skew: raw
-isolation: raw
-spike_prom: raw

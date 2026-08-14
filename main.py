@@ -8,7 +8,7 @@ from typing import Optional
 from gcamp_analysis.video_runner import VideoPipelineRunner
 
 # ---- Models/config
-from utils.io_utils import load_config, load_model
+from utils.io_utils import load_config, load_model_bundle
 
 # ---- Experiment tree + batch
 from gcamp_analysis.reporting import save_comparisons
@@ -39,8 +39,9 @@ def main(
     # 1) Load config + models once
     config = load_config(config_path)
 
-    roi_model, roi_cfg = load_model(config["models"], which="roi")
-    spike_model, spike_cfg = load_model(config["models"], which="spike")
+    model_bundle = load_model_bundle(config["models"])
+    roi_model, roi_cfg = model_bundle["roi"]
+    spike_model, spike_cfg = model_bundle["spike"]
 
     models = {
         "roi": roi_model,
