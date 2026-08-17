@@ -116,3 +116,58 @@ def test_treatment_comparison_uses_configured_replicate_unit(tmp_path: Path) -> 
     means = result.treatment_summary.set_index("treatment")["rise_mean_weighted"]
     assert means["control"] == 2.0
     assert means["drug"] == 6.0
+
+
+def test_treatment_comparison_infers_animal_from_parent_folder(
+    tmp_path: Path,
+) -> None:
+    control = tmp_path / "control"
+    drug = tmp_path / "drug"
+    _write_video(control / "animal-a", "animal-a_L-1", mean=1.0)
+    _write_video(control / "animal-b", "animal-b_L-1", mean=3.0)
+    _write_video(drug / "animal-c", "animal-c_L-1", mean=5.0)
+    _write_video(drug / "animal-d", "animal-d_L-1", mean=7.0)
+
+    result = run_treatment_comparison(
+        {"control": control, "drug": drug},
+        replicate_unit="animal",
+    )
+
+    assert not result.validation.has_errors
+    assert set(result.recordings["animal"]) == {
+        "animal-a",
+        "animal-b",
+        "animal-c",
+        "animal-d",
+    }
+    assert not any(
+        issue.code == "low_replicate_count" for issue in result.validation.issues
+    )
+
+
+def test_treatment_comparison_maps_folder_levels_to_metadata(
+    tmp_path: Path,
+) -> None:
+    control = tmp_path / "control-folder"
+    drug = tmp_path / "drug-folder"
+    _write_video(control / "animal-a", "region-1", mean=1.0)
+    _write_video(control / "animal-b", "region-2", mean=3.0)
+    _write_video(drug / "animal-c", "region-3", mean=5.0)
+    _write_video(drug / "animal-d", "region-4", mean=7.0)
+
+    result = run_treatment_comparison(
+        {"control-label": control, "drug-label": drug},
+        replicate_unit="animal",
+        metadata={
+            "video": "region",
+            "video_parent": "animal",
+            "video_grandparent": "treatment",
+        },
+    )
+
+    assert not result.validation.has_errors
+    rows = result.recordings.set_index("region")
+    assert rows.loc["region-1", "animal"] == "animal-a"
+    assert rows.loc["region-1", "treatment"] == "control-folder"
+    assert rows.loc["region-4", "animal"] == "animal-d"
+    assert rows.loc["region-4", "treatment"] == "drug-folder"

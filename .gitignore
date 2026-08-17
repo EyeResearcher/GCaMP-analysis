@@ -39,3 +39,11 @@ _diagnostic_run/
 spike_classifier\models
 
 _handoffs/
+
+exports/
+
+analysis_outputs/
+
+outputs/
+
+wave_scripts/

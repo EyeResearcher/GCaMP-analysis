@@ -1,13 +1,5 @@
-models:
-  roi_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/roi_classifier.joblib"
-  roi_config_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/roi_classifier_results.json"
-  spike_model_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/spike_classifier.joblib"
-  spike_config_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/models/spike_classifier_results.json"
-  #roi_manual_labels_path: "C:/Users/mzinn1/Desktop/Scripts/GCaMP-analysis/data/roi_features_z_humanITL.npy"
-  cascade_model_name: "Global_EXC_30Hz_smoothing100ms_high_noise"
-  cascade_model_dir: "Cascade/Pretrained_models"
 traces: 
-  smooth_sigma: 4
+  smooth_sigma: 1
   sensor_type: "gcamp6s"   # gcamp8s, gcamp6f, or generic
 
 # Keep notebook execution memory-stable. The pipeline otherwise defaults to
@@ -50,7 +42,7 @@ hp_tuning:
 grouping:
   strategies: ["corr","wcorr", "sttc", "light-evoked", "combined"]  # any combination of: corr, sttc, dtw
   combined:
-    enabled: True
+    enabled: False
     corr:
       max_lag: 5
     sttc:
@@ -60,11 +52,6 @@ grouping:
       cluster_criterion: "distance"
       cluster_param: 0.5
       min_group_size: 2
-  light-evoked:
-    start: 30
-    interval: 30
-    bin_size: 2
-    schedule:
   sttc:
     enabled: False
     time_window: .4       # 33ms, 50ms, 100ms, 200ms, 300ms
@@ -103,7 +90,7 @@ grouping:
     window : 10
     polyorder: 2
   light-evoked:
-    enabled: False
+    enabled: True
     start: 30 
     interval : 30
     bin_size : 2

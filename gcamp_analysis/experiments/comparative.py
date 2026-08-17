@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 import pandas as pd
@@ -36,6 +37,7 @@ METADATA_COLUMNS = (
     "video_path",
     "group",
     "treatment",
+    "animal",
     "subject",
     "region",
     "well",
@@ -163,12 +165,21 @@ class HierarchicalComparisonResult:
 def load_comparison_dataset(
     group_paths: Mapping[str, Path],
     *,
-    metadata: pd.DataFrame | Path | str | Sequence[Mapping[str, Any]] | None = None,
+    metadata: (
+        pd.DataFrame
+        | Path
+        | str
+        | Sequence[Mapping[str, Any]]
+        | Mapping[str, str]
+        | None
+    ) = None,
     required_fields: Iterable[str] = (),
 ) -> ComparisonDataset:
     """Load summaries below named folders and apply optional metadata overrides."""
     report = ValidationReport()
-    metadata_frame = _load_metadata(metadata, report)
+    folder_metadata = _folder_metadata_schema(metadata, report)
+    explicit_metadata = None if isinstance(metadata, Mapping) else metadata
+    metadata_frame = _load_metadata(explicit_metadata, report)
     metadata_lookup = _metadata_lookup(metadata_frame, report)
     records: list[ComparisonRecord] = []
     seen_paths: dict[Path, str] = {}
@@ -216,7 +227,12 @@ def load_comparison_dataset(
                 continue
             seen_paths[canonical] = str(group)
             _validate_completed_artifact(artifact, report, str(group))
-            inferred = _infer_metadata(artifact, str(group))
+            inferred = _infer_metadata(
+                artifact,
+                str(group),
+                root=root,
+                folder_metadata=folder_metadata,
+            )
             override = metadata_lookup.get(canonical, {})
             combined = {**inferred, **_non_missing_values(override)}
             combined["video_path"] = str(canonical)
@@ -536,18 +552,95 @@ def _metadata_lookup(frame: pd.DataFrame, report: ValidationReport) -> dict[Path
     return lookup
 
 
-def _infer_metadata(artifact: LoadedVideoSummary, group: str) -> dict[str, Any]:
+def _folder_metadata_schema(
+    metadata: Any,
+    report: ValidationReport,
+) -> dict[str, int]:
+    """Translate folder locators into metadata-field/ancestor-depth pairs.
+
+    Supported locators are ``video``, ``video_parent``,
+    ``video_grandparent``, and ``video_ancestor_N`` where the video itself is
+    ancestor zero. Values are metadata field names.
+    """
+    if not isinstance(metadata, Mapping):
+        return {}
+
+    depths = {"video": 0, "video_parent": 1, "video_grandparent": 2}
+    schema: dict[str, int] = {}
+    for locator, field_name in metadata.items():
+        if not isinstance(locator, str) or not isinstance(field_name, str):
+            report.add(
+                "error",
+                "invalid_folder_metadata",
+                "Folder metadata must map string folder locators to string field names.",
+            )
+            continue
+        depth = depths.get(locator)
+        if depth is None:
+            match = re.fullmatch(r"video_ancestor_(\d+)", locator)
+            depth = int(match.group(1)) if match else None
+        if depth is None:
+            report.add(
+                "error",
+                "invalid_folder_metadata_locator",
+                f"Unsupported folder metadata locator {locator!r}.",
+            )
+            continue
+        if field_name in schema:
+            report.add(
+                "error",
+                "duplicate_folder_metadata_field",
+                f"Metadata field {field_name!r} is assigned by multiple folder levels.",
+            )
+            continue
+        schema[field_name] = depth
+    return schema
+
+
+def _infer_metadata(
+    artifact: LoadedVideoSummary,
+    group: str,
+    *,
+    root: Path,
+    folder_metadata: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
     parsed = parse_region_day(artifact.video_name)
     region, day = parsed if parsed is not None else (None, None)
-    return {
+    try:
+        relative_parts = artifact.video_path.resolve().relative_to(
+            root.resolve()
+        ).parts
+    except ValueError:
+        relative_parts = ()
+    # Treatment datasets commonly use treatment/animal/video. Do not invent
+    # an animal when videos are stored directly below the treatment root.
+    animal = relative_parts[0] if len(relative_parts) >= 2 else None
+    inferred = {
         "video_path": str(artifact.video_path.resolve()),
         "group": group,
         "treatment": group,
-        "subject": None,
+        "animal": animal,
+        "subject": animal,
         "region": region,
         "well": region,
         "day": day,
     }
+    if folder_metadata:
+        video = artifact.video_path.resolve()
+        root_resolved = root.resolve()
+        levels: list[str] = []
+        current = video
+        while True:
+            levels.append(current.name)
+            if current == root_resolved:
+                break
+            if current.parent == current or root_resolved not in current.parents:
+                levels = []
+                break
+            current = current.parent
+        for field_name, depth in folder_metadata.items():
+            inferred[field_name] = levels[depth] if depth < len(levels) else None
+    return inferred
 
 
 def _validate_completed_artifact(

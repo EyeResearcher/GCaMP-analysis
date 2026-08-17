@@ -302,16 +302,25 @@ def load_model_bundle(models_config: Dict) -> Dict[str, tuple[Any, Optional[Dict
     return loaded
 
 
-def load_model(models_config: Dict, which: str) -> tuple:
+def load_model(
+    models_config: Dict,
+    which: str,
+    model_folder: str | None = None,
+) -> tuple:
     """Load a model and its JSON config sidecar.
 
     Parameters
     ----------
     models_config : dict
-        The ``models`` section of the pipeline YAML.  Expected keys:
-        ``<which>_model_path`` and (optionally) ``<which>_config_path``.
+        Local configuration uses ``<which>_model_path`` and optionally
+        ``<which>_config_path``. Hugging Face configuration uses ``source``,
+        ``repo_id``, and a pinned ``revision``.
     which : str
         ``"roi"`` or ``"spike"``.
+    model_folder : str, optional
+        Repository-relative Hugging Face iteration folder, such as
+        ``"roi/15hz_invitro_base"``. The folder must contain exactly one
+        ``.joblib`` model and one ``*_results.json`` sidecar.
 
     Returns
     -------
@@ -321,6 +330,89 @@ def load_model(models_config: Dict, which: str) -> tuple:
     """
     if which not in {"roi", "spike"}:
         raise ValueError("which must be either 'roi' or 'spike'.")
+    if models_config.get("source", "local") == "huggingface" and model_folder:
+        repo_id = models_config.get("repo_id")
+        revision = models_config.get("revision")
+        if not repo_id or not revision:
+            raise ValueError(
+                "Hugging Face model loading requires both 'repo_id' and a "
+                "pinned 'revision'."
+            )
+        if revision in {"main", "master"}:
+            raise ValueError(
+                "Hugging Face model revision must be a release tag or full "
+                "commit hash, not a mutable default branch."
+            )
+
+        folder = Path(model_folder)
+        if (
+            folder.is_absolute()
+            or len(folder.parts) != 2
+            or folder.parts[0] != which
+            or ".." in folder.parts
+        ):
+            raise ValueError(
+                f"{which} model_folder must have the form "
+                f"'{which}/<model-folder>'."
+            )
+
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError as exc:
+            raise RuntimeError(
+                "Hugging Face model loading requires the 'huggingface_hub' package."
+            ) from exc
+
+        print(
+            f"Resolving {which} model {repo_id}@{revision}:"
+            f"{folder.as_posix()} (downloads are cached)..."
+        )
+        try:
+            snapshot = Path(
+                snapshot_download(
+                    repo_id=repo_id,
+                    revision=revision,
+                    allow_patterns=[f"{folder.as_posix()}/**"],
+                )
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not obtain {which} model folder {folder.as_posix()} "
+                f"from {repo_id}@{revision}. Connect to the network once to "
+                "populate the Hugging Face cache, or use local model paths."
+            ) from exc
+
+        resolved_folder = snapshot / folder
+        model_paths = sorted(resolved_folder.glob("*.joblib"))
+        results_paths = sorted(resolved_folder.glob("*_results.json"))
+        if len(model_paths) != 1:
+            raise FileNotFoundError(
+                f"Expected exactly one .joblib file in {model_folder}, found "
+                f"{len(model_paths)}."
+            )
+        if len(results_paths) != 1:
+            raise FileNotFoundError(
+                f"Expected exactly one *_results.json file in {model_folder}, "
+                f"found {len(results_paths)}."
+            )
+
+        model_cfg = _load_json(results_paths[0], f"{which} model results")
+        model = load(model_paths[0])
+        from utils.inference import get_model_feature_names
+
+        expected_features = model_cfg.get("features")
+        model_features = get_model_feature_names(model)
+        if expected_features != model_features:
+            raise ValueError(
+                f"Feature mismatch for {which} model in {model_folder}: results "
+                f"declare {expected_features}, model expects {model_features}."
+            )
+        if "transform" not in model_cfg:
+            raise ValueError(
+                f"{which} results file in {model_folder} is missing 'transform'."
+            )
+        return model, model_cfg
+
     if models_config.get("source", "local") == "local":
         model_path = Path(models_config.get(f"{which}_model_path", ""))
         _require_file(model_path, f"{which} model")
