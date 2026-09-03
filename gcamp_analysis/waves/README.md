@@ -25,7 +25,7 @@ python -m gcamp_analysis.waves /path/to/dataset --output-dir wave_results --days
 Consolidate separately run day folders:
 
 ```bash
-python scripts/summarize_wave_analysis.py wave_results
+python wave_scripts/summarize_wave_analysis.py wave_results
 ```
 
 These outputs support claims about propagating calcium activity. They do not
