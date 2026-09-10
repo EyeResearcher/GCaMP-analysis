@@ -41,6 +41,9 @@ def load_suite2p_data(suite2p_path: Path) -> dict:
     data = {}
 
     required = ['F.npy', 'iscell.npy', ]
+    # iscell is required to verify a complete suite2p run (detection + classification
+    # must both have finished). The analysis applies its own ROI classifier and does
+    # not use suite2p's classification labels.
     for file in required:
         if not (suite2p_path / file).exists():
             raise FileNotFoundError(f"Required file {file} not found in {suite2p_path}")

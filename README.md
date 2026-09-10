@@ -54,10 +54,22 @@ The pipeline also uses these files when present:
 - `suite2p/plane0/stat.npy`
 - `suite2p/plane0/ops.npy`
 
-`ops.npy` is used only for selected metadata fields such as frame rate and
-image size. If `Fneu.npy` is missing, the loader substitutes zeros. The wave
-and longitudinal workflows rely more heavily on `stat.npy`, `ops.npy`, and the
-metrics written by the main analysis.
+`ops.npy` is used only for three fields: `fs` (frame rate), `Ly`, and `Lx`
+(image dimensions). In this suite2p version `ops.npy` is saved by default and
+contains a merged dict of the db, pipeline settings, registration outputs, and
+detection outputs; the loader discards all other fields including large
+registration arrays such as `regPC`. When `ops.npy` is absent the sampling
+rate falls back to 15 Hz. If `Fneu.npy` is missing, the loader substitutes
+zeros. The wave and longitudinal workflows depend on specific `stat.npy`
+fields: `ypix` and `xpix` (pixel coordinates used in longitudinal registration
+and ROI visualization) and `med` (centroid coordinates used in wave
+propagation analysis).
+
+`iscell.npy` is required to confirm the recording has a complete suite2p
+output including ROI detection and initial classification. The pipeline does
+**not** apply suite2p's own cell classification. Instead it loads every row of
+`F.npy` and applies its own trained ROI classifier to all detected ROIs
+regardless of the suite2p label.
 
 ## Required run order
 
@@ -113,6 +125,12 @@ python -c "import numpy, scipy, pandas, sklearn, matplotlib, joblib, yaml, huggi
 Train the classifiers only when you do not already have a validated model pair
 for your acquisition context. Both training workflows assume recordings have
 already been processed by Suite2p.
+
+Both workflows are thin wrappers around the shared `classifier_pipeline`
+package, which handles dataset assembly, cross-validated hyperparameter
+search, and model persistence. Scientific feature computation lives in the
+calling module; `classifier_pipeline` only selects and fits models over
+already-computed features.
 
 ### ROI classifier
 

@@ -90,7 +90,7 @@ grouping:
     window : 10
     polyorder: 2
   light-evoked:
-    enabled: True
+    enabled: False
     start: 30 
     interval : 30
     bin_size : 2

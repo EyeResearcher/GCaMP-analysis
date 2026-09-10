@@ -14,7 +14,7 @@ This subpackage defines the mutable in-memory objects passed between processing 
 
 ## Suite2p inputs held by `Video`
 
-The required item is `F`, shaped `(n_rois, n_frames)`. The loader may also provide `Fneu`, `stat`, `ops`, and `iscell`. `ops.fs` supplies the sampling rate when no explicit `fs` value exists; the fallback is 15 Hz.
+The required items are `F`, shaped `(n_rois, n_frames)`, and `iscell`, shaped `(n_rois, 2)`. `iscell` is required to confirm a complete suite2p run; the pipeline does not use suite2p's own cell classification and instead applies its own trained ROI classifier to every row of `F`. The loader also uses `Fneu`, `stat`, and `ops` when present. `ops.fs` supplies the sampling rate when no explicit `fs` value exists; the fallback is 15 Hz.
 
 `ROI.index` and `Neuron.index` refer to the original Suite2p row. `Neuron.filtered_index` is a compact, changing position among retained neurons. Saved `neuron_idx` values use the stable Suite2p row index.
 
