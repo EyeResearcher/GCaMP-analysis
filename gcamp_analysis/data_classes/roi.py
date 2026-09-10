@@ -18,7 +18,6 @@ class ROI:
         Parameters:
             index: Original row index in Suite2p arrays
             f_trace: Raw fluorescence trace
-            cascade_prob: raw Cascade spike probability
             stats: Suite2p stat dict
             fneu: Neuropil fluorescence
         """
