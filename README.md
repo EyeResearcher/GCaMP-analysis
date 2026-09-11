@@ -11,6 +11,40 @@ uses two supervised classifiers to separate:
 Recording analysis reports event kinetics and groups neurons with similar
 activity. Separate experiment analysis compares completed recording results.
 
+## Package organization
+
+The repository is organized as two sequential analysis packages, connected by
+a portable recording-result bundle:
+
+```text
+Suite2p recording + analysis configuration
+                │
+                ▼
+gcamp_analysis                 Recording-stage package
+  classify ROIs and events,     One recording at a time
+  measure kinetics, group cells
+                │
+                ▼
+recording_results              Shared bundle contract
+  analysis_results/manifest.json + versioned data files
+                │
+                ▼
+experiment_analysis            Experiment-stage package
+  compare recordings, aggregate metadata groups,
+  and optionally align longitudinal recordings
+```
+
+`gcamp_analysis` never runs experiment comparisons; it produces one complete
+bundle per recording. `experiment_analysis` never loads classifiers or reruns
+Suite2p processing; it consumes completed bundles referenced by an explicit
+recording table. `recording_results` is the small shared package that defines
+the bundle schema, serialization, and summary contracts used at that boundary.
+
+Classifier-training packages (`classifier_pipeline`, `roi_classifier`, and
+`spike_classifier`) are development tools for creating the models used by the
+recording stage. `utils` contains shared loading, inference, labeling, and
+plotting helpers. Neither is a third analysis stage.
+
 This repository does **not** run Suite2p, launch Suite2p batches, or perform
 raw TIFF preprocessing. Generate and quality-check those inputs elsewhere
 before using anything here.
