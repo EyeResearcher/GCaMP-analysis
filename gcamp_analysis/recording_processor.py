@@ -1,64 +1,13 @@
-"""Orchestrate per-video processing and hierarchical experiment summaries.
-
-This module connects the video-analysis pipeline to the experiment-tree
-summary model. Its responsibilities are deliberately limited to:
-
-1. Run the pipeline for each video leaf.
-2. Extract per-video values into a :class:`VideoRunRecord`.
-3. Traverse the tree in post-order and assign summaries produced by the
-   pure functions in ``summary_utils``.
-4. Flatten child summaries into sibling-comparison tables.
-
-Aggregation rules do not belong in ``ExperimentProcessor``. Leaf conversion
-is handled by ``summary_from_video_record`` and parent aggregation is handled
-by ``aggregate_node_summaries``. Keeping those computations pure makes them
-testable without constructing a pipeline runner or filesystem tree.
-
-Adding an aggregated statistic
-------------------------------
-For a value first calculated from a ``Video``:
-
-1. Calculate or extract it in ``_process_one_video`` (or a focused helper).
-2. Add the leaf-level field to ``VideoRunRecord`` in ``models.py``.
-3. Add the tree-level field to ``NodeSummary`` in ``summary_utils.py``.
-4. Map the record field in ``summary_from_video_record``.
-5. Define its weighting/merge rule in ``aggregate_node_summaries``.
-6. Add a ``TreeNode`` compatibility property only if existing callers need
-   direct ``node.<field>`` access.
-7. Add structural fields to ``comparison_utils.summary_to_comparison_row`` or
-   an output writer only when they should appear in exported results. New keys
-   inside existing ``StatSummary`` fields are flattened automatically.
-
-Statistics already represented inside ``StatSummary`` usually require no new
-dataclass field. Add the statistic to the per-neuron input columns consumed by
-``summarize_video`` and it will propagate by key through ``aggregate_children``.
-"""
-from __future__ import annotations
-
+"""Independent recording analysis; no experiment traversal or comparisons."""
 from pathlib import Path
 from typing import NamedTuple
-
 import numpy as np
 import pandas as pd
-
-from gcamp_analysis.experiments.tree import TreeNode, is_video_dir
-from gcamp_analysis.experiments.summary_utils import (
-    StatSummary,
-    summarize_video,
-    aggregate_node_summaries,
-    summary_from_video_record,
-)
-from gcamp_analysis.experiments.models import VideoRunRecord
-from gcamp_analysis.experiments.artifacts import write_video_summary
-from gcamp_analysis.experiments.comparison_utils import build_sibling_comparison
+from recording_results.summaries import StatSummary, summarize_video
+from recording_results.models import VideoRunRecord
 from gcamp_analysis.data_classes.video import Video
-from gcamp_analysis.reporting import (
-    VideoFiguresWriter,
-    VideoStatistics,
-    VideoStatisticsWriter,
-)
-from gcamp_analysis.video_runner import VideoPipelineRunner
-
+from gcamp_analysis.reporting import VideoFiguresWriter, VideoStatistics, VideoStatisticsWriter
+from recording_results.bundle import write_recording_bundle
 
 class _GroupedPartition(NamedTuple):
     """Result of partitioning neurons into grouped vs. ungrouped."""
@@ -70,60 +19,26 @@ class _GroupedPartition(NamedTuple):
     freq_ungrouped: StatSummary
 
 
-class ExperimentProcessor:
-    """Walk the experiment tree, process every video leaf, and propagate
-    summary statistics upward through the hierarchy.
-
-    Parameters
-    ----------
-    runner : VideoPipelineRunner
-        Pre-configured pipeline runner (holds models and config).
-    output_root : Path
-        Top-level experiment directory used for output paths.
-    dry_run : bool, optional
-        Compute all analysis results without invoking filesystem writers.
-    """
-
-    def __init__(
-        self,
-        runner: VideoPipelineRunner,
-        output_root: Path,
-        dry_run: bool = False,
-        analysis_metadata: dict | None = None,
-    ):
+class RecordingProcessor:
+    def __init__(self, runner, *, dry_run=False, analysis_metadata=None):
         self.runner = runner
-        self.output_root = Path(output_root)
         self.dry_run = dry_run
         self.analysis_metadata = dict(analysis_metadata or {})
 
-    def process_tree(self, root: TreeNode, verbose: bool = True) -> None:
-        """Run the full pipeline on every video leaf, then aggregate.
+    def process_directory(self, root: Path, verbose=True):
+        root = Path(root)
+        if not root.is_dir():
+            raise FileNotFoundError(root)
+        recordings = sorted({p.parent.parent.parent for p in root.rglob('suite2p/plane0/F.npy')})
+        if not recordings:
+            raise ValueError(f'No Suite2p recordings found below {root}')
+        # Validate the complete batch before starting expensive analysis.
+        for recording in recordings:
+            if not (recording / 'suite2p/plane0/iscell.npy').is_file():
+                raise ValueError(f'Missing iscell.npy for {recording}')
+        return [self.process_recording(path, verbose=verbose) for path in recordings]
 
-        Parameters
-        ----------
-        root : TreeNode
-            Root of the experiment tree.
-        verbose : bool, optional
-            If ``True``, print per-video progress (default ``True``).
-        """
-        self.process_videos(root, verbose=verbose)
-        self._compute_bottom_up_summaries(root)
-
-    def process_videos(self, root: TreeNode, verbose: bool = True) -> None:
-        """Analyze video leaves without aggregating or comparing folders.
-
-        This is the computation-only entry point used by ``pipeline.ipynb``.
-        Existing callers of :meth:`process_tree` retain the original combined
-        processing-and-aggregation behavior.
-        """
-        for node in root.iter_nodes():
-            if not is_video_dir(node.path):
-                continue
-            record = self._process_one_video(node.path, verbose=verbose)
-            node.payload = record
-            node.summary = summary_from_video_record(record, source=node.name)
-
-    def _process_one_video(self, video_dir: Path, verbose: bool) -> VideoRunRecord:
+    def process_recording(self, video_dir: Path, verbose: bool = True) -> VideoRunRecord:
         """Run the pipeline on a single video and return a record.
 
         Parameters
@@ -195,10 +110,7 @@ class ExperimentProcessor:
                 light_evoked_details=stats.light_evoked_details,
             )
             if not self.dry_run:
-                write_video_summary(
-                    record,
-                    analysis_metadata=self.analysis_metadata,
-                )
+                write_recording_bundle(record, stats, analysis_metadata=self.analysis_metadata)
             return record
         finally:
             # Release array views held by ROIs/neurons before dropping the
@@ -252,7 +164,7 @@ class ExperimentProcessor:
             }
 
             if name == "light-evoked" and r.groups:
-                ExperimentProcessor._add_light_evoked_cell_counts(
+                RecordingProcessor._add_light_evoked_cell_counts(
                     group_stats[name], r.groups,
                 )
 
@@ -316,70 +228,3 @@ class ExperimentProcessor:
         for subtype, total in type_totals.items():
             stats[f"total_{subtype}_cells"] = total
 
-    def _compute_bottom_up_summaries(self, root: TreeNode) -> None:
-        """Propagate counts and statistics from leaves to root.
-
-        Uses a post-order traversal so that every node is visited after
-        all of its descendants.
-
-        Weighting rules
-        ---------------
-        * **Unweighted** — each immediate child counts equally.
-        * **Weighted** — if children are video leaves, weight by
-          ``n_neurons``; otherwise weight by ``n_videos``.
-        """
-        def post(node: TreeNode) -> None:
-            for ch in node.children.values():
-                post(ch)
-
-            if node.is_leaf():
-                if isinstance(node.payload, VideoRunRecord):
-                    node.summary = summary_from_video_record(
-                        node.payload,
-                        source=node.name,
-                    )
-                return
-
-            kids = list(node.children.values())
-            node.summary = aggregate_node_summaries(
-                (child.summary for child in kids),
-                children_are_videos=all(child.is_leaf() for child in kids),
-            )
-
-        post(root)
-
-    # ------------------------------------------------------------------
-    # Sibling comparison
-    # ------------------------------------------------------------------
-
-    def compare_siblings(self, root: TreeNode) -> dict[Path, pd.DataFrame]:
-        """Compare children at every internal node of *root*.
-
-        Parameters
-        ----------
-        root : TreeNode
-            Root of a processed experiment tree (``process_tree`` must
-            have been called first).
-
-        Returns
-        -------
-        dict[Path, pd.DataFrame]
-            One entry per internal node that has >= 2 children with
-            data.  Keyed by the parent node's filesystem path.
-        """
-        results: dict[Path, pd.DataFrame] = {}
-        for node in root.iter_nodes():
-            if not node.children or len(node.children) < 2:
-                continue
-            df = self._compare_one(node)
-            if df is not None:
-                results[node.path] = df
-        return results
-
-    @staticmethod
-    def _compare_one(parent: TreeNode) -> pd.DataFrame | None:
-        """Compatibility wrapper around the pure comparison formatter."""
-        return build_sibling_comparison(
-            (child.name, child.summary)
-            for child in parent.children.values()
-        )

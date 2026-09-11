@@ -6,14 +6,13 @@ comparison DataFrames; reporting code writes those completed results to disk.
 
 Adding experiment output
 ------------------------
-Add scientific values and aggregation rules in ``gcamp_analysis.experiments``.
+Add scientific values and aggregation rules in ``recording_results`` or
+``experiment_analysis``.
 Once the completed value exists on a ``NodeSummary`` or comparison DataFrame,
 add its serialization here. Legend descriptions belong here because they
 describe exported columns rather than aggregation semantics.
 
-The functions in ``gcamp_analysis.experiments.io`` are compatibility
-re-exports. New code should import these writers from
-``gcamp_analysis.reporting``.
+Import these writers from ``gcamp_analysis.reporting``.
 """
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from gcamp_analysis.experiments.tree import TreeNode
+from experiment_analysis.tree import TreeNode
 from utils.visualization import (
     plot_delta_corr_vs_dispersion,
     plot_neuron_centroid_distances,

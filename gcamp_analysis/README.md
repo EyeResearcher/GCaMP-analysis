@@ -20,9 +20,7 @@ The subpackage READMEs describe each boundary in detail:
 - [`roi_processing/README.md`](roi_processing/README.md): trace transformations and ROI classification.
 - [`spike_processing/README.md`](spike_processing/README.md): event detection, filtering, and kinetic measurements.
 - [`grouping_processing/README.md`](grouping_processing/README.md): the definition of a group, similarity matrices, and clustering.
-- [`experiments/README.md`](experiments/README.md): aggregation across videos and directory levels.
 - [`reporting/README.md`](reporting/README.md): every saved workbook, array, CSV, and figure.
-- [`longitudinal/README.md`](longitudinal/README.md): registration of same-region masks and largest-group membership tracking across days.
 
 The two top-level orchestration modules have narrow interfaces: `video_runner.py` receives a configured `Video`, models, and services and runs traces → ROIs → spikes → grouping in that order; `reports.py` defines the small immutable count/summary records returned by those stages. Neither module introduces an additional scientific metric.
 
@@ -52,7 +50,7 @@ The two top-level orchestration modules have narrow interfaces: `video_runner.py
 
 ### Optional longitudinal outputs
 
-The standard per-video pipeline still treats days independently. The optional `gcamp_analysis.longitudinal` command now registers same-region Suite2p masks, selects the largest groups on an anchor day, tracks their members across days, and writes colored TIFF overlays plus cell/group history tables. This supports `1-1` → `1-1_DayN` while keeping `1-2` and other regions separate. See the [longitudinal README](longitudinal/README.md).
+Recording analysis treats recordings independently. Use `python -m experiment_analysis run --config EXPERIMENT_CONFIG` to compare treatments or track explicitly assigned longitudinal series. See [experiment analysis](../experiment_analysis/README.md).
 
 ### Not currently produced by the package
 

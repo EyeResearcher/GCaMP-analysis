@@ -10,7 +10,7 @@ import pytest
 # passthrough is sufficient to import the orchestration layer under test.
 try:
     import numba  # noqa: F401
-except ModuleNotFoundError:
+except ImportError:
     numba_stub = ModuleType("numba")
     numba_stub.njit = lambda function=None, **kwargs: (
         function if function is not None else lambda decorated: decorated
@@ -20,9 +20,9 @@ except ModuleNotFoundError:
     sys.modules["numba"] = numba_stub
     sys.modules["numba.typed"] = numba_typed_stub
 
-import gcamp_analysis.experiments.processor as processor_module
+import gcamp_analysis.recording_processor as processor_module
 import main as main_module
-from gcamp_analysis.experiments.processor import ExperimentProcessor
+from gcamp_analysis.recording_processor import RecordingProcessor
 
 
 def test_processor_dry_run_analyzes_without_invoking_writers(
@@ -70,12 +70,11 @@ def test_processor_dry_run_analyzes_without_invoking_writers(
     monkeypatch.setattr(processor_module, "VideoFiguresWriter", ForbiddenWriter)
 
     video_dir = tmp_path / "video"
-    processor = ExperimentProcessor(
+    processor = RecordingProcessor(
         runner=runner,
-        output_root=tmp_path,
         dry_run=True,
     )
-    record = processor._process_one_video(video_dir, verbose=False)
+    record = processor.process_recording(video_dir, verbose=False)
 
     assert runner.calls == 1
     assert record.video_dir == video_dir
@@ -84,72 +83,6 @@ def test_processor_dry_run_analyzes_without_invoking_writers(
     assert not (video_dir / "metrics").exists()
 
 
-def test_main_dry_run_skips_experiment_comparison_writer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, bool] = {}
-    fake_tree = object()
-
-    class FakeBuilder:
-        def __init__(self, is_video_dir) -> None:
-            pass
-
-        def build(self, root: Path) -> object:
-            return fake_tree
-
-    class FakeProcessor:
-        def __init__(
-            self,
-            runner,
-            output_root: Path,
-            dry_run: bool,
-            analysis_metadata: dict | None = None,
-        ) -> None:
-            captured["dry_run"] = dry_run
-            captured["has_analysis_metadata"] = analysis_metadata is not None
-
-        def process_tree(self, tree: object, verbose: bool) -> None:
-            captured["processed"] = True
-
-        def compare_siblings(self, tree: object) -> dict:
-            captured["compared"] = True
-            return {}
-
-    monkeypatch.setattr(main_module, "load_config", lambda path: {"models": {}})
-    monkeypatch.setattr(
-        main_module,
-        "load_model_bundle",
-        lambda config: {
-            "roi": (object(), {}),
-            "spike": (object(), {}),
-        },
-    )
-    monkeypatch.setattr(
-        main_module.VideoPipelineRunner,
-        "build",
-        lambda config, models, sensor_type: object(),
-    )
-    monkeypatch.setattr(main_module, "ExperimentTreeBuilder", FakeBuilder)
-    monkeypatch.setattr(main_module, "ExperimentProcessor", FakeProcessor)
-    monkeypatch.setattr(
-        main_module,
-        "save_comparisons",
-        lambda **kwargs: pytest.fail(
-            "Experiment comparisons were written during a dry run"
-        ),
-    )
-
-    main_module.main(
-        experiment_root=tmp_path,
-        config_path=tmp_path / "config.yaml",
-        verbose=False,
-        dry_run=True,
-    )
-
-    assert captured == {
-        "dry_run": True,
-        "has_analysis_metadata": True,
-        "processed": True,
-        "compared": True,
-    }
+def test_combined_workflow_is_removed():
+    with pytest.raises(SystemExit, match='Combined execution has been removed'):
+        main_module.main()

@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING, Iterable
 import pandas as pd
 
 if TYPE_CHECKING:
-    from gcamp_analysis.experiments.models import VideoRunRecord
+    from recording_results.models import VideoRunRecord
 
 
 @dataclass

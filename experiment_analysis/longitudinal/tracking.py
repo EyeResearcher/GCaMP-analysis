@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,12 @@ def discover_recordings(experiment_root: Path) -> list[RecordingRef]:
 
 
 def _load_suite2p(recording: RecordingRef) -> tuple[np.ndarray, np.ndarray]:
+    if recording.bundle_path is not None:
+        image = np.load(_bundle_file(recording, 'reference_image'), allow_pickle=False)
+        coordinates = json.loads(_bundle_file(recording, 'roi_coordinates').read_text())
+        stat = np.array([{'ypix': np.asarray(roi['ypix'], dtype=int),
+                          'xpix': np.asarray(roi['xpix'], dtype=int)} for roi in coordinates], dtype=object)
+        return image, stat
     ops = np.load(recording.plane0_dir / "ops.npy", allow_pickle=True).item()
     image = ops.get("meanImg")
     if image is None:
@@ -70,6 +77,8 @@ def _load_suite2p(recording: RecordingRef) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _find_snap(recording: RecordingRef) -> Path:
+    if recording.bundle_path is not None:
+        return _bundle_file(recording, 'snap_image')
     preferred = recording.video_dir / f"{recording.recording_name}_snap.tif"
     if preferred.is_file():
         return preferred
@@ -94,6 +103,10 @@ def _parse_indices(value) -> list[int]:
 
 
 def _load_groups(recording: RecordingRef, strategy: str) -> dict[str, set[int]]:
+    if recording.bundle_path is not None:
+        groups = json.loads(_bundle_file(recording, 'groups').read_text())
+        return {str(row['group_id']): set(map(int, row['neuron_indices']))
+                for row in groups if row.get('method') == strategy}
     if not recording.metrics_path.is_file():
         raise FileNotFoundError(f"Missing metrics workbook: {recording.metrics_path}")
     try:
@@ -110,6 +123,9 @@ def _load_groups(recording: RecordingRef, strategy: str) -> dict[str, set[int]]:
 
 
 def _load_active_neurons(recording: RecordingRef) -> set[int]:
+    if recording.bundle_path is not None:
+        neurons = json.loads(_bundle_file(recording, 'neurons').read_text())
+        return {int(row['neuron_idx']) for row in neurons}
     if not recording.metrics_path.is_file():
         return set()
     try:
@@ -119,6 +135,12 @@ def _load_active_neurons(recording: RecordingRef) -> set[int]:
     if "neuron_idx" not in summary.columns:
         return set()
     return set(pd.to_numeric(summary["neuron_idx"], errors="coerce").dropna().astype(int))
+
+
+def _bundle_file(recording: RecordingRef, key: str) -> Path:
+    from recording_results.bundle import load_recording_bundle
+    manifest = load_recording_bundle(recording.bundle_path)
+    return recording.bundle_path.parent / manifest['files'][key]['path']
 
 
 def _normalize_background(image: np.ndarray) -> np.ndarray:

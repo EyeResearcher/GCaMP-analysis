@@ -16,6 +16,7 @@ class RecordingRef:
     video_dir: Path
     plane0_dir: Path
     metrics_path: Path
+    bundle_path: Path | None = None
 
 
 @dataclass(frozen=True)

@@ -5,17 +5,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from gcamp_analysis.longitudinal.models import RegistrationResult
-from gcamp_analysis.longitudinal.registration import (
+from experiment_analysis.longitudinal.models import RegistrationResult
+from experiment_analysis.longitudinal.registration import (
     estimate_mask_translation,
     estimate_snap_translation,
     estimate_translation,
     match_rois_to_anchor,
     shift_image,
 )
-from gcamp_analysis.longitudinal.tracking import _load_groups, _mask_outline
-from gcamp_analysis.longitudinal.tracking import discover_recordings
-from gcamp_analysis.longitudinal.models import RecordingRef
+from experiment_analysis.longitudinal.tracking import _load_groups, _mask_outline
+from experiment_analysis.longitudinal.tracking import discover_recordings
+from experiment_analysis.longitudinal.models import RecordingRef
 
 
 def _stat_entry(y0: int, x0: int, size: int = 4) -> dict:

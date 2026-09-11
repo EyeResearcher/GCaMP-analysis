@@ -11,7 +11,7 @@ Adding an aggregated statistic
 Add a field here when the value originates from one processed video and is not
 already represented as a key inside an existing ``StatSummary``. Then:
 
-1. Populate the field when ``ExperimentProcessor._process_one_video`` creates
+1. Populate the field when ``RecordingProcessor.process_recording`` creates
    the record.
 2. Add the corresponding field to ``NodeSummary`` in ``summary_utils.py``.
 3. Map it in ``summary_from_video_record``.
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from gcamp_analysis.experiments.summary_utils import StatSummary
+from recording_results.summaries import StatSummary
 
 
 @dataclass(frozen=True)

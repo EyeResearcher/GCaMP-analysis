@@ -98,6 +98,20 @@ def test_load_model_preserves_single_local_model_loading(tmp_path: Path) -> None
     assert config is None
 
 
+def test_selected_huggingface_folders_record_file_hashes(tmp_path, monkeypatch):
+    _write_model_bundle(tmp_path)
+    for which in ('roi', 'spike'):
+        folder = tmp_path / which / 'iteration-001'
+        (folder / 'results.json').rename(folder / 'model_results.json')
+    monkeypatch.setattr('huggingface_hub.snapshot_download', lambda **kwargs: str(tmp_path))
+    bundle = load_model_bundle({'source': 'huggingface', 'repo_id': 'example/models',
+                                'revision': 'v1', 'roi_model_folder': 'roi/iteration-001',
+                                'spike_model_folder': 'spike/iteration-001'})
+    for which in ('roi', 'spike'):
+        expected = hashlib.sha256((tmp_path / which / 'iteration-001/model.joblib').read_bytes()).hexdigest()
+        assert bundle.provenance[which]['model']['sha256'] == expected
+
+
 def test_huggingface_bundle_downloads_one_snapshot_for_both_models(
     tmp_path: Path, monkeypatch
 ) -> None:

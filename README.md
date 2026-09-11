@@ -8,8 +8,8 @@ uses two supervised classifiers to separate:
   detections
 - candidate calcium transients from noise or artifacts
 
-The main pipeline then reports event kinetics, groups neurons with similar
-activity, aggregates recordings, and compares sibling experimental conditions.
+Recording analysis reports event kinetics and groups neurons with similar
+activity. Separate experiment analysis compares completed recording results.
 
 This repository does **not** run Suite2p, launch Suite2p batches, or perform
 raw TIFF preprocessing. Generate and quality-check those inputs elsewhere
@@ -36,7 +36,7 @@ classifiers to the new data.
   use the automatic Hub loader end to end. Until then, download a matched pair
   and configure explicit local paths.
 - `gcamp_analysis.waves` remains an experimental downstream research module. It
-  is not integrated into `main.py` and should not be treated as a validated
+  is not integrated into the recording entry point and should not be treated as a validated
   production-stage biological wave claim.
 
 ## What this repo expects as input
@@ -80,9 +80,9 @@ regardless of the suite2p label.
 | 3A | Train an ROI classifier | Required when no suitable validated ROI model is available | `prepare_data` -> `annotate_data` -> `train_classifier` |
 | 3B | Train a spike classifier | After 3A, when no suitable validated spike model is available | `prepare_data` -> `annotate_spikes` -> `train_classifier` |
 | 4 | Configure the model pair and analysis | Always | Create `config/pipeline_config.yaml` using either explicit local paths or one pinned Hugging Face bundle |
-| 5 | Validate the main analysis | Recommended before writing results | `python main.py /path/to/experiment_root --dry-run` |
-| 6 | Run the main analysis and comparisons | Always for primary results | `python main.py /path/to/experiment_root` |
-| 7 | Run longitudinal tracking | Optional; only after stage 6 has produced per-recording metrics | `python -m gcamp_analysis.longitudinal ...` |
+| 5 | Validate the main analysis | Recommended before writing results | `python -m gcamp_analysis analyze /path/to/recordings --config config/pipeline_config.yaml --dry-run` |
+| 6 | Analyze recordings independently | Always for primary results | `python -m gcamp_analysis analyze /path/to/recordings --config config/pipeline_config.yaml` |
+| 7 | Compare experiments and optionally track cells | After recording analysis | `python -m experiment_analysis run --config config/experiment.yaml` |
 | 8 | Run wave analysis | Optional and experimental; only after stage 6 | `python -m gcamp_analysis.waves ...`, followed by the relevant scripts under `wave_scripts/` |
 
 Stages 3A and 3B may be skipped only when a previously trained model pair has
@@ -406,59 +406,117 @@ models:
 
 ### Execution
 
-**Usage:**
+Run the stages separately:
 
 ```bash
-# Run pipeline on an experiment directory
-python main.py /path/to/experiment_root
-
-# Override the configured sensor type
-python main.py /path/to/experiment_root --sensor <your_sensor>
-
-# Validate the full analysis without writing output files
-python main.py /path/to/experiment_root --dry-run
-
-# Show all arguments
-python main.py --help
+python -m gcamp_analysis analyze /path/to/recordings --config config/pipeline_config.yaml
+python -m experiment_analysis run --config config/experiment.yaml
 ```
 
-`--dry-run` loads the configured models and Suite2p data and performs trace
-processing, ROI and spike classification, grouping, experiment aggregation,
-and sibling comparisons. It prints the normal progress and summary output but
-does not create or modify metrics workbooks, NumPy matrices, figures, or
-output directories.
+The recording command accepts `--sensor`, `--dry-run`, and `--quiet`.
+A dry run computes recording results without writing reports or bundles.
+Recording analysis never runs experiment comparisons. The old combined
+`main.py` command has been removed.
 
-### Directory structure and sibling comparisons
+See [recording usage](gcamp_analysis/RECORDING_ENTRY_POINT.md) and
+[experiment configuration](experiment_analysis/README.md). Copy
+`config/experiment_config.example.yaml` and adapt `config/recordings.example.csv`
+to reference completed bundles and the actual experimental metadata.
 
-The pipeline automatically compares sibling directories at each level of the
-experiment hierarchy. Parallel directory structures are required for
-interpretable comparisons.
+### Acquisition format and suite2p settings
+
+This pipeline starts from suite2p outputs; it does not read raw microscope
+files. The microscope operator must run suite2p on the raw recordings before
+using anything here. Suite2p supports ScanImage multi-page TIFFs, Olympus OIR
+files (via the `movie` reader), HDF5, NWB, and other formats.
+
+The following suite2p settings directly affect how the outputs are used:
+
+| Suite2p setting | Why it matters here |
+| --- | --- |
+| `fs` | Saved to `ops.npy`; read as the recording frame rate for smoothing, deconvolution, and kinetics. Set it to the actual frame rate of the acquisition (e.g. 15 for 15 Hz). |
+| `nplanes` | Use `1` for single-plane recordings. Multi-plane outputs are not tested with this pipeline. |
+| `nchannels` | Use `1` for single-channel (GCaMP-only) recordings. |
+| `save_ops_orig` | Defaults to `True`; must remain `True` for `ops.npy` to be written. |
+
+See `config/exp_structure_config.yaml` for the acquisition settings used in
+the current project.
+
+### Organizing recordings for the analysis tree
+
+Recording analysis discovers Suite2p recordings independently of experimental
+folder order. One directory represents one recording. The following layouts
+remain convenient, but comparisons are defined by explicit metadata and
+experiment configuration rather than inferred automatically from folders.
 
 ```text
 experiment_root/
 ├── Treatment_A/
 │   ├── Week_1/
-│   │   ├── video_001/
-│   │   │   └── suite2p/plane0/F.npy
+│   │   ├── video_001/          ← leaf: contains suite2p/plane0/
 │   │   └── video_002/
-│   │       └── suite2p/plane0/F.npy
 │   └── Week_2/
 │       ├── video_003/
-│       │   └── suite2p/plane0/F.npy
 │       └── video_004/
-│           └── suite2p/plane0/F.npy
 └── Treatment_B/
     ├── Week_1/
     │   └── video_005/
-    │       └── suite2p/plane0/F.npy
     └── Week_2/
         └── video_006/
-            └── suite2p/plane0/F.npy
 ```
 
-This structure enables comparisons such as `Treatment_A` versus `Treatment_B`
-at the root level and `Week_1` versus `Week_2` within each treatment. Each
-parent folder's immediate children are compared as siblings.
+Configure metadata levels `[treatment, timepoint]` to reproduce these comparisons.
+
+**Project-specific example (CA1/DG × saline/muscimol × Week1–3):**
+
+```text
+experiment_root/
+├── CA1/
+│   ├── saline/
+│   │   ├── Week1/
+│   │   │   ├── 1-1/            ← region 1-1, Day 1 (implicit)
+│   │   │   │   └── suite2p/plane0/
+│   │   │   └── 1-2/
+│   │   │       └── suite2p/plane0/
+│   │   ├── Week2/
+│   │   │   ├── 1-1_Day8/       ← same region, Day 8
+│   │   │   └── 1-2_Day8/
+│   │   └── Week3/
+│   │       ├── 1-1_Day15/
+│   │       └── 1-2_Day15/
+│   └── muscimol/
+│       ├── Week1/  …
+│       ├── Week2/  …
+│       └── Week3/  …
+└── DG/
+    ├── saline/    …
+    └── muscimol/  …
+```
+
+Metadata levels `[region, treatment, timepoint]` reproduce these comparisons:
+
+| Comparison | Siblings |
+| --- | --- |
+| Root level | `CA1` vs `DG` |
+| Region level | `saline` vs `muscimol` (within each region) |
+| Treatment level | `Week1` vs `Week2` vs `Week3` (within each treatment/region) |
+
+**Video folder naming for longitudinal tracking:**
+
+The video folder name encodes the region identity and, optionally, the day:
+
+| Convention | Meaning |
+| --- | --- |
+| `1-1` | Region `1-1`, Day 1 (no suffix = Day 1) |
+| `1-1_Day8` | Region `1-1`, Day 8 |
+| `1-1_Day15` | Region `1-1`, Day 15 |
+| `1-2` | Region `1-2` — tracked separately from `1-1` |
+
+These names are optional labeling conventions. Experiment analysis requires
+explicit timepoints and unique series IDs identifying the animal and field of
+view. Anatomical labels such as CA1 do not uniquely identify a recording series.
+`config/exp_structure_config.yaml` remains acquisition/layout documentation;
+`config/experiment_config.example.yaml` demonstrates executable configuration.
 
 ### Output
 
@@ -471,40 +529,24 @@ parent folder's immediate children are compared as siblings.
 - `<video>_corr_heatmap.png`
 - `<video>_dtw_groups.png` if enabled
 - `<video>_dtw_heatmap.png` if enabled
-- `<video>_analysis_summary.json`
+- Portable bundle: `<video>/analysis_results/manifest.json` and referenced generation files
 
 Additionally, `F_minmax.npy` is written to each recording's
 `suite2p/plane0/` directory.
 
-**Experiment-level outputs** are saved in `<experiment_root>/metrics/`:
+**Experiment-level outputs** are written to the configured `output_dir` and
+include named comparison workbooks/CSVs, resolved recording assignments,
+validation warnings, and optional tracking outputs.
 
-- `sibling_comparisons.xlsx`
+Both notebooks call the same APIs as the two commands. Recording analysis does
+not start comparisons; experiment analysis does not rerun recordings.
 
-For notebooks, per-video computation and comparison are separate stages:
+## Longitudinal tracking
 
-1. `notebooks/pipeline.ipynb` analyzes discovered videos independently.
-2. `notebooks/comparative_analysis.ipynb` loads the persisted summaries and
-   performs longitudinal, treatment, or generic hierarchy comparisons.
-
-Longitudinal comparison with `align=False` uses whole-video descriptive
-statistics across days and makes no cell-identity claim. Setting `align=True`
-adds image registration, ROI matching, and cell/group tracking.
-
-## Optional longitudinal group tracking
-
-After the per-video pipeline has created the required metrics and Suite2p mask
-inputs, repeated recordings of one region can be registered and tracked across
-days:
-
-```bash
-python -m gcamp_analysis.longitudinal /path/to/experiment_root --region 1-1
-```
-
-The base recording name is treated as the region identity: `1-1`, `1-1_Day2`,
-and `1-1_Day10` are matched to one another, while `1-2` is kept separate.
-Treatments are processed separately. See
-[`gcamp_analysis/longitudinal/README.md`](gcamp_analysis/longitudinal/README.md)
-for options, outputs, and quality-control requirements.
+Enable `alignment.enabled: true` in a longitudinal comparison to register and
+track cells/groups. Without alignment, temporal comparisons summarize whole
+recordings. Alignment requires bundle ROI coordinates, reference images, and
+snap images plus explicit series/timepoint metadata.
 
 ## Wave-analysis status
 
@@ -531,7 +573,7 @@ speeds.
 
 ### What remains incomplete
 
-- Wave analysis is not called by `main.py` and is not part of the standard
+- Wave analysis is not called by the recording entry point and is not part of the standard
   notebook workflow.
 - The public CLI exposes only the primary ROI-based analysis and only a subset
   of its configuration.

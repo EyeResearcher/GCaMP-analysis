@@ -260,6 +260,14 @@ def _validate_huggingface_model(
         )
 
 
+class LoadedModelBundle(dict):
+    """Model pairs with identities of the exact files loaded for inference."""
+
+    def __init__(self):
+        super().__init__()
+        self.provenance = {}
+
+
 def load_model_bundle(models_config: Dict) -> Dict[str, tuple[Any, Optional[Dict]]]:
     """Resolve and load the ROI and spike models from local paths or one Hub repo.
 
@@ -268,6 +276,14 @@ def load_model_bundle(models_config: Dict) -> Dict[str, tuple[Any, Optional[Dict
     from the same pinned release and share the standard Hugging Face cache.
     """
     source = models_config.get("source", "local")
+    folders = [models_config.get(f'{which}_model_folder') for which in ('roi', 'spike')]
+    if source == 'huggingface' and any(folders):
+        if not all(folders):
+            raise ValueError('Specify both roi_model_folder and spike_model_folder')
+        loaded = LoadedModelBundle()
+        for which, folder in zip(('roi', 'spike'), folders):
+            loaded[which] = load_model(models_config, which, folder, provenance=loaded.provenance)
+        return loaded
     manifest: Optional[Dict] = None
     if source == "local":
         paths = _resolve_local_model_paths(models_config)
@@ -276,7 +292,7 @@ def load_model_bundle(models_config: Dict) -> Dict[str, tuple[Any, Optional[Dict
     else:
         raise ValueError("models.source must be either 'local' or 'huggingface'.")
 
-    loaded: Dict[str, tuple[Any, Optional[Dict]]] = {}
+    loaded = LoadedModelBundle()
     for which in ("roi", "spike"):
         config_path = paths[which]["config"]
         model_cfg = (
@@ -302,6 +318,10 @@ def load_model_bundle(models_config: Dict) -> Dict[str, tuple[Any, Optional[Dict
             # Hub sidecars and model metadata are required and validated before inference.
             _validate_huggingface_model(which, model, model_cfg, manifest)
         loaded[which] = (model, model_cfg)
+        from recording_results.bundle import file_identity
+        loaded.provenance[which] = {
+            key: file_identity(path) for key, path in paths[which].items() if path is not None
+        }
     return loaded
 
 
@@ -309,6 +329,7 @@ def load_model(
     models_config: Dict,
     which: str,
     model_folder: str | None = None,
+    *, provenance: dict | None = None,
 ) -> tuple:
     """Load a model and its JSON config sidecar.
 
@@ -414,6 +435,9 @@ def load_model(
             raise ValueError(
                 f"{which} results file in {model_folder} is missing 'transform'."
             )
+        if provenance is not None:
+            from recording_results.bundle import file_identity
+            provenance[which] = {'model': file_identity(model_paths[0]), 'config': file_identity(results_paths[0])}
         return model, model_cfg
 
     if models_config.get("source", "local") == "local":

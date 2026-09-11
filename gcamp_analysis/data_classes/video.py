@@ -169,7 +169,7 @@ _REPORTING_EXPORTS = {
 
 
 def __getattr__(name: str) -> Any:
-    """Lazily resolve legacy reporting imports without loading matplotlib."""
+    """Lazily resolve reporting imports without loading matplotlib."""
     if name in _REPORTING_EXPORTS:
         from gcamp_analysis import reporting
 

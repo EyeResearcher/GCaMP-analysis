@@ -2,7 +2,7 @@
 
 This module converts named ``NodeSummary`` objects into the flat tables used
 for sibling comparison exports. It does not traverse trees, run processing, or
-mutate summaries. ``ExperimentProcessor.compare_siblings`` owns traversal and
+mutate summaries. The experiment analysis layer owns traversal and
 delegates table construction here.
 
 Adding a statistic to comparison output
@@ -27,7 +27,7 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-from gcamp_analysis.experiments.summary_utils import NodeSummary, StatSummary
+from recording_results.summaries import NodeSummary, StatSummary
 
 
 def build_sibling_comparison(

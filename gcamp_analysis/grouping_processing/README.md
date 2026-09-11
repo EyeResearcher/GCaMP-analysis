@@ -51,4 +51,4 @@ For each pulse, the closest accepted event from each neuron inside the response 
 
 - Group overlays are maps of categorical membership; no test is run.
 - Heatmaps display the strategy matrix; no test is run.
-Top-group cross-day TIFF tracking is implemented separately in `gcamp_analysis.longitudinal`, because it requires registration and persistent cell identities beyond a single video. Leave-one-spike-out analysis is not currently implemented.
+Top-group cross-day TIFF tracking is implemented separately in `experiment_analysis.longitudinal`, because it requires registration and persistent cell identities beyond a single video. Leave-one-spike-out analysis is not currently implemented.

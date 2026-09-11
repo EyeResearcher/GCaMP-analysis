@@ -6,7 +6,7 @@ represent experimental groupings (e.g. treatment, timepoint).
 
 ``TreeNode`` owns hierarchy and navigation only. Processed values are grouped
 under its ``summary: NodeSummary`` field. Bottom-up calculations belong to the
-pure functions in ``summary_utils.py``; the tree does not know how means,
+pure functions in ``recording_results.summaries``; the tree does not know how means,
 variances, counts, or tables should be combined.
 
 The direct properties such as ``node.n_videos`` and ``node.kin_weighted`` are
@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Any
 
-from gcamp_analysis.experiments.summary_utils import NodeSummary, StatSummary
+from recording_results.summaries import NodeSummary, StatSummary
 
 
 @dataclass
@@ -241,3 +241,25 @@ def print_tree(node: TreeNode, *, indent: str = "", is_last: bool = True) -> Non
     children = [node.children[k] for k in sorted(node.children.keys())]
     for i, child in enumerate(children):
         print_tree(child, indent=next_indent, is_last=(i == len(children) - 1))
+
+def aggregate_tree(root: TreeNode) -> None:
+    """Propagate counts and statistics from leaves to root."""
+    from recording_results.models import VideoRunRecord
+    from recording_results.summaries import aggregate_node_summaries, summary_from_video_record
+
+    def post(node: TreeNode) -> None:
+        for child in node.children.values():
+            post(child)
+
+        if node.is_leaf():
+            if isinstance(node.payload, VideoRunRecord):
+                node.summary = summary_from_video_record(node.payload, source=node.name)
+            return
+
+        children = list(node.children.values())
+        node.summary = aggregate_node_summaries(
+            (child.summary for child in children),
+            children_are_videos=all(child.is_leaf() for child in children),
+        )
+
+    post(root)

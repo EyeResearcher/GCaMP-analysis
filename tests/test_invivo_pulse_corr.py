@@ -475,9 +475,11 @@ class TestLightEvokedStrategy:
 # =====================================================================
 
 from pathlib import Path
-from gcamp_analysis.experiments.processor import VideoRunRecord, ExperimentProcessor
-from gcamp_analysis.experiments.tree import TreeNode
-from gcamp_analysis.experiments.summary_utils import StatSummary
+from recording_results.models import VideoRunRecord
+from experiment_analysis.tree import aggregate_tree
+from experiment_analysis.comparison_utils import build_sibling_comparison
+from experiment_analysis.tree import TreeNode
+from recording_results.summaries import StatSummary
 
 
 def _empty_stat() -> StatSummary:
@@ -587,9 +589,7 @@ class TestBottomUpAggregation:
             group_stats=gs_b, n_groups_per_strategy=ng_b, video_dir="b"
         )
         root = _build_two_video_tree(rec_a, rec_b)
-        # ExperimentProcessor needs a runner, but we only call bottom-up
-        proc = ExperimentProcessor.__new__(ExperimentProcessor)
-        proc._compute_bottom_up_summaries(root)
+        aggregate_tree(root)
         return root.group_stats
 
     def test_all_fields_weighted_averaged(self):
@@ -698,9 +698,8 @@ class TestSiblingComparisonLightEvokedColumns:
             group_stats=gs_b, n_groups_per_strategy=ng_b, video_dir="b", n_neurons=5,
         )
         root = _build_two_video_tree(rec_a, rec_b)
-        proc = ExperimentProcessor.__new__(ExperimentProcessor)
-        proc._compute_bottom_up_summaries(root)
-        return ExperimentProcessor._compare_one(root)
+        aggregate_tree(root)
+        return build_sibling_comparison((child.name, child.summary) for child in root.children.values())
 
     def test_total_on_off_columns(self):
         """DataFrame must contain total_ON_cells and total_OFF_cells columns."""

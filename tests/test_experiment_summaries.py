@@ -3,18 +3,18 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from gcamp_analysis.experiments.comparison_utils import (
+from experiment_analysis.comparison_utils import (
     build_sibling_comparison,
     flatten_stat_summary,
 )
-from gcamp_analysis.experiments.models import VideoRunRecord
-from gcamp_analysis.experiments.summary_utils import (
+from recording_results.models import VideoRunRecord
+from recording_results.summaries import (
     NodeSummary,
     StatSummary,
     aggregate_node_summaries,
     summary_from_video_record,
 )
-from gcamp_analysis.experiments.tree import TreeNode
+from experiment_analysis.tree import TreeNode
 from gcamp_analysis.reporting import (
     build_comparison_legend,
     save_comparisons,
