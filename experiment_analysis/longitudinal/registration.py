@@ -273,7 +273,10 @@ def match_rois_to_anchor(
     min_score: float = 0.24,
     ambiguity_margin: float = 0.08,
 ) -> tuple[list[CellMatch], list[np.ndarray]]:
-    """Match moving-day masks to anchor masks with global one-to-one assignment.
+    """Match moving masks to a reference member of one day pair, one-to-one.
+
+    ``anchor_stat`` names the pair's reference masks, normally the later
+    recording; it need not be the experiment-wide reporting anchor.
 
     Candidate score is 75% mask IoU and 25% Gaussian centroid proximity.
     Matches must have some mask overlap and pass *min_score*. ``ambiguous`` is

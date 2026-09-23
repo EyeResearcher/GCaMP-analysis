@@ -582,6 +582,16 @@ track cells/groups. Without alignment, temporal comparisons summarize whole
 recordings. Alignment requires bundle ROI coordinates, reference images, and
 snap images plus explicit series/timepoint metadata.
 
+Aligned cell identities are matched one-to-one between adjacent recordings and
+traced from the selected anchor day (the latest day by default). A missing
+adjacent match ends that cell's path in that direction. `cell_matches.csv`
+records each accepted adjacent edge with its score, IoU, distance, and ambiguity.
+`cell_history.csv` records the traced ROI on each day and path-quality columns
+(`track_edge_count`, `track_min_score`, `track_min_iou`,
+`track_max_centroid_distance_px`, and `track_has_ambiguous_edge`). The anchor-day
+row has zero edges, score and IoU of 1, and distance of 0. Overlays mark only
+ROIs connected to an anchor-day group through the complete adjacent path.
+
 ## Wave-analysis status
 
 `gcamp_analysis.waves` explores spatially propagating retinal calcium

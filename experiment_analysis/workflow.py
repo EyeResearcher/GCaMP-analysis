@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+from typing import Any, Tuple
 
 import pandas as pd
 import yaml
@@ -155,26 +156,20 @@ def _validate_alignment(spec, subset, kind, temporal, partitions, time, name):
         if not any(group.get('method') == alignment.get('strategy', 'combined') for group in groups):
             raise ValueError(f'Anchor has no groups for the configured alignment strategy in {name}')
 
+def _validate_subset(subset: list[Recording], spec: dict, name: str):
+    """Validate that the subset of recordings meets the required criteria for the comparison.
 
-def _validate_comparison(spec, frame, records, names):
-    _fields(spec, ('name', 'type', 'filter', 'replicate', 'series', 'timepoint',
-                   'longitudinal', 'alignment', 'levels'), 'comparison')
-    name = _name(spec.get('name'))
-    if name in names:
-        raise ValueError(f'Duplicate comparison name: {name}')
-    names.add(name)
-    kind = spec.get('type')
-    if kind not in ('treatment', 'longitudinal', 'hierarchical'):
-        raise ValueError(f'Unknown comparison type: {kind}')
-    filters = spec.get('filter', {})
-    if not isinstance(filters, dict) or any(key not in frame.columns for key in filters):
-        raise ValueError(f'Invalid metadata filter in {name}')
-    subset = [
-        Recording(record.path, record.manifest, dict(record.metadata), record.summary)
-        for record in records
-        if all(record.metadata.get(key) in (value if isinstance(value, list) else [value])
-               for key, value in filters.items())
-    ]
+    Args:
+        subset (list[Recording]): The list of recordings to validate.
+        spec (dict): The specification dictionary for the comparison.
+        name (str): The name of the comparison.
+
+    Returns:
+        list[Recording]: The validated subset of recordings.
+
+    Raises:
+        ValueError: If the subset is empty or has incompatible analysis fingerprints.
+    """
     if not subset:
         raise ValueError(f'Comparison {name} selects no recordings')
     fingerprints = {record.manifest.get('config_fingerprint') for record in subset}
@@ -182,61 +177,174 @@ def _validate_comparison(spec, frame, records, names):
         raise ValueError(f'Comparison {name} has missing or incompatible analysis fingerprints')
     if 'longitudinal' in spec and not isinstance(spec['longitudinal'], bool):
         raise ValueError('longitudinal must be true or false')
+    return subset
 
-    temporal = kind == 'longitudinal' or spec.get('longitudinal', False)
+def _validate_hierarchical_comparison(subset: list[Recording], spec: dict, columns: list[str]):
+    """Validate the hierarchical comparison specification.
+
+    Args:
+        subset (list[Recording]): The list of recordings to validate.
+        spec (dict): The specification dictionary for the comparison.
+        columns (list[str]): The list of metadata columns to include.
+
+    Returns:
+        list[str]: The updated list of metadata columns.
+
+    Raises:
+        ValueError: If the hierarchical comparison specification is invalid.
+    """
+    levels = spec.get('levels')
+    if not isinstance(levels, list) or not levels or any(not isinstance(column, str) for column in levels):
+        raise ValueError('Hierarchical comparisons require a list of metadata levels')
+    columns += levels
+    return columns
+
+def _validate_treatment_comparison(subset: list[Recording], spec: dict, name: str, columns: list[str]):
+    """Validate the treatment comparison specification.
+
+    Args:
+        subset (list[Recording]): The list of recordings to validate.
+        spec (dict): The specification dictionary for the comparison.
+        name (str): The name of the comparison.
+        columns (list[str]): The list of metadata columns to include.
+
+    Returns:
+        list[Recording]: The validated subset of recordings.
+
+    Raises:
+        ValueError: If the treatment comparison specification is invalid.
+    """
+    if not isinstance(spec.get('replicate'), str):
+        raise ValueError('Treatment comparisons require a replicate column')
+    columns += ['treatment', spec['replicate']]
+    _required(subset, columns)
+    if len({record.metadata['treatment'] for record in subset}) < 2:
+        raise ValueError(f'{name} requires at least two treatments')
+    return subset
+
+def _validate_kind(kind: str, spec: dict):
+    """Validate the kind of comparison and its associated specification.
+
+    Args:
+        kind (str): The type of comparison ('treatment', 'longitudinal', 'hierarchical').
+        spec (dict): The specification dictionary for the comparison.
+
+    Returns:
+        bool: True if the kind and specification are valid.
+
+    Raises:
+        ValueError: If the kind and specification are incompatible.
+    """
     if kind == 'hierarchical' and (
         spec.get('longitudinal') or any(key in spec for key in ('series', 'timepoint', 'replicate'))
     ):
         raise ValueError('Hierarchical comparisons use levels, not replicate/series/timepoint settings')
     if kind == 'longitudinal' and 'replicate' in spec:
         raise ValueError('Use treatment comparisons to aggregate biological replicates')
+    return True
+
+def _validate_comparison(spec : dict, frame: pd.DataFrame, records: list[Recording], names: set) -> Tuple[dict, list]:
+    """Validate the comparison specification and subset of recordings.
+
+    Args:
+        spec (dict): The specification dictionary for the comparison.
+        frame (pd.DataFrame): The metadata DataFrame for the recordings.
+        records (list[Recording]): The list of all recordings.
+        names (set): The set of existing comparison names.
+
+    Returns:
+        Tuple[dict, list]: The validated specification and subset of recordings.
+
+    Raises:
+        ValueError: If the comparison specification is invalid or the subset is empty.
+    """
+    _fields(spec, ('name', 'type', 'filter', 'replicate', 'series', 'timepoint',
+                   'longitudinal', 'alignment', 'levels'), 'comparison')
+    name = _name(spec.get('name'))
+
+    if name in names:
+        raise ValueError(f'Duplicate comparison name: {name}')
+    
+    names.add(name)
+    kind = spec.get('type')
+    if kind not in ('treatment', 'longitudinal', 'hierarchical'):
+        raise ValueError(f'Unknown comparison type: {kind}')
+    
+    filters = spec.get('filter', {})
+    if not isinstance(filters, dict) or any(key not in frame.columns for key in filters):
+        raise ValueError(f'Invalid metadata filter in {name}')
+    
+    # Subset the records based on the specified metadata filters
+    subset = [
+        Recording(record.path, record.manifest, dict(record.metadata), record.summary)
+        for record in records
+        if all(record.metadata.get(key) in (value if isinstance(value, list) else [value])
+               for key, value in filters.items())
+    ]
+    subset = _validate_subset(subset, spec, name)
+
+    temporal = kind == 'longitudinal' or spec.get('longitudinal', False)
+
+    _validate_kind(kind, spec)
 
     columns = []
     if kind == 'treatment':
-        if not isinstance(spec.get('replicate'), str):
-            raise ValueError('Treatment comparisons require a replicate column')
-        columns += ['treatment', spec['replicate']]
-        _required(subset, columns)
-        if len({record.metadata['treatment'] for record in subset}) < 2:
-            raise ValueError(f'{name} requires at least two treatments')
+        subset = _validate_treatment_comparison(subset, spec, name, columns)
     if kind == 'hierarchical':
-        levels = spec.get('levels')
-        if not isinstance(levels, list) or not levels or any(not isinstance(column, str) for column in levels):
-            raise ValueError('Hierarchical comparisons require a list of metadata levels')
-        columns += levels
+        columns = _validate_hierarchical_comparison(subset, spec, columns)
 
     partitions, time = None, None
+
     if temporal:
         partitions, time = _validate_temporal_settings(spec, subset, kind, columns)
+
     _required(subset, columns)
     _validate_alignment(spec, subset, kind, temporal, partitions, time, name)
     return spec, subset
 
-
-def load_experiment(path):
-    """Validate all comparisons and bundles before creating any outputs."""
+def _load_config(path):
     path = Path(path).resolve()
     config = yaml.safe_load(path.read_text(encoding='utf-8'))
-    _fields(config, ('schema_version', 'recordings', 'output_dir', 'comparisons'), 'experiment')
+    return path, config
+
+def _validate_config(config : dict):
     if config.get('schema_version') != 1:
         raise ValueError('Experiment schema_version must be 1')
     for field in ('recordings', 'output_dir'):
         if not isinstance(config.get(field), str) or not config[field].strip():
             raise ValueError(f'{field} must be a nonempty path')
 
-    frame, records = _load_recordings(path, config)
-    comparisons = config.get('comparisons')
+def _validate_comparisons(comparisons):
     if not isinstance(comparisons, list) or not comparisons:
         raise ValueError('comparisons must be a nonempty list')
-    names, selected = set(), []
-    for spec in comparisons:
-        selected.append(_validate_comparison(spec, frame, records, names))
+    return True
 
-    output = (path.parent / config['output_dir']).resolve()
-    for record in records:
-        if output.is_relative_to(record.path.parent):
-            raise ValueError('Experiment outputs must be outside recording bundles')
-    return config, selected, output
+def _validate_output(output):
+    if not isinstance(output, Path):
+        raise ValueError('Output must be a valid path')
+    if not output.exists():
+        output.mkdir(parents=True, exist_ok=True)
+    return True
+
+def load_experiment(path : Path) -> tuple[dict, list[Tuple[dict, list[Recording]]], Path]:
+    """Validate all comparisons and bundles before creating any outputs."""
+    path, config = _load_config(path)
+    _fields(config, ('schema_version', 'recordings', 'output_dir', 'comparisons'), 'experiment')
+    _validate_config(config)    
+
+    frame, records = _load_recordings(path, config)
+    comparisons = config.get('comparisons')
+    _validate_comparisons(comparisons)
+
+    
+    
+    names, selected_comparisons = set(), []
+    for spec in comparisons:
+        selected_comparisons.append(_validate_comparison(spec, frame, records, names))
+    output_dir = Path(config['output_dir']).resolve()
+    output = (path.parent / output_dir).resolve()
+    _validate_output(output)
+    return config, selected_comparisons, output
 
 def comparison_tables(spec, records):
     tables = {'recordings': pd.DataFrame([{**r.metadata, **summary_to_comparison_row(
@@ -276,30 +384,41 @@ def comparison_tables(spec, records):
     return tables
 
 
-def run_experiment(config_path):
+def run_experiment(config_path : str):
+    """
+    Run an experiment based on the given configuration file.
+
+    Args:
+        config_path (str): Path to the experiment configuration file.
+
+    Returns:
+        pathlib.Path: The output directory containing the experiment results.
+    """
     config, comparisons, output = load_experiment(config_path)
+
     # Heavy spatial dependencies are imported only when alignment is requested.
-    output.mkdir(parents=True, exist_ok=True)
-    resolved = {'config': config, 'comparisons': {spec['name']: [
-        {'metadata': r.metadata, 'manifest_identity': file_identity(r.path)} for r in records]
-        for spec, records in comparisons}}
+    resolved = {'config': config, 
+                'comparisons': {spec['name']: [{'metadata': r.metadata, 
+                                                 'manifest_identity': file_identity(r.path)} for r in records]
+                                                                                            for spec, records in comparisons}}
+    
     (output / 'resolved_experiment.json').write_text(json.dumps(resolved, indent=2), encoding='utf-8')
     for spec, records in comparisons:
-        destination = output / spec['name']
+        destination = output / Path(spec['name'])
         destination.mkdir(exist_ok=True)
         tables = comparison_tables(spec, records)
         warnings = []
+
         if spec['type'] == 'treatment':
             for (treatment,), items in _partition(records, ['treatment']).items():
                 count = len({r.metadata[spec['replicate']] for r in items})
                 if count < 2:
                     warnings.append({'severity': 'warning', 'code': 'low_replicate_count',
                                      'message': f'{treatment} has only {count} independent replicate'})
+                    
         tables['validation'] = pd.DataFrame(warnings, columns=['severity', 'code', 'message'])
-        with pd.ExcelWriter(destination / 'comparisons.xlsx', engine='openpyxl') as writer:
-            for name, table in tables.items():
-                table.to_excel(writer, sheet_name=name, index=False)
-                table.to_csv(destination / f'{name}.csv', index=False)
+
+       
         alignment = spec.get('alignment', {})
         if alignment.get('enabled'):
             from experiment_analysis.longitudinal.tracking import LongitudinalTracker
@@ -316,5 +435,10 @@ def run_experiment(config_path):
                 tracker.run(treatment='aligned', region=label, output_dir=destination,
                             recordings=refs, **{k: alignment[k] for k in ('anchor_day', 'top_fraction', 'top_n') if k in alignment})
             (destination / 'alignment_series.json').write_text(json.dumps(mapping, indent=2))
+
+        with pd.ExcelWriter(destination / 'comparisons.xlsx', engine='openpyxl') as writer:
+            for name, table in tables.items():
+                table.to_excel(writer, sheet_name=name, index=False)
+                table.to_csv(destination / f'{name}.csv', index=False)
     return output
 

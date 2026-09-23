@@ -31,7 +31,7 @@ class RegistrationResult:
 
 @dataclass(frozen=True)
 class CellMatch:
-    """One accepted anchor-ROI to moving-day ROI assignment."""
+    """One accepted reference-ROI to moving-ROI assignment within a day pair."""
 
     anchor_roi: int
     moving_roi: int
@@ -39,3 +39,16 @@ class CellMatch:
     iou: float
     centroid_distance: float
     ambiguous: bool
+
+
+@dataclass(frozen=True)
+class TracedCellMatch:
+    """An anchor ROI traced through zero or more adjacent day-pair matches."""
+
+    anchor_roi: int
+    day_roi: int
+    edge_count: int
+    minimum_score: float
+    minimum_iou: float
+    maximum_centroid_distance: float
+    has_ambiguous_edge: bool

@@ -15,7 +15,7 @@ import tifffile
 from scipy.ndimage import binary_dilation, binary_erosion
 
 from gcamp_analysis.recording_discovery import parse_region_day
-from .models import CellMatch, RecordingRef, RegistrationResult
+from .models import CellMatch, RecordingRef, RegistrationResult, TracedCellMatch
 from .registration import (
     estimate_snap_translation,
     image_correlation_for_shift,
@@ -79,14 +79,19 @@ def _load_suite2p(recording: RecordingRef) -> tuple[np.ndarray, np.ndarray]:
 def _find_snap(recording: RecordingRef) -> Path:
     if recording.bundle_path is not None:
         return _bundle_file(recording, 'snap_image')
-    preferred = recording.video_dir / f"{recording.recording_name}_snap.tif"
-    if preferred.is_file():
-        return preferred
-    candidates = sorted(recording.video_dir.glob("*_snap.tif"))
+    for suffix in (".tif", ".tiff"):
+        preferred = recording.video_dir / f"{recording.recording_name}_snap{suffix}"
+        if preferred.is_file():
+            return preferred
+    candidates = sorted(
+        path
+        for suffix in (".tif", ".tiff")
+        for path in recording.video_dir.glob(f"*_snap{suffix}")
+    )
     if len(candidates) == 1:
         return candidates[0]
     raise FileNotFoundError(
-        f"Expected exactly one snap TIFF for {recording.recording_name}; "
+        f"Expected exactly one snap TIFF (.tif or .tiff) for {recording.recording_name}; "
         f"found {len(candidates)}."
     )
 
@@ -201,12 +206,21 @@ def _write_montage(
 class _DayMatches:
     """Per-day matching products shared by the longitudinal reporters."""
 
-    matches_by_day: dict[int, dict[int, CellMatch]]
+    matches_by_day: dict[int, dict[int, TracedCellMatch]]
     inverse_matches_by_day: dict[int, dict[int, int]]
     moving_masks_by_day: dict[int, list[np.ndarray]]
     aligned_images: dict[int, np.ndarray]
     match_rows: list[dict]
     registration_rows: list[dict]
+
+
+@dataclass
+class _SpatialData:
+    """Suite2p spatial data loaded once for a recording."""
+
+    image: np.ndarray
+    stat: np.ndarray
+    masks: list[np.ndarray]
 
 
 @dataclass
@@ -234,7 +248,12 @@ class LongitudinalTracker:
         *,
         anchor_day: int,
         mask_shape: tuple[int, int],
-    ) -> tuple[dict[int, RegistrationResult], list[dict], dict[int, dict]]:
+    ) -> tuple[
+        dict[int, RegistrationResult],
+        dict[tuple[int, int], RegistrationResult],
+        list[dict],
+        dict[int, dict],
+    ]:
         """Compose adjacent snap translations into anchor mask coordinates."""
         snap_paths = {recording.day: _find_snap(recording) for recording in recordings}
         snaps = {
@@ -256,6 +275,7 @@ class LongitudinalTracker:
         )
 
         edges: list[RegistrationResult] = []
+        pairwise_registrations: dict[tuple[int, int], RegistrationResult] = {}
         pairwise_rows: list[dict] = []
         for moving, anchor in zip(recordings[:-1], recordings[1:]):
             edge = estimate_snap_translation(
@@ -264,6 +284,13 @@ class LongitudinalTracker:
                 max_shift=max_snap_shift,
             )
             edges.append(edge)
+            local_registration = RegistrationResult(
+                int(round(edge.shift_y * scale_y)),
+                int(round(edge.shift_x * scale_x)),
+                edge.correlation,
+                edge.method,
+            )
+            pairwise_registrations[(moving.day, anchor.day)] = local_registration
             pairwise_rows.append(
                 {
                     "treatment": moving.treatment,
@@ -274,8 +301,8 @@ class LongitudinalTracker:
                     "anchor_snap": str(snap_paths[anchor.day]),
                     "snap_shift_y_px": edge.shift_y,
                     "snap_shift_x_px": edge.shift_x,
-                    "mask_shift_y_px": int(round(edge.shift_y * scale_y)),
-                    "mask_shift_x_px": int(round(edge.shift_x * scale_x)),
+                    "mask_shift_y_px": local_registration.shift_y,
+                    "mask_shift_x_px": local_registration.shift_x,
                     "phase_correlation": edge.correlation,
                 }
             )
@@ -318,7 +345,7 @@ class LongitudinalTracker:
                 "snap_to_mask_scale_y": scale_y,
                 "snap_to_mask_scale_x": scale_x,
             }
-        return registrations, pairwise_rows, details
+        return registrations, pairwise_registrations, pairwise_rows, details
 
     def _select_recordings(
         self, treatment: str, region: str
@@ -414,71 +441,177 @@ class LongitudinalTracker:
             keep = max(1, min(int(top_n), len(ranked_groups)))
         return dict(ranked_groups[:keep])
 
-    def _match_all_days(
+    @staticmethod
+    def _load_spatial_data(
+        recordings: list[RecordingRef],
+        image_shape: tuple[int, int],
+        *,
+        preloaded: dict[int, tuple[np.ndarray, np.ndarray]] | None = None,
+    ) -> dict[int, _SpatialData]:
+        """Cache each recording's image, ROI statistics, and unshifted masks."""
+        spatial: dict[int, _SpatialData] = {}
+        for recording in recordings:
+            image, stat = (
+                preloaded[recording.day]
+                if preloaded is not None and recording.day in preloaded
+                else _load_suite2p(recording)
+            )
+            if image.shape != image_shape:
+                raise ValueError(
+                    f"Image shape differs for {recording.recording_name}: "
+                    f"{image.shape} versus anchor {image_shape}."
+                )
+            masks, _ = stat_to_masks(stat, image_shape)
+            spatial[recording.day] = _SpatialData(image, stat, masks)
+        return spatial
+
+    def _match_adjacent_days(
         self,
         *,
         recordings: list[RecordingRef],
-        anchor_image: np.ndarray,
-        anchor_stat: np.ndarray,
+        spatial: dict[int, _SpatialData],
         image_shape: tuple[int, int],
-        registrations: dict[int, RegistrationResult],
-        snap_details: dict[int, dict],
+        pairwise_registrations: dict[tuple[int, int], RegistrationResult],
         treatment: str,
         region: str,
         chosen_anchor_day: int,
-    ) -> _DayMatches:
-        """Match every day's ROIs to the anchor and collect per-day products."""
-        result = _DayMatches({}, {}, {}, {}, [], [])
-        for recording in recordings:
-            moving_image, moving_stat = _load_suite2p(recording)
-            if moving_image.shape != anchor_image.shape:
-                raise ValueError(
-                    f"Image shape differs for {recording.recording_name}: "
-                    f"{moving_image.shape} versus anchor {anchor_image.shape}."
-                )
-            registration = registrations[recording.day]
-            if recording.day == chosen_anchor_day:
-                matches = [
-                    CellMatch(index, index, 1.0, 1.0, 0.0, False)
-                    for index in range(len(anchor_stat))
-                ]
-                moving_masks, _ = stat_to_masks(moving_stat, image_shape)
-            else:
-                matches, moving_masks = match_rois_to_anchor(
-                    anchor_stat,
-                    moving_stat,
-                    image_shape,
-                    registration,
-                    max_centroid_distance=self.max_centroid_distance,
-                    min_iou=self.min_iou,
-                    min_score=self.min_match_score,
-                    ambiguity_margin=self.ambiguity_margin,
-                )
-            result.matches_by_day[recording.day] = {
-                match.anchor_roi: match for match in matches
-            }
-            result.inverse_matches_by_day[recording.day] = {
-                match.moving_roi: match.anchor_roi for match in matches
-            }
-            result.moving_masks_by_day[recording.day] = moving_masks
-            result.aligned_images[recording.day] = shift_image(
-                moving_image, registration.shift_y, registration.shift_x
+    ) -> tuple[
+        dict[tuple[int, int], dict[int, CellMatch]],
+        dict[tuple[int, int], dict[int, CellMatch]],
+        list[dict],
+    ]:
+        """Match each adjacent pair, indexing accepted edges in both directions."""
+        later_to_earlier: dict[tuple[int, int], dict[int, CellMatch]] = {}
+        earlier_to_later: dict[tuple[int, int], dict[int, CellMatch]] = {}
+        rows: list[dict] = []
+        for earlier, later in zip(recordings[:-1], recordings[1:]):
+            pair = (earlier.day, later.day)
+            matches, _ = match_rois_to_anchor(
+                spatial[later.day].stat,
+                spatial[earlier.day].stat,
+                image_shape,
+                pairwise_registrations[pair],
+                max_centroid_distance=self.max_centroid_distance,
+                min_iou=self.min_iou,
+                min_score=self.min_match_score,
+                ambiguity_margin=self.ambiguity_margin,
             )
+            later_to_earlier[pair] = {match.anchor_roi: match for match in matches}
+            earlier_to_later[pair] = {match.moving_roi: match for match in matches}
             for match in matches:
-                result.match_rows.append(
+                rows.append(
                     {
                         "treatment": treatment,
                         "region": region,
                         "anchor_day": chosen_anchor_day,
-                        "day": recording.day,
-                        "anchor_roi": match.anchor_roi,
-                        "day_roi": match.moving_roi,
+                        "earlier_day": earlier.day,
+                        "earlier_roi": match.moving_roi,
+                        "later_day": later.day,
+                        "later_roi": match.anchor_roi,
                         "match_score": match.score,
                         "mask_iou": match.iou,
                         "centroid_distance_px": match.centroid_distance,
                         "ambiguous": match.ambiguous,
                     }
                 )
+        return later_to_earlier, earlier_to_later, rows
+
+    @staticmethod
+    def _trace_matches_from_anchor(
+        *,
+        recordings: list[RecordingRef],
+        chosen_anchor_day: int,
+        anchor_roi_count: int,
+        later_to_earlier: dict[tuple[int, int], dict[int, CellMatch]],
+        earlier_to_later: dict[tuple[int, int], dict[int, CellMatch]],
+    ) -> dict[int, dict[int, TracedCellMatch]]:
+        """Follow adjacent edges from the anchor; stop each path at its first gap."""
+        days = [recording.day for recording in recordings]
+        anchor_index = days.index(chosen_anchor_day)
+        result: dict[int, dict[int, TracedCellMatch]] = {day: {} for day in days}
+        for anchor_roi in range(anchor_roi_count):
+            origin = TracedCellMatch(anchor_roi, anchor_roi, 0, 1.0, 1.0, 0.0, False)
+            result[chosen_anchor_day][anchor_roi] = origin
+            for direction in (-1, 1):
+                current = origin
+                index = anchor_index
+                while 0 <= index + direction < len(days):
+                    next_index = index + direction
+                    if direction < 0:
+                        pair = (days[next_index], days[index])
+                        edge = later_to_earlier[pair].get(current.day_roi)
+                        next_roi = edge.moving_roi if edge else None
+                    else:
+                        pair = (days[index], days[next_index])
+                        edge = earlier_to_later[pair].get(current.day_roi)
+                        next_roi = edge.anchor_roi if edge else None
+                    if edge is None:
+                        break
+                    current = TracedCellMatch(
+                        anchor_roi=anchor_roi,
+                        day_roi=next_roi,
+                        edge_count=current.edge_count + 1,
+                        minimum_score=min(current.minimum_score, edge.score),
+                        minimum_iou=min(current.minimum_iou, edge.iou),
+                        maximum_centroid_distance=max(
+                            current.maximum_centroid_distance, edge.centroid_distance
+                        ),
+                        has_ambiguous_edge=current.has_ambiguous_edge or edge.ambiguous,
+                    )
+                    result[days[next_index]][anchor_roi] = current
+                    index = next_index
+        return result
+
+    def _build_cell_tracks(
+        self,
+        *,
+        recordings: list[RecordingRef],
+        spatial: dict[int, _SpatialData],
+        image_shape: tuple[int, int],
+        registrations: dict[int, RegistrationResult],
+        pairwise_registrations: dict[tuple[int, int], RegistrationResult],
+        snap_details: dict[int, dict],
+        treatment: str,
+        region: str,
+        chosen_anchor_day: int,
+    ) -> _DayMatches:
+        """Build adjacent ROI tracks and collect per-day reporting products."""
+        later_to_earlier, earlier_to_later, match_rows = self._match_adjacent_days(
+            recordings=recordings,
+            spatial=spatial,
+            image_shape=image_shape,
+            pairwise_registrations=pairwise_registrations,
+            treatment=treatment,
+            region=region,
+            chosen_anchor_day=chosen_anchor_day,
+        )
+        anchor_data = spatial[chosen_anchor_day]
+        matches_by_day = self._trace_matches_from_anchor(
+            recordings=recordings,
+            chosen_anchor_day=chosen_anchor_day,
+            anchor_roi_count=len(anchor_data.stat),
+            later_to_earlier=later_to_earlier,
+            earlier_to_later=earlier_to_later,
+        )
+        result = _DayMatches(matches_by_day, {}, {}, {}, match_rows, [])
+        for recording in recordings:
+            data = spatial[recording.day]
+            registration = registrations[recording.day]
+            matches = matches_by_day[recording.day]
+            result.inverse_matches_by_day[recording.day] = {
+                match.day_roi: match.anchor_roi for match in matches.values()
+            }
+            if registration.shift_y == 0 and registration.shift_x == 0:
+                result.moving_masks_by_day[recording.day] = data.masks
+            else:
+                result.moving_masks_by_day[recording.day], _ = stat_to_masks(
+                    data.stat, image_shape,
+                    shift_y=registration.shift_y,
+                    shift_x=registration.shift_x,
+                )
+            result.aligned_images[recording.day] = shift_image(
+                data.image, registration.shift_y, registration.shift_x
+            )
             result.registration_rows.append(
                 {
                     "treatment": treatment,
@@ -494,17 +627,19 @@ class LongitudinalTracker:
                     "snap_shift_x_px": snap_details[recording.day]["snap_shift_x_px"],
                     "snap_path_min_correlation": registration.correlation,
                     "image_correlation": image_correlation_for_shift(
-                        anchor_image,
-                        moving_image,
+                        anchor_data.image,
+                        data.image,
                         registration.shift_y,
                         registration.shift_x,
                     ),
-                    "n_anchor_rois": len(anchor_stat),
-                    "n_day_rois": len(moving_stat),
+                    "n_anchor_rois": len(anchor_data.stat),
+                    "n_day_rois": len(data.stat),
                     "n_matches": len(matches),
-                    "n_ambiguous": sum(match.ambiguous for match in matches),
-                    "mean_match_iou": (
-                        float(np.mean([match.iou for match in matches]))
+                    "n_ambiguous": sum(
+                        match.has_ambiguous_edge for match in matches.values()
+                    ),
+                    "mean_track_min_iou": (
+                        float(np.mean([match.minimum_iou for match in matches.values()]))
                         if matches else float("nan")
                     ),
                 }
@@ -518,7 +653,7 @@ class LongitudinalTracker:
         selected_groups: dict[str, set[int]],
         selected_anchor_cells: list[int],
         anchor_group_for_cell: dict[int, str],
-        matches_by_day: dict[int, dict[int, CellMatch]],
+        matches_by_day: dict[int, dict[int, TracedCellMatch]],
         moving_masks_by_day: dict[int, list[np.ndarray]],
         aligned_images: dict[int, np.ndarray],
         groups_by_day: dict[int, dict[str, set[int]]],
@@ -537,7 +672,7 @@ class LongitudinalTracker:
                 match = matches.get(anchor_roi)
                 if match is None:
                     continue
-                roi = match.moving_roi
+                roi = match.day_roi
                 color = colors[anchor_group_for_cell[anchor_roi]]
                 linear = masks[roi]
                 if linear.size == 0:
@@ -603,12 +738,17 @@ class LongitudinalTracker:
         anchor, chosen_anchor_day = self._resolve_anchor(recordings, anchor_day)
         anchor_image, anchor_stat = _load_suite2p(anchor)
         image_shape = tuple(int(value) for value in anchor_image.shape)
-        registrations, snap_pairwise_rows, snap_details = (
+        registrations, pairwise_registrations, snap_pairwise_rows, snap_details = (
             self._sequential_snap_registrations(
                 recordings,
                 anchor_day=chosen_anchor_day,
                 mask_shape=image_shape,
             )
+        )
+        spatial = self._load_spatial_data(
+            recordings,
+            image_shape,
+            preloaded={chosen_anchor_day: (anchor_image, anchor_stat)},
         )
 
         groups_by_day = {
@@ -632,12 +772,12 @@ class LongitudinalTracker:
         out_dir = Path(output_dir) / treatment / region
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        day_matches = self._match_all_days(
+        day_matches = self._build_cell_tracks(
             recordings=recordings,
-            anchor_image=anchor_image,
-            anchor_stat=anchor_stat,
+            spatial=spatial,
             image_shape=image_shape,
             registrations=registrations,
+            pairwise_registrations=pairwise_registrations,
             snap_details=snap_details,
             treatment=treatment,
             region=region,
@@ -660,7 +800,7 @@ class LongitudinalTracker:
             anchor_group_id = anchor_group_for_cell[anchor_roi]
             for recording in recordings:
                 match = matches_by_day[recording.day].get(anchor_roi)
-                day_roi = match.moving_roi if match else None
+                day_roi = match.day_roi if match else None
                 daily_groups = sorted(
                     group_id
                     for group_id, members in groups_by_day[recording.day].items()
@@ -683,12 +823,17 @@ class LongitudinalTracker:
                         ),
                         "grouped": bool(daily_groups),
                         "daily_group_ids": ";".join(daily_groups),
-                        "match_score": match.score if match else float("nan"),
-                        "mask_iou": match.iou if match else float("nan"),
-                        "centroid_distance_px": (
-                            match.centroid_distance if match else float("nan")
+                        "track_edge_count": match.edge_count if match else float("nan"),
+                        "track_min_score": (
+                            match.minimum_score if match else float("nan")
                         ),
-                        "ambiguous_match": match.ambiguous if match else False,
+                        "track_min_iou": match.minimum_iou if match else float("nan"),
+                        "track_max_centroid_distance_px": (
+                            match.maximum_centroid_distance if match else float("nan")
+                        ),
+                        "track_has_ambiguous_edge": (
+                            match.has_ambiguous_edge if match else False
+                        ),
                     }
                 )
         history = pd.DataFrame(history_rows)
@@ -711,7 +856,7 @@ class LongitudinalTracker:
                 mapping = matches_by_day[day]
                 inverse = inverse_matches_by_day[day]
                 detected_day_rois = {
-                    mapping[cell].moving_roi for cell in anchor_members if cell in mapping
+                    mapping[cell].day_roi for cell in anchor_members if cell in mapping
                 }
                 overlaps: list[tuple[str, int, float]] = []
                 for daily_group_id, daily_members in groups_by_day[day].items():
@@ -796,7 +941,14 @@ class LongitudinalTracker:
         pd.DataFrame(snap_pairwise_rows).to_csv(
             paths["snap_pairwise_registrations"], index=False
         )
-        pd.DataFrame(all_match_rows).to_csv(paths["cell_matches"], index=False)
+        pd.DataFrame(
+            all_match_rows,
+            columns=[
+                "treatment", "region", "anchor_day", "earlier_day", "earlier_roi",
+                "later_day", "later_roi", "match_score", "mask_iou",
+                "centroid_distance_px", "ambiguous",
+            ],
+        ).to_csv(paths["cell_matches"], index=False)
         pd.DataFrame(anchor_group_rows).to_csv(paths["anchor_groups"], index=False)
         history.to_csv(paths["cell_history"], index=False)
         group_day_summary.to_csv(paths["group_day_summary"], index=False)
